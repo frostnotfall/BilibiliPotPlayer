@@ -1083,7 +1083,9 @@ array<dictionary> liveCategory(uint page, string cateid, string parentAreaId, ui
 	array<dictionary> videos;
 	JsonReader Reader;
 	JsonValue Root;
-	string url = "https://api.live.bilibili.com/xlive/web-interface/v1/second/getList?platform=web&parent_area_id=" + parentAreaId + "&area_id=" + cateid + "&page=" + page;
+	string params = "platform=web&parent_area_id=" + parentAreaId + "&area_id=" + cateid + "&page=" + page;
+	string w_rid = encWbi(params);
+	string url = "https://api.live.bilibili.com/xlive/web-interface/v1/second/getList?" + params + "&w_rid=" + w_rid;
 	string res = post(url);
 	if (res.empty()) {
 		return videos;
