@@ -1579,6 +1579,14 @@ int getAudioItag(int id) {
 	return id;
 }
 
+uint getUniItag(void)
+{
+	uint itag = 1;
+	while (HostExistITag(itag)) itag++;
+	HostSetITag(itag);
+	return itag;
+}
+
 string getVideoquality(int qn) {
 	array<int> qns = {127, 126, 125, 120, 116, 112, 80, 74, 64, 32, 16, 6};
 	array<string> qualities = {"8K 超高清", "杜比视界", "HDR 真彩色", "4K 超清", "1080P60 高帧率", "1080P+ 高码率", "1080P 高清", "720P60 高帧率", "720P 高清", "480P 清晰", "360P 流畅", "240P 极速"};
@@ -1608,6 +1616,73 @@ string getLiveQuality(int qn) {
 	if (qn == 150) return "480p（高清）";
 	if (qn == 80) return "360p（流畅）";
 	return "";
+}
+
+// 动态输出直播画质文本名称。通过 current_qn, hdr_type, etof 与 g_qn_desc 匹配，拼接 detail_desc 字段并输出，如果没有，回退 desc 字段。此种显示方式与官方同步。
+// PLUS：B站的直播画质命名本身就不规范，究其原因是 qn 与直播分辨率并不完全对应，以qn为根本。比如qn=10000，就算直播是2K分辨率，官方仍旧显示 "1080P 原画 (高帧率)" ，而qn=25000，官方显示 "2K 原画 (高帧率)"。但官方又定义qn=20000 为 4K。
+string getLiveQualityNew(JsonValue g_qn_desc, int qn, int hdr_type, JsonValue video_color_info) {
+	int etof = 0;
+	if (video_color_info.isObject() && video_color_info["eotf"].isNumeric()) {
+		etof = video_color_info["eotf"].asInt();
+	}
+
+    if (!g_qn_desc.isArray() || g_qn_desc.size() == 0) {
+        log("getLiveQualityNew: g_qn_desc is not an array or is empty");
+        return "未匹配画质";
+    }
+
+    for (int i = 0; i < g_qn_desc.size(); i++) {
+        JsonValue item = g_qn_desc[i];
+        if (!item.isObject()) {
+            log("getLiveQualityNew item is not object, index", i);
+            continue;
+        }
+
+        int item_qn = item["qn"].asInt();
+        int item_hdr_type = item["hdr_type"].asInt();
+		int item_etof = item["eotf"].asInt();
+
+        if (item_qn != qn || item_hdr_type != hdr_type || item["eotf"].asInt() != etof) {
+            continue;
+        }
+
+
+        string fallback_desc = item["desc"].asString();
+        JsonValue media_base_desc = item["media_base_desc"];
+        if (!media_base_desc.isObject()) {
+            log("getLiveQualityNew media_base_desc missing, fallback desc, qn=" + qn + ", hdr_type=" + hdr_type + ", etof=" + etof);
+            return fallback_desc;
+        }
+
+        JsonValue detail_desc = media_base_desc["detail_desc"];
+        if (!detail_desc.isObject()) {
+            log("getLiveQualityNew detail_desc missing, fallback desc, qn=" + qn + ", hdr_type=" + hdr_type + ", etof=" + etof);
+            return fallback_desc;
+        }
+
+        string main_desc = detail_desc["desc"].asString();
+        if (main_desc.empty()) {
+            log("getLiveQualityNew detail_desc desc empty, fallback desc, qn=" + qn + ", hdr_type=" + hdr_type + ", etof=" + etof);
+            return fallback_desc;
+        }
+
+        JsonValue tags = detail_desc["tag"];
+        if (!tags.isArray()) {
+            return main_desc;
+        }
+
+        string tag_text = "";
+        for (int t = 0; t < tags.size(); t++) {
+			if (!tag_text.empty()) {
+				tag_text += " ";
+			}
+			tag_text += tags[t].asString();
+        }
+
+        return main_desc + " (" + tag_text + ")";
+    }
+
+    return "未匹配画质";
 }
 
 string Audio(const string &in path, dictionary &MetaData, array<dictionary> &QualityList) {
@@ -1652,165 +1727,190 @@ string Live(string id, const string &in path, dictionary &MetaData, array<dictio
 	string res = post("https://api.live.bilibili.com/xlive/web-room/v1/index/getInfoByRoom?room_id=" + id);
 	JsonReader Reader;
 	JsonValue Root;
-	if (Reader.parse(res, Root) && Root.isObject()) {
-		if (Root["code"].asInt() != 0) {
-			return "";
-		}
-		JsonValue data = Root["data"]["room_info"];
-		string author = Root["data"]["anchor_info"]["base_info"]["uname"].asString();
-		MetaData["title"] = data["title"].asString();
-
-		string desc = data["description"].asString();
-		if (desc.empty()) {
-			desc = data["title"].asString();
-		}
-		MetaData["author"] = author;
-		MetaData["content"] = data["area_name"].asString() + " | " + desc;
-		MetaData["webUrl"] = makeWebUrl(path);
-		MetaData["thumbnail"] = data["cover"].asString();
-		room_id = data["room_id"].asInt();
+	if (!Reader.parse(res, Root) || !Root.isObject() || Root["code"].asInt() != 0) {
+		return "";
 	}
+
+	JsonValue data = Root["data"]["room_info"];
+	string author = Root["data"]["anchor_info"]["base_info"]["uname"].asString();
+	MetaData["title"] = data["title"].asString();
+
+	string desc = data["description"].asString();
+	if (desc.empty()) {
+		desc = data["title"].asString();
+	}
+	MetaData["author"] = author;
+	MetaData["content"] = data["area_name"].asString() + " | " + desc;
+	MetaData["webUrl"] = makeWebUrl(path);
+	MetaData["thumbnail"] = data["cover"].asString();
+	room_id = data["room_id"].asInt();
+
 	status = 3;
-	string req_qn = parse(path, "qn", "10000");
-	res = post("https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?room_id=" + room_id
-		+ "&platform=web&protocol=0,1&format=0,1,2&codec=0,1&qn=" + req_qn + "&dolby=5&panorama=1");
-	if (Reader.parse(res, Root) && Root.isObject()) {
-		if (Root["code"].asInt() != 0) {
-			return "";
+	string req_qn = parse(path, "qn", "30000");
+	res = post("https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?room_id=" + room_id + "&qn=" + req_qn + "&codec=0,1,2&format=0,1,2&mask=0&no_playurl=0&platform=web&protocol=0,1&eotf=0,1,2");
+	if (!Reader.parse(res, Root) || !Root.isObject() || Root["code"].asInt() != 0) {
+		return "";
+	}
+
+	JsonValue playurl = Root["data"]["playurl_info"]["playurl"];
+	JsonValue streams = playurl["stream"];
+	if (!streams.isArray()) {
+		return "";
+	}
+
+	for (int s = 0; s < streams.size(); s++) {
+		if (streams[s]["protocol_name"].asString() != "http_hls") {
+			continue;
 		}
-			JsonValue playurl = Root["data"]["playurl_info"]["playurl"];
-			JsonValue streams = playurl["stream"];
-			JsonValue g_qn_desc = playurl["g_qn_desc"];
 
-			JsonValue accept_qn;
-			bool accept_collected = false;
-			string cached_url;
-			string cached_codec;
-			int cached_qn = 0;
+		JsonValue formats = streams[s]["format"];
+		if (!formats.isArray()) {
+			continue;
+		}
 
-			if (streams.isArray()) {
-				for (int s = 0; s < streams.size(); s++) {
-					JsonValue formats = streams[s]["format"];
-					if (formats.isArray()) {
-						for (int f = 0; f < formats.size(); f++) {
-							JsonValue codecs = formats[f]["codec"];
-							if (codecs.isArray()) {
-								for (int c = 0; c < codecs.size(); c++) {
-									JsonValue codec = codecs[c];
-									int current_qn = codec["current_qn"].asInt();
-									string codec_name = codec["codec_name"].asString();
-									string base_url = codec["base_url"].asString();
-									JsonValue url_infos = codec["url_info"];
-									string protocol_name = streams[s]["protocol_name"].asString();
-									string format_name = formats[f]["format_name"].asString();
+		// 一些小主播不提供 fmp4，优先选择 fmp4，其次 ts
+		string default_format_name = "";
+		for (int a = 0; a < formats.size(); a++) {
+			string format_name_candidate = formats[a]["format_name"].asString();
+			if (format_name_candidate == "fmp4") {
+				default_format_name = "fmp4";
+				break;
+			}
+			if (format_name_candidate == "ts") {
+				default_format_name = "ts";
+			}
+		}
+		if (default_format_name.empty()) {
+			continue;
+		}
 
-									if (!accept_collected) {
-										accept_qn = codec["accept_qn"];
-										accept_collected = true;
-									}
-
-									if (url_infos.isArray() && url_infos.size() > 0) {
-										int best_idx = 0;
-										for (int ui = 0; ui < url_infos.size(); ui++) {
-											if (url_infos[ui]["host"].asString().find("gotcha") >= 0) {
-												best_idx = ui;
-												break;
-											}
-										}
-										string stream_url = url_infos[best_idx]["host"].asString() + base_url + url_infos[best_idx]["extra"].asString();
-										log("stream", protocol_name + " " + format_name + " " + codec_name + " qn=" + current_qn + " host=" + url_infos[best_idx]["host"].asString());
-										if (url.empty() && protocol_name == "http_stream" && format_name == "flv" && codec_name == "avc") {
-											url = stream_url;
-										}
-										if (cached_url.empty()) {
-											cached_url = stream_url;
-											cached_codec = codec_name;
-											cached_qn = current_qn;
-										} else if (codec_name == "avc" && cached_codec != "avc" && current_qn == cached_qn) {
-											cached_url = stream_url;
-											cached_codec = codec_name;
-										}
-									}
-								}
-							}
-						}
-					}
-				}
+		for (int f = 0; f < formats.size(); f++) {
+			if (formats[f]["format_name"].asString() != default_format_name) {
+				continue;
 			}
 
-		if (@QualityList !is null && accept_qn.isArray()) {
-			for (int qi = 0; qi < accept_qn.size(); qi++) {
-				int qn = accept_qn[qi].asInt();
-				string label = getLiveQuality(qn);
-				if (label.empty() && g_qn_desc.isArray()) {
-					for (int di = 0; di < g_qn_desc.size(); di++) {
-						if (g_qn_desc[di]["qn"].asInt() == qn) {
-							label = g_qn_desc[di]["desc"].asString();
-							break;
-						}
+			JsonValue codecs = formats[f]["codec"];
+			if (!codecs.isArray()) {
+				continue;
+			}
+
+			for (int c = 0; c < codecs.size(); c++) {
+				JsonValue codec = codecs[c];
+				string codec_name = codec["codec_name"].asString();
+
+				array<int> accept_qnArray;
+				JsonValue qnValue = codec["accept_qn"];
+				if (qnValue.isArray()) {
+					for (int i = 0; i < qnValue.size(); i++) {
+						accept_qnArray.insertLast(qnValue[i].asInt());
 					}
 				}
-				if (label.empty()) continue;
+				if (accept_qnArray.size() == 0) {
+					continue;
+				}
 
-				string qn_url;
-				string qn_codec;
-				if (qn == cached_qn) {
-					qn_url = cached_url;
-					qn_codec = cached_codec;
-				} else {
-					string qn_res = post("https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?room_id=" + room_id
-						+ "&platform=web&protocol=0,1&format=0,1,2&codec=0,1&qn=" + qn + "&dolby=5&panorama=1");
-					JsonValue qn_root;
-					if (Reader.parse(qn_res, qn_root) && qn_root.isObject() && qn_root["code"].asInt() == 0) {
-						JsonValue qn_streams = qn_root["data"]["playurl_info"]["playurl"]["stream"];
-						if (qn_streams.isArray() && qn_streams.size() > 0) {
-							JsonValue qn_formats = qn_streams[0]["format"];
-							if (qn_formats.isArray() && qn_formats.size() > 0) {
-								JsonValue qn_codecs = qn_formats[0]["codec"];
-								if (qn_codecs.isArray() && qn_codecs.size() > 0) {
-									for (int ci = 0; ci < qn_codecs.size(); ci++) {
-										JsonValue qc = qn_codecs[ci];
-										string cn = qc["codec_name"].asString();
-										JsonValue ui = qc["url_info"];
-										if (ui.isArray() && ui.size() > 0) {
-											int best_ui = 0;
-											for (int uj = 0; uj < ui.size(); uj++) {
-												if (ui[uj]["host"].asString().find("gotcha") >= 0) {
-													best_ui = uj;
-													break;
-												}
-											}
-											string new_url = ui[best_ui]["host"].asString() + qc["base_url"].asString() + ui[best_ui]["extra"].asString();
-											if (qn_url.empty() || cn == "avc") {
-												qn_url = new_url;
-												qn_codec = cn;
-											}
-										}
+				int best_qn = 0;
+				for (int i = 0; i < accept_qnArray.size(); i++) {
+					if (best_qn < accept_qnArray[i]) {
+						best_qn = accept_qnArray[i];
+					}
+				}
+
+				if (@QualityList is null) {
+					continue;
+				}
+
+				for (int i = 0; i < accept_qnArray.size(); i++) {
+					int accept_qn = accept_qnArray[i];
+					string quality_res = post("https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?room_id=" + room_id + "&qn=" + accept_qn + "&codec=0,1,2&format=0,1,2&mask=0&no_playurl=0&platform=web&protocol=0,1&eotf=0,1,2");
+					JsonValue temp;
+					if (!Reader.parse(quality_res, temp) || !temp.isObject() || temp["code"].asInt() != 0) {
+						continue;
+					}
+					
+					JsonValue g_qn_desc = temp["data"]["playurl_info"]["playurl"]["g_qn_desc"];
+					
+					JsonValue temp_streams = temp["data"]["playurl_info"]["playurl"]["stream"];
+					if (!temp_streams.isArray()) {
+						continue;
+					}
+
+					for (int ts = 0; ts < temp_streams.size(); ts++) {
+						if (temp_streams[ts]["protocol_name"].asString() != "http_hls") {
+							continue;
+						}
+
+						JsonValue temp_formats = temp_streams[ts]["format"];
+						if (!temp_formats.isArray()) {
+							continue;
+						}
+
+						for (int tf = 0; tf < temp_formats.size(); tf++) {
+							if (temp_formats[tf]["format_name"].asString() != default_format_name) {
+								continue;
+							}
+
+							JsonValue temp_codecs = temp_formats[tf]["codec"];
+							if (!temp_codecs.isArray()) {
+								continue;
+							}
+
+							for (int tc = 0; tc < temp_codecs.size(); tc++) {
+								JsonValue temp_codec = temp_codecs[tc];
+								if (temp_codec["codec_name"].asString() != codec_name || temp_codec["current_qn"].asInt() != accept_qn) {
+									continue;
+								}
+
+								JsonValue temp_url_info = temp_codec["url_info"];
+								if (!temp_url_info.isArray() || temp_url_info.size() == 0) {
+									continue;
+								}
+
+								dictionary qualityItemMain;
+								dictionary qualityItemBackup;
+
+								string codec_suffix;
+								int codecOffset = 1;
+								if (codec_name == "avc") {
+									codec_suffix = " AVC";
+									codecOffset = 1;
+								} else if (codec_name == "hevc") {
+									codec_suffix = " HEVC";
+									codecOffset = 2;
+								} else if (codec_name == "av1") {
+									codec_suffix = " AV1";
+									codecOffset = 3;
+								} else {
+									codec_suffix = " " + codec_name;
+									codecOffset = 4;
+								}
+
+								if (best_qn == temp_codec["current_qn"].asInt()) {
+									if (url.empty()) {
+										url = temp_codec["url_info"][0]["host"].asString() + temp_codec["base_url"].asString() + temp_codec["url_info"][0]["extra"].asString();
 									}
 								}
+
+								JsonValue video_color_info = temp_codec["video_color_info"];
+
+								qualityItemMain["url"] = temp_codec["url_info"][0]["host"].asString() + temp_codec["base_url"].asString() + temp_codec["url_info"][0]["extra"].asString();
+								qualityItemMain["quality"] = getLiveQualityNew(g_qn_desc, temp_codec["current_qn"].asInt(), temp_codec["hdr_type"].asInt(), video_color_info) + codec_suffix;
+								qualityItemMain["qualityDetail"] = qualityItemMain["quality"];
+								qualityItemMain["itag"] = getUniItag();
+								QualityList.insertLast(qualityItemMain);
+
+								if (temp_url_info.size() <= 1) {
+									continue;
+								}
+
+								qualityItemBackup["url"] = temp_codec["url_info"][1]["host"].asString() + temp_codec["base_url"].asString() + temp_codec["url_info"][1]["extra"].asString();
+								qualityItemBackup["quality"] =  "- " + getLiveQualityNew(g_qn_desc, temp_codec["current_qn"].asInt(), temp_codec["hdr_type"].asInt(), video_color_info) + codec_suffix + " 备份";
+								qualityItemBackup["qualityDetail"] = qualityItemBackup["quality"];
+								qualityItemBackup["itag"] = getUniItag();
+								QualityList.insertLast(qualityItemBackup);
 							}
 						}
 					}
-				}
-
-				if (!qn_url.empty()) {
-					string codec_suffix;
-					if (qn_codec == "avc") {
-						codec_suffix = " AVC";
-					} else if (qn_codec == "hevc") {
-						codec_suffix = " HEVC";
-					} else if (qn_codec == "av1") {
-						codec_suffix = " AV1";
-					} else {
-						codec_suffix = " " + qn_codec;
-					}
-
-					dictionary qualityitem;
-					qualityitem["quality"] = label + codec_suffix;
-					qualityitem["qualityDetail"] = label + codec_suffix;
-					qualityitem["url"] = qn_url;
-					qualityitem["itag"] = getItag(qn);
-					QualityList.insertLast(qualityitem);
 				}
 			}
 		}
