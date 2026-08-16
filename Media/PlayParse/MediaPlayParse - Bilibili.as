@@ -1886,7 +1886,7 @@ string Live(string id, const string &in path, dictionary &MetaData, array<dictio
 								string bitrateStr = "";
 
 								qualityItemMain["url"] = temp_codec["url_info"][0]["host"].asString() + temp_codec["base_url"].asString() + temp_codec["url_info"][0]["extra"].asString();
-								qualityItemMain["quality"] = getLiveQualit(g_qn_desc, temp_codec["current_qn"].asInt(), temp_codec["hdr_type"].asInt(), video_color_info) + codec_suffix;
+								qualityItemMain["quality"] = getLiveQuality(g_qn_desc, temp_codec["current_qn"].asInt(), temp_codec["hdr_type"].asInt(), video_color_info) + codec_suffix;
 								// qualityItemMain["quality"] = getLiveQualityNew(g_qn_desc, temp_codec["current_qn"].asInt(), temp_codec["hdr_type"].asInt(), video_color_info);
 								// qualityItemMain["format"] = codec_name;
 								qualityItemMain["qualityDetail"] = qualityItemMain["quality"];
