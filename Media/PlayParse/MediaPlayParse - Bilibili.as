@@ -24,10 +24,39 @@
 
 Config ConfigData;
 
+string UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0";
+string Headers = "Referer: https://www.bilibili.com\r\n";
+
 void OnInitialize() {
-	HostSetUrlHeaderHTTP("bilivideo.com", "Referer: https://www.bilibili.com\r\n");
-	HostSetUrlHeaderHTTP("bilivideo.cn", "Referer: https://www.bilibili.com\r\n");
-	HostSetUrlHeaderHTTP("bilibili.com", "Referer: https://www.bilibili.com\r\n");
+    HostSetUrlHeaderHTTP(
+        "bilivideo.com",
+        "User-Agent: " + UserAgent + "\r\n"
+    );
+
+    HostSetUrlHeaderHTTP(
+        "bilivideo.cn",
+        "User-Agent: " + UserAgent + "\r\n"
+    );
+
+    HostSetUrlHeaderHTTP(
+        "bilibili.com",
+        "User-Agent: " + UserAgent + "\r\n"
+    );
+
+    HostSetUrlRefererHTTP(
+        "bilivideo.com",
+        "https://www.bilibili.com"
+    );
+
+    HostSetUrlRefererHTTP(
+        "bilivideo.cn",
+        "https://www.bilibili.com"
+    );
+
+    HostSetUrlRefererHTTP(
+        "bilibili.com",
+        "https://www.bilibili.com"
+    );
 }
 
 string host = "https://api.bilibili.com";
@@ -230,8 +259,6 @@ void log(string item, int info) {
 }
 
 string post(string url, string data="") {
-	string UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0";
-	string Headers = "Referer: https://www.bilibili.com\r\n";
 	if (!ConfigData.cookie.empty()) {
 		Headers += "Cookie: " + ConfigData.cookie + "\r\n";
 	}
@@ -395,60 +422,60 @@ string Video(string bvid, const string &in path, dictionary &MetaData, array<dic
 
 	if (aid.empty()) {
 		res = apiPost("/x/web-interface/view?bvid=" + bvid);
-	if (res.empty()) {
-		log("Video view API response EMPTY", bvid);
-		return url;
-	}
-	if (reader.parse(res, root) && root.isObject()) {
-		if (root["code"].asInt() == 0) {
-			JsonValue data = root["data"];
-			aid = data["aid"].asString();
-			if (!cid.empty()) {
-				for (int i = 0; i < data["pages"].size(); i++) {
-					if (data["pages"][i]["cid"].asString() == cid) {
-						p = i + 1;
-						break;
-					}
-				}
-			}
-			cid = data["pages"][p-1]["cid"].asString();
-			title = data["pages"][p-1]["part"].asString();
-			MetaData["author"] = data["owner"]["name"].asString();
-			MetaData["viewCount"] = data["stat"]["view"].asString();
-			MetaData["likeCount"] = data["stat"]["like"].asString();
-			MetaData["thumbnail"] = data["pic"].asString();
-			string desc = data["desc"].asString();
-			if (desc.empty()) {
-				MetaData["content"] = title;
-			} else {
-				MetaData["content"] = title + " | " + desc;
-			}
-			JsonValue redirect_url = data["redirect_url"];
-			string ep_id;
-			if (redirect_url.isString() && redirect_url.asString().find("bangumi/play/ep") >= 0) {
-				webUrl = redirect_url.asString();
-				ispgc = true;
-				ep_id = HostRegExpParse(redirect_url.asString(), "bangumi/play/ep([0-9]+)");
-				log("Video ispgc detected", webUrl);
-				log("Video ep_id", ep_id);
-			}
-			MetaData["webUrl"] = makeWebUrl(webUrl);
-			if (ConfigData.danmakuEnable) {
-				dictionary dic;
-				dic["name"] = "【弹幕】" + title;
-				dic["url"] = ConfigData.danmakuUrl + cid;
-				subtitle.insertLast(dic);
-			}
-		} else {
-			log("Video view API code != 0", root["code"].asInt());
-			log("Video view API message", root["message"].asString());
+		if (res.empty()) {
+			log("Video view API response EMPTY", bvid);
 			return url;
 		}
+		if (reader.parse(res, root) && root.isObject()) {
+			if (root["code"].asInt() == 0) {
+				JsonValue data = root["data"];
+				aid = data["aid"].asString();
+				if (!cid.empty()) {
+					for (int i = 0; i < data["pages"].size(); i++) {
+						if (data["pages"][i]["cid"].asString() == cid) {
+							p = i + 1;
+							break;
+						}
+					}
+				}
+				cid = data["pages"][p-1]["cid"].asString();
+				title = data["pages"][p-1]["part"].asString();
+				MetaData["author"] = data["owner"]["name"].asString();
+				MetaData["viewCount"] = data["stat"]["view"].asString();
+				MetaData["likeCount"] = data["stat"]["like"].asString();
+				MetaData["thumbnail"] = data["pic"].asString();
+				string desc = data["desc"].asString();
+				if (desc.empty()) {
+					MetaData["content"] = title;
+				} else {
+					MetaData["content"] = title + " | " + desc;
+				}
+				JsonValue redirect_url = data["redirect_url"];
+				string ep_id;
+				if (redirect_url.isString() && redirect_url.asString().find("bangumi/play/ep") >= 0) {
+					webUrl = redirect_url.asString();
+					ispgc = true;
+					ep_id = HostRegExpParse(redirect_url.asString(), "bangumi/play/ep([0-9]+)");
+					log("Video ispgc detected", webUrl);
+					log("Video ep_id", ep_id);
+				}
+				MetaData["webUrl"] = makeWebUrl(webUrl);
+				if (ConfigData.danmakuEnable) {
+					dictionary dic;
+					dic["name"] = "【弹幕】" + title;
+					dic["url"] = ConfigData.danmakuUrl + cid;
+					subtitle.insertLast(dic);
+				}
+			} else {
+				log("Video view API code != 0", root["code"].asInt());
+				log("Video view API message", root["message"].asString());
+				return url;
+			}
+		}
+	} else {
+		log("Video skip view API, aid known", aid);
+		ispgc = true;
 	}
-} else {
-	log("Video skip view API, aid known", aid);
-	ispgc = true;
-}
 
 	res = apiPost("/x/player/wbi/v2?bvid=" + bvid + "&cid=" + cid);
 	if (res.empty()) {
@@ -498,9 +525,9 @@ string Video(string bvid, const string &in path, dictionary &MetaData, array<dic
 	status = 3;
 	if (ispgc) {
 		log("PGC try regular playurl first, avid=" + aid + " cid=" + cid);
-		res = apiPost("/x/player/playurl?avid=" + aid + "&cid=" + cid + "&qn=" + qn + "&fnval=4048&fourk=1");
+		res = apiPost("/x/player/wbi/playurl?avid=" + aid + "&cid=" + cid + "&qn=" + qn + "&fnval=4048&fourk=1");
 	} else {
-		res = apiPost("/x/player/playurl?avid=" + aid + "&cid=" + cid + "&qn=" + qn + "&fnval=4048&fourk=1");
+		res = apiPost("/x/player/wbi/playurl?avid=" + aid + "&cid=" + cid + "&qn=" + qn + "&fnval=4048&fourk=1");
 	}
 	if (res.empty()) {
 		log("Video playurl response EMPTY");
@@ -568,7 +595,7 @@ string Video(string bvid, const string &in path, dictionary &MetaData, array<dic
 			}
 			if (data["dash"].isObject() && (!data["durl"].isArray() || data["durl"].size() == 0)) {
 				if (!ispgc) {
-					string flv_res = apiPost("/x/player/playurl?avid=" + aid + "&cid=" + cid + "&qn=" + qn + "&fnval=16&fourk=1");
+					string flv_res = apiPost("/x/player/wbi/playurl?avid=" + aid + "&cid=" + cid + "&qn=" + qn + "&fnval=16&fourk=1");
 					if (!flv_res.empty()) {
 						JsonValue flv_root;
 						if (reader.parse(flv_res, flv_root) && flv_root.isObject()) {
