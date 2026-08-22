@@ -24,10 +24,16 @@
 
 Config ConfigData;
 
+string UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0";
+string Headers = "Referer: https://www.bilibili.com\r\n";
+
 void OnInitialize() {
-	HostSetUrlHeaderHTTP("bilivideo.com", "Referer: https://www.bilibili.com\r\n");
-	HostSetUrlHeaderHTTP("bilivideo.cn", "Referer: https://www.bilibili.com\r\n");
-	HostSetUrlHeaderHTTP("bilibili.com", "Referer: https://www.bilibili.com\r\n");
+    HostSetUrlHeaderHTTP("bilivideo.com", "User-Agent: " + UserAgent + "\r\n");
+    HostSetUrlHeaderHTTP("bilivideo.cn", "User-Agent: " + UserAgent + "\r\n");
+	HostSetUrlHeaderHTTP("bilibili.com", "User-Agent: " + UserAgent + "\r\n");
+	HostSetUrlRefererHTTP("bilivideo.com", "https://www.bilibili.com");
+	HostSetUrlRefererHTTP("bilivideo.cn", "https://www.bilibili.com");
+	HostSetUrlRefererHTTP("bilibili.com", "https://www.bilibili.com");
 }
 
 string host = "https://api.bilibili.com";
@@ -230,8 +236,6 @@ void log(string item, int info) {
 }
 
 string post(string url, string data="") {
-	string UserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/59.0.3071.115 Safari/537.36";
-	string Headers = "Referer: https://www.bilibili.com\r\n";
 	if (!ConfigData.cookie.empty()) {
 		Headers += "Cookie: " + ConfigData.cookie + "\r\n";
 	}
