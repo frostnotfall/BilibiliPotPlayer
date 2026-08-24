@@ -1,10 +1,49 @@
 # BilibiliPotPlayer
 
-适用于 PotPlayer 的 Bilibili 插件。如果配合[油猴脚本](https://greasyfork.org/zh-CN/scripts/461800-bilibilipotplayer)，可以直接在网页打开 PotPlayer 进行播放
+适用于 PotPlayer 的 Bilibili 播放插件。配合 [油猴脚本](https://greasyfork.org/zh-CN/scripts/461800-bilibilipotplayer)，
+可以直接从 Bilibili 网页调用 PotPlayer 进行播放。
+
+本项目源自 [chen310/BilibiliPotPlayer](https://github.com/chen310/BilibiliPotPlayer)，
+并基于 [juening2000/BilibiliPotPlayer](https://github.com/juening2000/BilibiliPotPlayer)
+继续进行修改和维护。
+
+在上游项目的基础上，本项目根据个人使用需求进行了进一步的功能调整与兼容性修复，主要用于搭配 [vs-mlrt](https://github.com/AmusementClub/vs-mlrt) 的学习与测试。
+
+## ✨ 主要改进
+
+### 🔐 直接网页登录，免手动配置 Cookie
+
+相较于上游版本，本项目对 Bilibili 登录方式进行了较大的改进：
+
+- **无需手动获取、复制和配置 Cookie**
+- 通过**网页登录**完成账号认证
+- 登录流程更加直观，降低使用门槛
+- 登录状态由程序自动处理
+- 对普通用户更加友好
+
+> 如果你不希望手动获取 Cookie，这是本项目与上游版本最明显的区别。
+
+## 其它改进
+
+### 📺 直播
+
+- 支持 AVC、HEVC、AV1
+- 默认使用低延迟的 HLS/fMP4 流，无法提供时回退至 HLS/TS
+- 支持直播备用地址
+- 动态生成直播画质选项
+
+### ▶️ 点播
+
+- 修复部分 Host 为 `upos` 的点播 URL 播放失败的问题
+- Bilibili 点播更换新接口
+- 优化 Bilibili 音频画质选项显示：
+  - `EC-3` → **杜比全景声 EC-3**
+  - `FLAC` → **Hi-Res 无损 FLAC**
+- 当同时存在杜比全景声与Hi-Res无损时，默认使用Hi-Res无损。
 
 ## 安装插件
 
-[下载项目](https://github.com/chen310/BilibiliPotPlayer/archive/refs/heads/master.zip)
+[下载项目](https://github.com/frostnotfall/BilibiliPotPlayer/archive/refs/heads/master.zip)
 
 将项目 `Media/PlayParse` 路径下的 `MediaPlayParse - Bilibili.as`、`MediaPlayParse - Bilibili.ico` 和 `Bilibili_Config.json` 三个文件复制到 `{PotPlayer 安装路径}\Extension\Media\PlayParse` 文件夹下。
 
@@ -16,19 +55,21 @@
 
 ![UrlList](https://cdn.jsdelivr.net/gh/chen310/BilibiliPotPlayer/public/urllist.png)
 
-## 登录
+## 新登录方式（旧cookie方式已弃用）
 
-找到刚刚复制过去的配置文件 `Bilibili_Config.json`，填写 Cookie 等设置内容。 打开 PotPlayer，按 <kbd>F5</kbd> 打开选项，点击`扩展功能`下的`媒体播放列表/项目`，再点击 `Bilibili`，然后打开`账户设置`，填写配置文件路径，如 `D:\DAUM\PotPlayer\Extension\Media\PlayParse\Bilibili_Config.json`。每次修改完配置文件，可能都要重启 PotPlayer 才能生效。
+打开 PotPlayer，按 <kbd>F5</kbd> 打开选项，点击`扩展功能`，此时有两种登录方式，任选其一即可：
 
-![Settings](https://cdn.jsdelivr.net/gh/chen310/BilibiliPotPlayer/public/settings.png)
+* 第一种，点击`媒体播放列表/项目`，再点击 `Bilibili`，然后点击`设置`，此时弹出一个网页进程，按照正常网页端登录即可。
 
-点击测试按钮，如果弹出账号信息，就说明登录成功。
+![login_1](public/login_1.png)
 
-![Test](https://cdn.jsdelivr.net/gh/chen310/BilibiliPotPlayer/public/test.png)
+* 第二种，点击右方向右箭头，找到`网络账户`并点击，然后点击`Bilibili`，最后点击`管理账户`，同样会弹出一个网页进程，按照正常网页端登录即可。
 
-### Cookies 获取
+![login_2](/public/login_2.png)
 
-[获取Cookie](https://github.com/chen310/BilibiliPotPlayer/issues/62#issuecomment-1841909583)
+### 网页登陆界面
+注：窗口大小可手动调整
+![login_web](/public/login_web.png)
 
 ## 使用方法
 

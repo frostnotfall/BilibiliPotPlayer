@@ -16,47 +16,41 @@
 // string ServerCheck(string User, string Pass) 		-> server check
 // string ServerLogin(string User, string Pass) 		-> login
 // void ServerLogout() 									-> logout
+// string GetWebAccountUrl()							-> login process by WebBrowser
+// string GetWebAccountDomain()							-> transport cookie domain for login
 //------------------------------------------------------------------------------------------------
 // bool PlayitemCheck(const string &in)					-> check playitem
 // array<dictionary> PlayitemParse(const string &in)	-> parse playitem
+// void PlayitemCancel()								-> cancel playitem
 // bool PlaylistCheck(const string &in)					-> check playlist
 // array<dictionary> PlaylistParse(const string &in)	-> parse playlist
+// void PlaylistCancel()								-> cancel playlist
+// string GetStatus()									-> display status
+// string GetBroadcastListUrl()							-> get broadcast list url
+// string GetBroadcastListScript()						-> for WebView2::AddScriptToExecuteOnDocumentCreated for script process
+
+
+array<string> BilibiliDomains = {"bilibili.com", "bilivideo.com", "bilivideo.cn"};
 
 Config ConfigData;
 
-string UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0";
-string Headers = "Referer: https://www.bilibili.com\r\n";
-
 void OnInitialize() {
-    HostSetUrlHeaderHTTP(
-        "bilivideo.com",
-        "User-Agent: " + UserAgent + "\r\n"
-    );
+	string UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0";
+	string Referer = "https://www.bilibili.com";
 
-    HostSetUrlHeaderHTTP(
-        "bilivideo.cn",
-        "User-Agent: " + UserAgent + "\r\n"
-    );
+	for (uint i = 0; i < BilibiliDomains.length(); i++) {
+		HostSetUrlUserAgentHTTP(BilibiliDomains[i], UserAgent);
+		HostSetUrlRefererHTTP(BilibiliDomains[i], Referer);
+	}
 
-    HostSetUrlHeaderHTTP(
-        "bilibili.com",
-        "User-Agent: " + UserAgent + "\r\n"
-    );
-
-    HostSetUrlRefererHTTP(
-        "bilivideo.com",
-        "https://www.bilibili.com"
-    );
-
-    HostSetUrlRefererHTTP(
-        "bilivideo.cn",
-        "https://www.bilibili.com"
-    );
-
-    HostSetUrlRefererHTTP(
-        "bilibili.com",
-        "https://www.bilibili.com"
-    );
+	string configFile = HostGetScriptFolder() + "Bilibili_Config.json";
+	if (!isFileExists(configFile)) {
+		HostMessageBox(configFile + " 配置文件不存在");
+	}
+	ConfigData = ReadConfigFile(configFile);
+	if (ConfigData.debug) {
+		HostOpenConsole();
+	}
 }
 
 string host = "https://api.bilibili.com";
@@ -74,69 +68,18 @@ string GetDesc() {
 	return "https://www.bilibili.com";
 }
 
-string GetLoginTitle()
-{
-	return "请输入配置文件所在位置";
+string GetWebAccountUrl() {
+	return "https://passport.bilibili.com/login";
 }
 
-string GetLoginDesc()
-{
-	return "请输入配置文件所在位置";
-}
-
-string GetUserText()
-{
-	return "配置文件路径";
-}
-
-string GetPasswordText()
-{
-	return "";
-}
-
-string ServerCheck(string User, string Pass) {
-	if (User.empty()) {
-		return "未填写配置文件路径";
-	}
-	if (!isFileExists(User)) {
-		return "配置文件不存在";
-	}
-	if (ConfigData.cookie.empty()) {
-		return "未填写cookie";
-	}
-	string info = "";
-	JsonReader reader;
-	JsonValue root;
-	string res = post("https://api.bilibili.com/x/web-interface/nav");
-	if (reader.parse(res, root) && root.isObject()) {
-		if (root["code"].asInt() != 0) {
-			return "无法获取用户信息";
-		}
-		JsonValue data = root["data"];
-		if (data.isObject()) {
-			info += "用户名: " + data["uname"].asString() + "\n";
-			info += "uid: " + data["mid"].asInt() + "\n";
-			info += "等级: " + data["level_info"]["current_level"].asString() + "\n";
-			info += "硬币: " + data["money"].asFloat() + "\n";
-		}
-	}
-	return info;
-}
-
-string ServerLogin(string User, string Pass)
-{
-	if (User.empty()) {
-		return "路径不可为空";
-	}
-	if (!isFileExists(User)) {
-		return "配置文件不存在";
-	}
-	ConfigData = ReadConfigFile(User);
-	if (ConfigData.debug) {
-		HostOpenConsole();
-	}
-
-	return "配置文件读取成功，修改完配置文件后需要重启 PotPlayer 才能生效";
+string GetWebAccountDomain() {
+    string domains = "";
+    for (uint i = 0; i < BilibiliDomains.length(); i++) {
+        if (i > 0)
+            domains += ";";
+        domains += BilibiliDomains[i];
+    }
+    return domains;
 }
 
 bool isFileExists(string path) {
@@ -145,7 +88,6 @@ bool isFileExists(string path) {
 
 class Config {
 	string fullConfig;
-	string cookie;
 	int uid = 0;
 	bool danmakuEnable = true;
 	string danmakuServer;
@@ -169,16 +111,6 @@ Config ReadConfigFile(string file) {
 	JsonReader reader;
 	JsonValue root;
 	if (reader.parse(config.fullConfig, root) && root.isObject()) {
-		if (root["cookie"].isString() && !root["cookie"].asString().empty()) {
-			config.cookie = root["cookie"].asString();
-			array<string> cookies = config.cookie.split(";");
-			for (uint i=0; i < cookies.length(); i++) {
-				if (cookies[i].find("DedeUserID=") >= 0) {
-					ConfigData.uid = parseInt(cookies[i].split("=")[1]);
-					break;
-				}
-			}
-		}
 		if (root["maxliveroom"].isNumeric()) {
 			config.maxliveroom = root["maxliveroom"].asInt();
 		}
@@ -259,11 +191,8 @@ void log(string item, int info) {
 }
 
 string post(string url, string data="") {
-	if (!ConfigData.cookie.empty()) {
-		Headers += "Cookie: " + ConfigData.cookie + "\r\n";
-	}
 	log("request", url);
-	return HostUrlGetStringWithAPI(url, UserAgent, Headers, data, true);
+	return HostUrlGetStringWithAPI(url);
 }
 
 string apiPost(string api, string data="") {
@@ -559,9 +488,10 @@ string Video(string bvid, const string &in path, dictionary &MetaData, array<dic
 					dolbyquality = formatFloat(data["dash"]["dolby"]["audio"][0]["bandwidth"].asInt() / 1000.0, "", 0, 1) + "K";
 					dictionary dolbyqualityitem;
 					dolbyqualityitem["url"] = data["dash"]["dolby"]["audio"][0]["baseUrl"].asString();
-					dolbyqualityitem["quality"] = "EC-3 " + dolbyquality;
+					dolbyqualityitem["quality"] = "杜比全景声 EC-3 " + dolbyquality;
 					dolbyqualityitem["qualityDetail"] = dolbyqualityitem["quality"];
 					dolbyqualityitem["itag"] = 328;
+					// dolbyqualityitem["audioCode"] = data["dash"]["dolby"]["audio"][0]["codecs"];
 					QualityList.insertLast(dolbyqualityitem);
 				}
 				if (data["dash"]["flac"].isObject()){
@@ -569,9 +499,11 @@ string Video(string bvid, const string &in path, dictionary &MetaData, array<dic
 					flacquality = formatFloat(data["dash"]["flac"]["audio"]["bandwidth"].asInt() / 1000.0, "", 0, 1) + "K";
 					dictionary flacqualityitem;
 					flacqualityitem["url"] = data["dash"]["flac"]["audio"]["baseUrl"].asString();
-					flacqualityitem["quality"] = "FLAC" +flacquality;
+					flacqualityitem["quality"] = "Hi-Res无损 FLAC " + flacquality;
 					flacqualityitem["qualityDetail"] = flacqualityitem["quality"];
 					flacqualityitem["itag"] = 258;
+					// flacqualityitem["audioCode"] = data["dash"]["flac"]["audio"]["codecs"];
+					flacqualityitem["audioIsDefault"] = true;
 					QualityList.insertLast(flacqualityitem);
 				}
 				JsonValue audios = data["dash"]["audio"];
@@ -586,6 +518,7 @@ string Video(string bvid, const string &in path, dictionary &MetaData, array<dic
 						audioqualityitem["quality"] =  "AAC " + audioquality;
 						audioqualityitem["qualityDetail"] = audioqualityitem["quality"];
 						audioqualityitem["itag"] = audioitag;
+						// audioqualityitem["audioCode"] = audios[i]["codecs"];
 						QualityList.insertLast(audioqualityitem);
 					}
 				}
