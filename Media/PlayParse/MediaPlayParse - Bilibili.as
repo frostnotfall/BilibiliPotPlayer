@@ -29,10 +29,18 @@
 // string GetBroadcastListUrl()							-> get broadcast list url
 // string GetBroadcastListScript()						-> for WebView2::AddScriptToExecuteOnDocumentCreated for script process
 
-
-array<string> BilibiliDomains = {"bilibili.com", "bilivideo.com", "bilivideo.cn"};
-
 Config ConfigData;
+string ConfigFileName = "Bilibili_Config.json";
+array<string> BilibiliDomains = {"bilibili.com", "bilivideo.com", "bilivideo.cn"};
+array<string> knownP2pCdnDomainPattern = {
+	"302ppio",
+	"302kodo",
+	".mcdn.bilivideo",
+	"szbdyd.com",
+	".nexusedgeio.com",
+	".ahdohpiechei.com",
+	"upos-sz-mirror14b.bilivideo.com"
+};
 
 void OnInitialize() {
 	string UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0";
@@ -43,10 +51,11 @@ void OnInitialize() {
 		HostSetUrlRefererHTTP(BilibiliDomains[i], Referer);
 	}
 
-	string configFile = HostGetScriptFolder() + "Bilibili_Config.json";
+	string configFile = HostGetScriptFolder() + ConfigFileName;
 	if (!isFileExists(configFile)) {
-		HostMessageBox(configFile + " 配置文件不存在");
+		HostMessageBox("配置文件不存在\n\n路径：" + configFile + "\n\n进入设置→<扩展功能>→<媒体播放列表/项目>→选中<Bilibili>→点击下方<设置文件>进行编辑\n或\n手动建立该配置文件", "配置文件不存在");
 	}
+
 	ConfigData = ReadConfigFile(configFile);
 	if (ConfigData.debug) {
 		HostOpenConsole();
@@ -68,6 +77,9 @@ string GetDesc() {
 	return "https://www.bilibili.com";
 }
 
+string GetConfigFile() {
+	return HostGetScriptFolder() + ConfigFileName;
+}
 string GetWebAccountUrl() {
 	return "https://passport.bilibili.com/login";
 }
@@ -97,6 +109,7 @@ class Config {
 	float danmakuDisplayArea = 0.8;
 	float danmakuStayTime = 15.0;
 	bool showRecommendedVideos = true;
+	bool blockP2PCDN = true;
 	bool debug = false;
 
 	string danmakuUrl;
@@ -147,6 +160,9 @@ Config ReadConfigFile(string file) {
 		if (!config.danmakuServer.empty()) {
 			config.danmakuUrl = config.danmakuServer +  "/subtitle?font=" + HostUrlEncode(config.danmakuFont) + "&font_size=" + config.danmakuFontSize + "&alpha=" + config.danmakuOpacity + "&display_area=" + config.danmakuDisplayArea + "&duration_marquee=" + config.danmakuStayTime + "&duration_still=" + config.danmakuStayTime + "&cid=";
 			config.subtitleUrl = config.danmakuServer + "/subtitle?url=";
+		}
+		if (root["blockP2PCDN"].isBool()) {
+ 		   config.blockP2PCDN = root["blockP2PCDN"].asBool();
 		}
 	}
 	return config;
@@ -452,12 +468,7 @@ string Video(string bvid, const string &in path, dictionary &MetaData, array<dic
 		}
 	}
 	status = 3;
-	if (ispgc) {
-		log("PGC try regular playurl first, avid=" + aid + " cid=" + cid);
-		res = apiPost("/x/player/wbi/playurl?avid=" + aid + "&cid=" + cid + "&qn=" + qn + "&fnval=4048&fourk=1");
-	} else {
-		res = apiPost("/x/player/wbi/playurl?avid=" + aid + "&cid=" + cid + "&qn=" + qn + "&fnval=4048&fourk=1");
-	}
+	res = apiPost("/x/player/wbi/playurl?avid=" + aid + "&cid=" + cid + "&qn=" + qn + "&fnval=4048&fourk=1");
 	if (res.empty()) {
 		log("Video playurl response EMPTY");
 		return url;
@@ -473,7 +484,7 @@ string Video(string bvid, const string &in path, dictionary &MetaData, array<dic
 						int quality = videos[i]["id"].asInt();
 						dictionary qualityitem;
 						int codecid = videos[i]["codecid"].asInt();
-						url = videos[i]["baseUrl"].asString();
+						url = getFixedURL(videos[i]);
 						qualityitem["url"] = url;
 						int itag = videos[i]["id"].asInt() * 10 + codecid;
 						int trueitag = getTrueItag(itag);
@@ -487,7 +498,7 @@ string Video(string bvid, const string &in path, dictionary &MetaData, array<dic
 					string dolbyquality;
 					dolbyquality = formatFloat(data["dash"]["dolby"]["audio"][0]["bandwidth"].asInt() / 1000.0, "", 0, 1) + "K";
 					dictionary dolbyqualityitem;
-					dolbyqualityitem["url"] = data["dash"]["dolby"]["audio"][0]["baseUrl"].asString();
+					dolbyqualityitem["url"] = getFixedURL(data["dash"]["dolby"]["audio"][0]);
 					dolbyqualityitem["quality"] = "杜比全景声 EC-3 " + dolbyquality;
 					dolbyqualityitem["qualityDetail"] = dolbyqualityitem["quality"];
 					dolbyqualityitem["itag"] = 328;
@@ -498,7 +509,7 @@ string Video(string bvid, const string &in path, dictionary &MetaData, array<dic
 					string flacquality;
 					flacquality = formatFloat(data["dash"]["flac"]["audio"]["bandwidth"].asInt() / 1000.0, "", 0, 1) + "K";
 					dictionary flacqualityitem;
-					flacqualityitem["url"] = data["dash"]["flac"]["audio"]["baseUrl"].asString();
+					flacqualityitem["url"] = getFixedURL(data["dash"]["flac"]["audio"]);
 					flacqualityitem["quality"] = "Hi-Res无损 FLAC " + flacquality;
 					flacqualityitem["qualityDetail"] = flacqualityitem["quality"];
 					flacqualityitem["itag"] = 258;
@@ -514,81 +525,12 @@ string Video(string bvid, const string &in path, dictionary &MetaData, array<dic
 						dictionary audioqualityitem;
 						int audioid = audios[i]["id"].asInt();
 						int audioitag = getAudioItag(audioid);
-						audioqualityitem["url"] = audios[i]["baseUrl"].asString();
+						audioqualityitem["url"] = getFixedURL(audios[i]);
 						audioqualityitem["quality"] =  "AAC " + audioquality;
 						audioqualityitem["qualityDetail"] = audioqualityitem["quality"];
 						audioqualityitem["itag"] = audioitag;
 						// audioqualityitem["audioCode"] = audios[i]["codecs"];
 						QualityList.insertLast(audioqualityitem);
-					}
-				}
-			}
-			if (data["durl"].isArray() && data["durl"].size() > 0) {
-				url = data["durl"][0]["url"].asString();
-			}
-			if (data["dash"].isObject() && (!data["durl"].isArray() || data["durl"].size() == 0)) {
-				if (!ispgc) {
-					string flv_res = apiPost("/x/player/wbi/playurl?avid=" + aid + "&cid=" + cid + "&qn=" + qn + "&fnval=16&fourk=1");
-					if (!flv_res.empty()) {
-						JsonValue flv_root;
-						if (reader.parse(flv_res, flv_root) && flv_root.isObject()) {
-							if (flv_root["code"].asInt() == 0) {
-								JsonValue flv_data = flv_root["data"];
-								if (flv_data["durl"].isArray() && flv_data["durl"].size() > 0) {
-									url = flv_data["durl"][0]["url"].asString();
-								}
-							}
-						}
-					}
-				}
-			}
-			if (!data["dash"].isObject() && data["durl"].isArray()) {
-				url = data["durl"][0]["url"].asString();
-				qn = data["quality"].asInt();
-				dictionary qualityitem;
-				int codecid = data["video_codecid"].asInt();
-				JsonValue qualities = data["accept_quality"];
-				if (@QualityList !is null) {
-					for (uint i = 0; i < qualities.size(); i++) {
-						int quality = qualities[i].asInt();
-						dictionary qualityitem;
-						int quality_codecid;
-						if (quality == qn) {
-							qualityitem["url"] = url;
-							quality_codecid = codecid;
-						} else {
-							string quality_res;
-							quality_res = apiPost("/x/player/playurl?avid=" + aid + "&cid=" + cid + "&qn=" + quality + "&fnval=16&fourk=1");
-							JsonValue temp;
-							if (reader.parse(quality_res, temp) && temp.isObject()) {
-								if (temp["code"].asInt() != 0) {
-									continue;
-								}
-								JsonValue quality_data = temp["data"];
-								if (quality_data["durl"].isArray()) {
-									qualityitem["url"] = quality_data["durl"][0]["url"].asString();
-									quality_codecid = quality_data["video_codecid"].asInt();
-								}
-							}
-						}
-						int itag = quality * 10 + quality_codecid;
-						int trueitag = getTrueItag(itag);
-						qualityitem["quality"] = getVideoquality(quality) + getCodec(quality_codecid);
-						qualityitem["qualityDetail"] = qualityitem["quality"];
-						qualityitem["itag"] = trueitag;
-						QualityList.insertLast(qualityitem);
-					}
-					if (QualityList.length() == 1) {
-						dictionary qualityitem2;
-						if (data["durl"][0]["backup_url"].isArray() && data["durl"][0]["backup_url"].size() > 0) {
-							qualityitem2["url"] = data["durl"][0]["backup_url"][0].asString();
-						} else {
-							qualityitem2["url"] = url;
-						}
-						qualityitem2["quality"] = "- " + getVideoquality(qn) + getCodec(codecid) + " 备用";
-						qualityitem2["qualityDetail"] = qualityitem2["quality"];
-						qualityitem2["itag"] = 1;
-						QualityList.insertLast(qualityitem2);
 					}
 				}
 			}
@@ -605,7 +547,9 @@ string Video(string bvid, const string &in path, dictionary &MetaData, array<dic
 	log("bvid", bvid);
 	log("cid", cid);
 	log("url", url);
-
+	// for (uint i = 0; i < QualityList.length(); i++) {
+	//     log("QualityList[" + i + "] = " + string(QualityList[i]["quality"]) + " | " + int(QualityList[i]["itag"]) + " | " + string(QualityList[i]["url"]));
+	// }
 	return url;
 }
 
@@ -691,6 +635,69 @@ array<dictionary> History() {
 		}
 	}
 	return videos;
+}
+
+bool isP2PCDN(const string &in url) {
+	if (parse(url, "os") == "mcdn")
+		return true;
+
+	array<string> parts = url.split("://");
+	string hostname = parts.length() > 1 ? parts[1] : parts[0];
+
+	int pos = hostname.findFirst("/");
+	if (pos >= 0)
+		hostname = hostname.substr(0, pos);
+
+	pos = hostname.findFirst("?");
+	if (pos >= 0)
+		hostname = hostname.substr(0, pos);
+
+	pos = hostname.findFirst("#");
+	if (pos >= 0)
+		hostname = hostname.substr(0, pos);
+
+	pos = hostname.findFirst(":");
+	if (pos >= 0)
+		hostname = hostname.substr(0, pos);
+
+	for (uint i = 0; i < knownP2pCdnDomainPattern.length(); i++) {
+		if (hostname.find(knownP2pCdnDomainPattern[i]) >= 0) {
+			return true;
+		}
+	}
+
+	string subdomain = hostname.split(".")[0];
+	return subdomain.find("302") >= 0;
+}
+
+string getFixedURL(JsonValue &in data) {
+    string baseUrl = data["baseUrl"].asString();
+
+    if (!ConfigData.blockP2PCDN) {
+        return baseUrl;
+    }
+
+    if (!isP2PCDN(baseUrl)) {
+        return baseUrl;
+    }
+
+    if (data["backupUrl"].isString()) {
+        string backupUrl = data["backupUrl"].asString();
+
+        if (!isP2PCDN(backupUrl)) {
+            return backupUrl;
+        }
+    } else {
+        for (uint j = 0; j < data["backupUrl"].size(); j++) {
+            string backupUrl = data["backupUrl"][j].asString();
+
+            if (!isP2PCDN(backupUrl)) {
+                return backupUrl;
+            }
+        }
+    }
+
+    return baseUrl;
 }
 
 string parse(string url, string key, string defaultValue="") {
