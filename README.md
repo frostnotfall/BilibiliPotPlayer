@@ -3,17 +3,11 @@
 适用于 PotPlayer 的 Bilibili 播放插件。配合 [油猴脚本](https://greasyfork.org/zh-CN/scripts/461800-bilibilipotplayer)，
 可以直接从 Bilibili 网页调用 PotPlayer 进行播放。
 
-本项目源自 [chen310/BilibiliPotPlayer](https://github.com/chen310/BilibiliPotPlayer)，
-并基于 [juening2000/BilibiliPotPlayer](https://github.com/juening2000/BilibiliPotPlayer)
-继续进行修改和维护。
-
-在上游项目的基础上，本项目根据个人使用需求进行了进一步的功能调整与兼容性修复，主要用于搭配 [vs-mlrt](https://github.com/AmusementClub/vs-mlrt) 的学习与测试。
-
 ## ✨ 主要改进
 
 ### 🔐 直接网页登录，免手动配置 Cookie
 
-相较于上游版本，本项目对 Bilibili 登录方式进行了较大的改进：
+相较于原版本[chen310/BilibiliPotPlayer](https://github.com/chen310/BilibiliPotPlayer) 和上游版本[juening2000/BilibiliPotPlayer](https://github.com/juening2000/BilibiliPotPlayer)，本项目对 Bilibili 登录方式进行了较大的改进：
 
 - **无需手动获取、复制和配置 Cookie**
 - 通过**网页登录**完成账号认证
@@ -34,6 +28,7 @@
 
 ### ▶️ 点播
 
+- 支持屏蔽 P2PCDN
 - 修复部分 Host 为 `upos` 的点播 URL 播放失败的问题
 - Bilibili 点播更换新接口
 - 优化 Bilibili 音频画质选项显示：
@@ -106,3 +101,17 @@
 ![Create_Playlist](https://cdn.jsdelivr.net/gh/chen310/BilibiliPotPlayer/public/create_playlist_1.png)
 
 ![Create_Playlist](https://cdn.jsdelivr.net/gh/chen310/BilibiliPotPlayer/public/create_playlist_2.png)
+
+本项目源自 [chen310/BilibiliPotPlayer](https://github.com/chen310/BilibiliPotPlayer)，
+并基于 [juening2000/BilibiliPotPlayer](https://github.com/juening2000/BilibiliPotPlayer)
+继续进行修改和维护。
+
+# 声明
+- 致敬原作者：[chen310/BilibiliPotPlayer](https://github.com/chen310/BilibiliPotPlayer) 
+- 致敬上游作者：[juening2000/BilibiliPotPlayer](https://github.com/juening2000/BilibiliPotPlayer)
+- 在上游项目的基础上，本项目根据个人使用需求进行了进一步的功能调整与兼容性修复，主要用于搭配 [vs-mlrt](https://github.com/AmusementClub/vs-mlrt) 的学习与测试。
+
+## THANKS
+- [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)
+- [Make-Bilibili-Great-Than-Ever-Before](https://github.com/SukkaW/Make-Bilibili-Great-Than-Ever-Before)
+- [hgcat-360/PotPlayer-Extension_yt-dlp](https://github.com/hgcat-360/PotPlayer-Extension_yt-dlp)
