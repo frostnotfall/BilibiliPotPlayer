@@ -17,5 +17,6 @@
 	},
 	// 播放单个视频时是否显示推荐的视频
 	"showRecommendedVideos": true,
+	"blockP2PCDN": true,
 	"debug": false
 }
