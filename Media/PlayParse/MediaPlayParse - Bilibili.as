@@ -310,7 +310,7 @@ array<dictionary> VideoPages(const string &in path) {
 			if (sections.isArray()) {
 				string title;
 				for (int j = 0; j < sections.size(); j++) {
-					if (sections.size() > 0) title = sections[j]["title"].asString() + " | ";
+					if (sections.size() > 0) title =  "【" + sections[j]["title"].asString() + "】";
 					JsonValue episodes = sections[j]["episodes"];
 					for (int i = 0; i < episodes.size(); i++) {
 						JsonValue item = episodes[i];
@@ -1443,7 +1443,7 @@ array<dictionary> webDynamic(string path) {
 	if (type != "video") {
 		type = "all";
 	}
-	int nums = 2;
+	int nums = 5;
 	string offset;
 	string baseurl ="/x/polymer/web-dynamic/v1/feed/all?timezone_offset=-480&type=" + type;
 	for (int i = 1; i <= nums; i++) {
@@ -1516,7 +1516,7 @@ array<dictionary> Recommend(uint page) {
 	JsonReader Reader;
 	JsonValue Root;
 	const uint nums = 5;
-	string url ="/x/web-interface/index/top/feed/rcmd?y_num=3&fresh_type=4&feed_version=V8&fresh_idx_1h="+page+"&fetch_row="+(3*page+1)+"&fresh_idx="+page+"&brush="+page+"&homepage_ver=1&ps=12&last_y_num=4&outside_trigger=";
+	string url = "/x/web-interface/wbi/index/top/feed/rcmd?y_num=3&fresh_type=4&feed_version=V8&fresh_idx_1h="+page+"&fetch_row="+(3*page+1)+"&fresh_idx="+page+"&brush="+page+"&homepage_ver=1&ps=12&last_y_num=4&outside_trigger=";
 	string res = apiPost(url);
 	if (res.empty()) {
 		return videos;
