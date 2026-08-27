@@ -2022,7 +2022,7 @@ string Live(string id, const string &in path, dictionary &MetaData, array<dictio
 	return url;
 }
 
-bool isUgcSeason(const string &in path) {
+bool isPlaylist(const string &in path) {
 	if (videoIsUGCorPGC.url == makeWebUrl(path)){
 		return (videoIsUGCorPGC.isPGC || videoIsUGCorPGC.isUGCSeason);
 	}
@@ -2103,7 +2103,7 @@ bool PlaylistCheck(const string &in path) {
 	if (path.find("bilibili.com") < 0) {
 		return false;
 	}
-	if ((path.find("/video/BV") >= 0 || path.find("/video/av") >= 0) && isUgcSeason(path)) {
+	if ((path.find("/video/BV") >= 0 || path.find("/video/av") >= 0) && isPlaylist(path)) {
 		return true;
 	}
 	if (!parseBVId(path).empty() || !parseAVId(path).empty()) {
@@ -2187,7 +2187,7 @@ array<dictionary> PlaylistParse(const string &in path) {
 	array<dictionary> result;
 
 	string bvid = parseBVId(path);
-	if ((path.find("/video/BV") >= 0  || path.find("/video/av") >= 0) && isUgcSeason(path)) {
+	if ((path.find("/video/BV") >= 0  || path.find("/video/av") >= 0) && isPlaylist(path)) {
 		if (videoIsUGCorPGC.isUGCSeason) {
 			return VideoPages(path);
 		}
