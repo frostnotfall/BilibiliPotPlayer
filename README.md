@@ -28,13 +28,75 @@
 
 ### ▶️ 点播
 
-- 支持屏蔽 P2PCDN
+- 支持屏蔽 P2PCDN，可通过配置文件调整，默认屏蔽
 - 修复部分 Host 为 `upos` 的点播 URL 播放失败的问题
-- Bilibili 点播更换新接口
+- Bilibili 点播更换新接口，尽量使用wbi签名认证防止接口失效
+- 重新支持用户合集视频，potplayer播放列表( 快捷键 <kbd>F6</kbd> )正确显示合集视频
+- 播放番剧，电视剧等其它PGC合集或用户合集时，正确定位当前视频，不会出现从第一集开始播放的问题
+- 支持AV播放地址
 - 优化 Bilibili 音频画质选项显示：
   - `EC-3` → **杜比全景声 EC-3**
   - `FLAC` → **Hi-Res 无损 FLAC**
 - 当同时存在杜比全景声与Hi-Res无损时，默认使用Hi-Res无损。
+- 请求本地缓存，尽量减少请求次数
+- 移除或注释无用旧代码，比较激进。
+
+
+## TODO
+
+* 支持精准空降（视 PotPlayer 是否提供相关支持）。
+* 直播播放目前存在 `exception` 异常，但暂未发现其对实际播放造成影响；当前播放及画质选项均正常。
+
+# 一些可能的问题及解决办法
+
+#### 播放视频时一直转圈，右下角画质选项不断跳动
+
+这通常是由于 PotPlayer 中保存了旧的 `Cookie`、`Header` 或 `Referer` 信息导致的。可以尝试清理相关配置后重新播放。
+
+**如果未勾选「保存设置到 INI 文件」：(按 F5 打开选项"设置 - 基本" 页面下 )**
+
+1. 打开注册表编辑器（`regedit`）。
+
+2. 定位到：
+
+   `计算机\HKEY_CURRENT_USER\Software\DAUM\`
+
+3. 根据你平时使用的 PotPlayer 程序，进入对应的注册表项：
+
+   * `PotPlayer64`
+   * `PotPlayerMini64`
+
+   一般情况下使用的是 `PotPlayerMini64`。
+
+4. 删除其中的以下键值（如果存在）：
+
+   * `_UrlCookie`
+   * `_UrlHeader`
+   * `_UrlReferer`
+
+**如果已勾选「保存设置到 INI 文件」：**
+
+1. 打开 PotPlayer 安装目录。
+
+2. 根据你平时使用的程序，打开对应的配置文件：
+
+   * `PotPlayerMini64.ini`
+   * `PotPlayer64.ini`
+
+   一般情况下使用的是 `PotPlayerMini64.ini`。
+
+3. 在文件中删除以下配置节（如果存在）：
+
+   ```ini
+   [_UrlCookie]
+
+   [_UrlHeader]
+
+   [_UrlReferer]
+   ```
+
+完成后重新启动 PotPlayer，再尝试播放。
+
 
 ## 安装插件
 
