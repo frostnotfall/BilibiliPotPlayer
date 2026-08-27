@@ -1,7 +1,11 @@
 # BilibiliPotPlayer
 
-适用于 PotPlayer 的 Bilibili 播放插件。配合 [油猴脚本](https://greasyfork.org/zh-CN/scripts/461800-bilibilipotplayer)，
-可以直接从 Bilibili 网页调用 PotPlayer 进行播放。
+本项目基于 [chen310/BilibiliPotPlayer](https://github.com/chen310/BilibiliPotPlayer) 及其上游版本 [juening2000/BilibiliPotPlayer](https://github.com/juening2000/BilibiliPotPlayer) 进行维护，并针对个人使用需求持续进行功能改进、Bug 修复和测试。
+
+本项目主要用于持续测试、维护和提交改进。
+
+如果上游项目恢复持续更新，本项目将优先向上游提交相关改进，并根据上游项目的维护情况决定是否继续维护本项目。
+
 
 ## ✨ 主要改进
 
@@ -45,6 +49,7 @@
 ## TODO
 
 * 支持精准空降（视 PotPlayer 是否提供相关支持）。
+* 支持空降助手。
 * 直播播放目前存在 `exception` 异常，但暂未发现其对实际播放造成影响；当前播放及画质选项均正常。
 
 # 一些可能的问题及解决办法
