@@ -306,14 +306,17 @@ array<dictionary> VideoPages(const string &in path) {
 	JsonValue Root;
 	if (Reader.parse(res, Root) && Root.isObject()) {
 		if (Root["code"].asInt() == 0) {
-			if (Root["data"]["View"]["ugc_season"]["sections"].isArray()) {
-				if (Root["data"]["View"]["ugc_season"]["sections"][0]["episodes"].isArray()) {
-					JsonValue episodes = Root["data"]["View"]["ugc_season"]["sections"][0]["episodes"];
+			JsonValue sections = Root["data"]["View"]["ugc_season"]["sections"];
+			if (sections.isArray()) {
+				string title;
+				for (int j = 0; j < sections.size(); j++) {
+					if (sections.size() > 0) title = sections[j]["title"].asString() + " | ";
+					JsonValue episodes = sections[j]["episodes"];
 					for (int i = 0; i < episodes.size(); i++) {
 						JsonValue item = episodes[i];
 						if (item.isObject()) {
 							dictionary video;
-							video["title"] = item["title"].asString();
+							video["title"] = title + item["title"].asString();
 							video["duration"] = item["arc"]["duration"].asInt() * 1000;
 							video["url"] = "https://www.bilibili.com/video/" + item["bvid"].asString();
 							video["thumbnail"] = item["arc"]["pic"].asString();
@@ -324,8 +327,6 @@ array<dictionary> VideoPages(const string &in path) {
 							log("item is empty");
 						}
 					}
-				} else {
-					log('Root["data"]["View"]["ugc_season"]["sections"][0]["episodes"] is not array.');
 				}
 			} else {
 				log('Root["data"]["View"]["ugc_season"]["sections"] is not array.');
@@ -2192,6 +2193,7 @@ array<dictionary> PlaylistParse(const string &in path) {
 			return VideoPages(path);
 		}
 		if (videoIsUGCorPGC.isPGC) {
+			log("isPGC");
 			if (videoIsUGCorPGC.pgcURL.find("bangumi/play/ep") >= 0) {
 				return Banggumi(HostRegExpParse(videoIsUGCorPGC.pgcURL, "bangumi/play/ep([0-9]+)"), "ep_id");
 			}
