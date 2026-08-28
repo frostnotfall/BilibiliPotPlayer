@@ -105,12 +105,21 @@
 
 完成后重新启动 PotPlayer，再尝试播放。
 
-## 其它
-目前搭配的油猴脚本 [BilibiliPotPlayer](https://greasyfork.org/zh-CN/scripts/461800-bilibilipotplayer)，已增加 “打开 PotPlayer 时自动暂停网页端视频” 的功能。
+## 油猴脚本
 
-修改版脚本地址：[https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-改](https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-改)
+由于从 PotPlayer 内部实现精准空降存在一定难度<sup>[1](#关于精准空降)</sup>，因此目前采用外部油猴脚本的方式实现其功能。
 
-声明：基于原作者的 [BilibiliPotPlayer](https://greasyfork.org/zh-CN/scripts/461800-bilibilipotplayer) 修改而来，并保留原作者及原项目相关信息。如原作者对本脚本的发布或再分发存在异议，并要求停止发布，本人将配合下架本脚本。
+目前修改版脚本 [BilibiliPotPlayer-改](https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-改) 支持：
+
+* **精准空降**：将网页端指定的播放时间传递给 PotPlayer，实现精准跳转。
+
+* **打开 PotPlayer 时自动暂停网页端视频**：启动 PotPlayer 播放后，自动暂停 Bilibili 网页端正在播放的视频，避免音视频重复播放。
+
+
+### 声明
+
+修改版脚本 `BilibiliPotPlayer-改` [https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-改](https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-%E6%94%B9)) 基于`原版油猴脚本` [油猴脚本https://greasyfork.org/zh-CN/scripts/461800-bilibilipotplayer](https://greasyfork.org/zh-CN/scripts/461800-bilibilipotplayer)，并保留原作者及原项目相关信息。如原作者对本脚本的发布或再分发存在异议，并要求停止发布，本人将配合下架本脚本。
+
 
 ## 安装插件
 
@@ -191,3 +200,10 @@
 - [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)
 - [Make-Bilibili-Great-Than-Ever-Before](https://github.com/SukkaW/Make-Bilibili-Great-Than-Ever-Before)
 - [hgcat-360/PotPlayer-Extension_yt-dlp](https://github.com/hgcat-360/PotPlayer-Extension_yt-dlp)
+
+
+## 关于精准空降
+
+目前发现 PotPlayer 可支持精准空降，但分析 `MediaPlayParse - YouTube.as` 文件后，未找到其相关控制代码。
+
+目前精准空降的实现是通过搭配的[修改版油猴脚本](#油猴脚本)实现。
