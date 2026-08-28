@@ -279,12 +279,12 @@ uint gettid(string path) {
 	return 0;
 }
 
-// 分P
-array<dictionary> VideoPages(const string &in path) {
+array<dictionary> UGCSeason(const string &in path) {
 	array<dictionary> videos;
 
 	string bvid = parseBVId(path);
 	string aid = parseAVId(path);
+	string cid;
 	string params;
 	if (!bvid.empty()) params += "bvid=" + bvid;
 	if (!aid.empty()) params += "aid=" + aid;	
@@ -295,9 +295,6 @@ array<dictionary> VideoPages(const string &in path) {
 		res = videoIsUGCorPGC.res;
 	} else {
 		res = apiPost("/x/web-interface/wbi/view/detail?" + params + "&w_rid=" + encWbi(params));
-		if (res.empty()) {
-			return videos;
-		}
 		videoIsUGCorPGC.url = makeWebUrl(path);
 		videoIsUGCorPGC.res = res;
 	}
@@ -306,6 +303,11 @@ array<dictionary> VideoPages(const string &in path) {
 	JsonValue Root;
 	if (Reader.parse(res, Root) && Root.isObject()) {
 		if (Root["code"].asInt() == 0) {
+			if(!Root["data"]["View"].isObject()) {
+				log('Root["data"]["View"] is empty.');
+				return videos;
+			}
+
 			JsonValue sections = Root["data"]["View"]["ugc_season"]["sections"];
 			if (sections.isArray()) {
 				string title;
@@ -339,34 +341,75 @@ array<dictionary> VideoPages(const string &in path) {
 		log("res parse failed or Root is empty.");
 	}
 
-	if (videos.length() >= 2 || !ConfigData.showRecommendedVideos) {
-		return videos;
+	return videos;
+}
+
+array<dictionary> RelatedVideos(const string &in path) {
+	array<dictionary> videos;
+
+	string bvid = parseBVId(path);
+	string aid = parseAVId(path);
+	string params;
+	if (!bvid.empty()) params += "bvid=" + bvid;
+	if (!aid.empty()) params += "aid=" + aid;	
+	if (bvid.empty() && aid.empty()) return videos;
+
+	string res;
+	if (videoIsUGCorPGC.url == makeWebUrl(path)){
+		res = videoIsUGCorPGC.res;
+	} else {
+		res = apiPost("/x/web-interface/wbi/view/detail?" + params + "&w_rid=" + encWbi(params));
+		videoIsUGCorPGC.url = makeWebUrl(path);
+		videoIsUGCorPGC.res = res;
 	}
-	
-	res = apiPost("/x/web-interface/archive/related?bvid=" + bvid);
-	if (!res.empty()) {
-		JsonReader Reader;
-		JsonValue Root;
-		if (Reader.parse(res, Root) && Root.isObject()) {
-			if (Root["code"].asInt() == 0) {
-				JsonValue data = Root["data"];
-				if (data.isArray()) {
-					for (int i = 0; i < data.size(); i++) {
-						JsonValue item = data[i];
-						if (item.isObject()) {
-							dictionary video;
-							video["title"] = item["title"].asString();
-							video["duration"] = item["duration"].asInt() * 1000;
-							video["url"] = "https://www.bilibili.com/video/" + item["bvid"].asString();
-							video["thumbnail"] = item["pic"].asString();
-							video["author"] = item["owner"]["name"].asString();
-							videos.insertLast(video);
-						}
+
+	JsonReader Reader;
+	JsonValue Root;
+	if (Reader.parse(res, Root) && Root.isObject()) {
+		if (Root["code"].asInt() == 0) {
+			if(!Root["data"]["View"].isObject()) {
+				log('Root["data"]["View"] is empty.');
+				return videos;
+			}
+
+			JsonValue data = Root["data"]["View"];
+			
+			dictionary video;
+			video["title"] = data["title"].asString();
+			video["duration"] = data["duration"].asInt() * 1000;
+			video["url"] = "https://www.bilibili.com/video/" + bvid;
+			video["author"] = data["owner"]["name"].asString();
+			video["thumbnail"] = data["pic"].asString();
+			videos.insertLast(video);
+
+			if (!ConfigData.showRecommendedVideos) return videos;
+
+			JsonValue related = Root["data"]["Related"];
+			if (related.isArray()) {			
+				for (int i = 0; i < related.size(); i++) {
+					JsonValue item = related[i];
+					if (item.isObject()) {
+						dictionary video;
+						video["title"] = item["title"].asString();
+						video["duration"] = item["arc"]["duration"].asInt() * 1000;
+						video["url"] = "https://www.bilibili.com/video/" + item["bvid"].asString();
+						video["thumbnail"] = item["arc"]["pic"].asString();
+						video["author"] = item["arc"]["author"]["name"].asString();
+						if (item["bvid"].asString() == bvid || item["aid"].asString() == aid) video["current"] = "1";
+						videos.insertLast(video);
+					} else {
+						log("item is empty");
 					}
 				}
 			}
+		} else {
+			log("Video view API code != 0", Root["code"].asInt());
+			log("Video view API message", Root["message"].asString());
 		}
+	} else {
+		log("res parse failed or Root is empty.");
 	}
+
 	return videos;
 }
 
@@ -2033,10 +2076,7 @@ bool isPlaylist(const string &in path) {
 	string params;
 	if (!bvid.empty()) params += "bvid=" + bvid;
 	if (!aid.empty()) params += "aid=" + aid;	
-	if (bvid.empty() && aid.empty()) {
-		HostMessageBox(path, "地址有误");
-		return false;
-	}
+	if (bvid.empty() && aid.empty()) return false;
 
 	string res;
 	if (videoIsUGCorPGC.url == path){
@@ -2104,7 +2144,7 @@ bool PlaylistCheck(const string &in path) {
 	if (path.find("bilibili.com") < 0) {
 		return false;
 	}
-	if ((path.find("/video/BV") >= 0 || path.find("/video/av") >= 0) && isPlaylist(path)) {
+	if (isPlaylist(path)) {
 		return true;
 	}
 	if (!parseBVId(path).empty() || !parseAVId(path).empty()) {
@@ -2182,32 +2222,22 @@ bool PlaylistCheck(const string &in path) {
 	return false;
 }
 
-array<dictionary> PlaylistParse(const string &in path) {
+array<dictionary> PlaylistParse(const string &in url) {
+	string path = url;
 	log("PlaylistParse path", path);
 	status = 1;
 	array<dictionary> result;
 
+	if (videoIsUGCorPGC.isPGC) path = videoIsUGCorPGC.pgcURL;
+	if (videoIsUGCorPGC.isUGCSeason) return UGCSeason(path);
+
 	string bvid = parseBVId(path);
-	if ((path.find("/video/BV") >= 0  || path.find("/video/av") >= 0) && isPlaylist(path)) {
-		if (videoIsUGCorPGC.isUGCSeason) {
-			return VideoPages(path);
-		}
-		if (videoIsUGCorPGC.isPGC) {
-			log("isPGC");
-			if (videoIsUGCorPGC.pgcURL.find("bangumi/play/ep") >= 0) {
-				return Banggumi(HostRegExpParse(videoIsUGCorPGC.pgcURL, "bangumi/play/ep([0-9]+)"), "ep_id");
-			}
-			if (videoIsUGCorPGC.pgcURL.find("bangumi/play/ss") >= 0) {
-				return Banggumi(HostRegExpParse(videoIsUGCorPGC.pgcURL, "bangumi/play/ss([0-9]+)"), "season_id");
-			}
-		}
-	}
 	if (!bvid.empty()) {
-		return VideoPages(path);
+		return RelatedVideos(path);
 	}
 	string avid = parseAVId(path);
 	if (!avid.empty()) {
-		return VideoPages(path);
+		return RelatedVideos(path);
 	}
 	if (path.find("/watchlater") >= 0) {
 		return watchlater();
