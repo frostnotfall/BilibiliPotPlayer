@@ -23,6 +23,10 @@
 
 ## 其它改进
 
+### 🔧 整体优化
+- 增加请求响应数据缓存，减少重复请求，降低 API 请求次数。
+- 清理并移除部分无用旧代码，进行较大幅度的代码重构与整理。
+
 ### 📺 直播
 
 - 支持 AVC、HEVC、AV1
@@ -35,7 +39,7 @@
 - 支持屏蔽 P2PCDN，可通过配置文件调整，默认屏蔽
 - 修复部分 Host 为 `upos` 的点播 URL 播放失败的问题
 - Bilibili 点播更换新接口，尽量使用wbi签名认证防止接口失效
-- 重新支持用户合集视频，potplayer 播放列表( 快捷键 <kbd>F6</kbd> ) 正确显示合集视频。当存在用户视频合集时，播放列表里只展示合集视频。当只存在单个视频时，播放列表里包含当前视频与推荐视频（是否包含推荐视频取决于配置文件`showRecommendedVideos`开关）
+- 重新支持用户合集视频，并支持多合集，potplayer 播放列表( 快捷键 <kbd>F6</kbd> ) 正确显示合集视频。当存在用户视频合集时，播放列表里只展示合集视频。当只存在单个视频时，播放列表里包含当前视频与推荐视频（是否包含推荐视频取决于配置文件`showRecommendedVideos`开关）
 - 播放番剧，电视剧等其它PGC合集或用户合集时，正确定位当前视频，不会出现从第一集开始播放的问题
 - 支持AV播放地址
 - 优化 Bilibili 音频画质选项显示：
@@ -43,7 +47,6 @@
   - `FLAC` → **Hi-Res 无损 FLAC**
 - 当同时存在杜比全景声与Hi-Res无损时，默认使用Hi-Res无损。
 - 请求本地缓存，尽量减少请求次数
-- 移除无用旧代码，比较激进。
 - 视频与播放列表增加多项属性，如果你足够细心的话，就可以发现。
 
 
@@ -51,7 +54,6 @@
 
 * 支持精准空降（视 PotPlayer 是否提供相关支持）。
 * 支持空降助手。
-* 直播播放目前存在 `exception` 异常，但暂未发现其对实际播放造成影响；当前播放及画质选项均正常。
 
 # 一些可能的问题及解决办法
 
@@ -103,6 +105,12 @@
 
 完成后重新启动 PotPlayer，再尝试播放。
 
+## 其它
+目前搭配的油猴脚本 [BilibiliPotPlayer](https://greasyfork.org/zh-CN/scripts/461800-bilibilipotplayer)，已增加 “打开 PotPlayer 时自动暂停网页端视频” 的功能。
+
+修改版脚本地址：[https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-改](https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-改)
+
+声明：基于原作者的 [BilibiliPotPlayer](https://greasyfork.org/zh-CN/scripts/461800-bilibilipotplayer) 修改而来，并保留原作者及原项目相关信息。如原作者对本脚本的发布或再分发存在异议，并要求停止发布，本人将配合下架本脚本。
 
 ## 安装插件
 
