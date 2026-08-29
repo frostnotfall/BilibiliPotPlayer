@@ -24,7 +24,7 @@
 ## 其它改进
 
 ### 🔧 整体优化
-- 增加请求响应数据缓存，减少重复请求，降低 API 请求次数。
+- 本地缓存响应数据，降低 API 请求次数。可在配置文件中设置，默认300。
 - 清理并移除部分无用旧代码，进行较大幅度的代码重构与整理。
 
 ### 📺 直播
@@ -46,14 +46,14 @@
   - `EC-3` → **杜比全景声 EC-3**
   - `FLAC` → **Hi-Res 无损 FLAC**
 - 当同时存在杜比全景声与Hi-Res无损时，默认使用Hi-Res无损。
-- 请求本地缓存，尽量减少请求次数
 - 视频与播放列表增加多项属性，如果你足够细心的话，就可以发现。
+- 增加 [空降助手](https://github.com/hanydd/BilibiliSponsorBlock) 支持。作者所在网络线路访问空降助手服务端 ipv6 地址不稳定，默认禁用。
 
 
 ## TODO
 
-* 支持精准空降（视 PotPlayer 是否提供相关支持）。
-* 支持空降助手。
+* ~~支持精准空降（视 PotPlayer 是否提供相关支持）~~，目前搭配油猴脚本实现。
+* ~~支持空降助手~~。
 
 # 一些可能的问题及解决办法
 
@@ -163,15 +163,29 @@
 
 ![Search](https://cdn.jsdelivr.net/gh/chen310/BilibiliPotPlayer/public/search.png)
 
-### 跳过片头片尾
+### 跳过片头片尾（通过空降助手）
 
 对于一些电视剧、番剧，能够跳过片头和片尾。具体设置为：在 PotPlayer 上点击鼠标右键，选择`播放`-`跳略播放`-`跳略播放设置`
 
 ![Skip_Settings](https://cdn.jsdelivr.net/gh/chen310/BilibiliPotPlayer/public/skip_1.png)
 
-勾选`跳略播放`和`章节名称`，并在名称列表中追加`哔哩哔哩-片头`和`哔哩哔哩-片尾`两项，每一项之间用英文分号`;`隔开。
+勾选`跳略播放`和`章节名称`，并在名称列表中追加片段名称（例如：`片头`和`片尾`），每一项之间用英文分号`;`隔开，所有片段名称如下：
 
-![Skip_Settings](https://cdn.jsdelivr.net/gh/chen310/BilibiliPotPlayer/public/skip_2.png)
+- `赞助`
+- `推广`
+- `品牌合作`
+- `三连提醒`
+- `精彩时刻`
+- `开场动画`
+- `片尾`
+- `预览`
+- `填充内容`
+- `离题`
+- `非音乐`
+
+**注**：是否存在这些片段跳过取决于 [空降助手](https://github.com/hanydd/BilibiliSponsorBlock)  服务端是否有该视频对应的数据，而数据需要用户手动上传。网页端可安装 [浏览器扩展](https://chromewebstore.google.com/detail/%E5%B0%8F%E7%94%B5%E8%A7%86%E7%A9%BA%E9%99%8D%E5%8A%A9%E6%89%8B/eaoelafamejbnggahofapllmfhlhajdd)，欢迎添加片段。
+
+![Skip_Settings](/public/skip_2.png)
 
 ### 在列表中显示缩略图
 
