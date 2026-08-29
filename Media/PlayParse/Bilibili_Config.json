@@ -1,11 +1,8 @@
 {
-    // 填写账号 Cookie
-    // "cookie": "registration_id=2333; buvid3=F38C135C-1283-39B6-A581-7FFAA02D970196520infoc; b_nut=1775242796; buvid_fp=571775ba4899ce97c7a8a149dcac647a; LIVE_BUVID=AUTO8717752427980734; _uuid=57D73B34-82C5-512A-7472-F3BDCA8A614C81833infoc; DedeUserID=4916429; DedeUserID__ckMd5=eaf004f8232814e8; theme-tip-show=SHOWED; rpdid=0zbfvRPWhy|s6d2pSSY|1cJ|3w1Wa7JX; theme-avatar-tip-show=SHOWED; theme-switch-show=SHOWED; theme_style=dark; CURRENT_QUALITY=127; home_feed_column=5; buvid4=F528E721-CEDB-38D5-31D8-41B8861080FG47799-026073100-gZ0i8TtyTqZE35YvvWxkKM14FVrB+tpVsXEQevNWFjMfXD1a3qAxO+nGvbBh1Kjq; bp_t_offset_4916429=1233859132507815936; CURRENT_FNVAL=4048; ogv_device_support_dolby=0; ogv_device_support_hdr=1; browser_resolution=2552-1308; bili_ticket=eyJhbGciOiJIUzI1NiIsImtpZCI6InMwMyIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3ODc1MzQxNjgsImlhdCI6MTc4NzI3NDkwOCwicGx0IjotMX0.f1sPY-0718La0vIT6Lhr8Q8IKg6VyawFXDJMQ8wtY84; bili_ticket_expires=1787534108; SESSDATA=2f367204%2C1802826969%2C61db4%2A81CjCBEGYkh9KP8QoqNJ59s5XtU-4O3I7cF7-oagVatPGUt_ahFtPFfAh8griro1VQffQSVjUwdG5QbGZ3aEJWanM1YWIxbk41cFh2blYybkpmbEMwd2RpYWlndWZYOU5TX1JyOWI1UF9HQmRSZkJnS2FFOHhmMXAtVUxGa3pTSldhUzZSVzhTVHdRIIEC; bili_jct=17491a21969056e82eb62a4d298eba68; sid=81ym5n7c; PVID=16; b_lsid=E33E7451_1A027A03A49",
     "maxliveroom": 200,
     "danmaku": {
         // 控制是否接收弹幕。按 Alt+H 可显示/隐藏弹幕
         "enable": true,
-		// 弹幕服务器地址，可从网上找找看
         "server": "",
         // 字体
         "font": "微软雅黑 Light",
@@ -24,5 +21,7 @@
     "blockP2PCDN": true,
     // 设定请求缓存的时间，单位(s)
     "cacheValidTime": 300,
+    // 启用空降助手，其域名 ipv6 地址波动较大，如遇到 potplayer 超时问题先禁用
+    "enableSponsorBlock": false,
     "debug": true
 }
