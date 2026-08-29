@@ -218,6 +218,6 @@
 
 ## 关于精准空降
 
-目前发现 PotPlayer 可支持精准空降，但分析 `MediaPlayParse - YouTube.as` 文件后，未找到其相关控制代码。
+目前发现 PotPlayer 播放 youtube 可支持精准空降，但分析研究 `MediaPlayParse - YouTube.as`，未找到其相关控制代码。
 
 目前精准空降的实现是通过搭配的[修改版油猴脚本](#油猴脚本)实现。
