@@ -33,9 +33,9 @@ Config ConfigData;
 VideoIsUGCorPGC videoIsUGCorPGC;
 dictionary ResponseCache;
 
-string ConfigFileName = "Bilibili_Config.json";
-array<string> BilibiliDomains = {"bilibili.com", "bilivideo.com", "bilivideo.cn"};
-array<string> knownP2pCdnDomainPattern = {
+const string ConfigFileName = "Bilibili_Config.json";
+const array<string> BilibiliDomains = {"bilibili.com", "bilivideo.com", "bilivideo.cn"};
+const array<string> knownP2pCdnDomainPattern = {
 	"302ppio",
 	"302kodo",
 	".mcdn.bilivideo",
@@ -45,10 +45,10 @@ array<string> knownP2pCdnDomainPattern = {
 	"upos-sz-mirror14b.bilivideo.com"
 };
 
-void OnInitialize() {
-	string UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0";
-	string Referer = "https://www.bilibili.com";
+const string UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0";
+const string Referer = "https://www.bilibili.com";
 
+void OnInitialize() {
 	for (uint i = 0; i < BilibiliDomains.length(); i++) {
 		HostSetUrlUserAgentHTTP(BilibiliDomains[i], UserAgent);
 		HostSetUrlRefererHTTP(BilibiliDomains[i], Referer);
@@ -73,7 +73,7 @@ string GetTitle() {
 }
 
 string GetVersion() {
-	return "1.3";
+	return "2.6.8";
 }
 
 string GetDesc() {
@@ -114,6 +114,7 @@ class Config {
 	bool showRecommendedVideos = true;
 	bool blockP2PCDN = true;
 	int cacheValidTime = 300;
+	bool enableSponsorBlock = false;
 	bool debug = false;
 
 	string danmakuUrl;
@@ -177,6 +178,10 @@ Config ReadConfigFile(string file) {
 		if (root["cacheValidTime"].isNumeric()) {
  		   config.cacheValidTime = root["cacheValidTime"].asInt();
 		}
+		if (root["enableSponsorBlock"].isBool()) {
+			config.enableSponsorBlock = root["enableSponsorBlock"].asBool();
+		}
+
 		if (root["debug"].isBool()) {
 			config.debug = root["debug"].asBool();
 		}
@@ -196,20 +201,30 @@ string GetStatus() {
 	switch (status)
 	{
 	case  1:
-		info = "Parsing bilibili playlist";
+		info = "单视频检查";
 		break;
 	case  2:
-		info = "Parsing bilibili video/audio";
+		info = "合集检查";
 		break;
 	case  3:
-		info = "Parsing bilibili playback link";
+		info = "解析视频合集";
+		break;
+	case  4:
+		info = "解析视频信息";
+		break;
+	case  5:
+		info = "请求空降助手接口";
+		break;
+	case  6:
+		info = "解析真实播放地址";
 		break;
 	default:
-		info = "Waiting for parsing";
+		info = "请等待";
 	}
 
 	return info;
 }
+
 
 void log(string item) {
 	if (!ConfigData.debug) {
@@ -249,37 +264,39 @@ string UnixTimeToDate(int64 t) {
     return formatInt(y) + "-" + formatInt(m + 100).substr(1) + "-" + formatInt(int(d) + 101).substr(1) + " " + formatInt(h + 100).substr(1) + ":" + formatInt(min + 100).substr(1) + ":" + formatInt(s + 100).substr(1);
 }
 
-// string post(string url, string data="") {
-// 	log("request", url);
-// 	string res = HostUrlGetStringWithAPI(url);
-// 	if (res.empty()) HostMessageBox("未获取到响应数据, url: " + url, "请求失败");
-// 	return res;
-// }
+string post(string url, string data="", string headers="") {
+	if (headers.empty()) headers = "User-Agent: " + UserAgent + "\r\n" + "Referer: " + Referer + "\r\n";
+	log("request url", url);
+	return HostUrlGetStringWithAPI(url, "", headers, data);
+}
 
-string post(string url, string data = "") {
-	int default_valid_time = 300000;
-	
+string apiPost(string api, string data="") {	
 	string key;
 	if (!data.empty()) {
-		 key = url + "\n" + data;
+		 key = api + "\n" + data;
 	} else {
-		key = url;
+		key = api;
 	}
 
 	ResponseCacheItem item;
+	if (ResponseCache.get(key, item) && HostGetTickCount() - item.tick_count <= item.valid_time) return item.response;
 
-	if (ResponseCache.get(key, item)) {
-		if (HostGetTickCount() - item.tick_count <= item.valid_time) {
-			log("request cache hit", url);
-			return item.response;
-		}
-		log("request cache expired", url);
+	string resp = post(host + api, data);
+	if (resp.empty()) {
+		HostMessageBox("未获取到响应数据，请等待一段时间后重试一下\nurl: " + host + api, "请求失败");
+		return "";
 	}
 
-	string resp = HostUrlGetStringWithAPI(url);
-	if (resp.empty()) {
-		HostMessageBox("未获取到响应数据, url: " + url, "请求失败");
-		return resp;
+	JsonReader Reader;
+	JsonValue Root;
+	if (!Reader.parse(resp, Root) || !Root.isObject()) {
+		HostMessageBox("未能解析响应数据\nurl: " + host + api, "请求失败");
+		return "";
+	}
+	if (Root["code"].asInt() != 0) {
+		log("error code: " + Root["code"].asInt() + "\n" + "error message: " + Root["message"].asString() + "\n" + "url:"  + host + api);
+		HostMessageBox("error code: " + Root["code"].asInt() + "\n" + "error message: " + Root["message"].asString() + "\n" + "url:"  + host + api,  Root["message"].asString());
+		return "";
 	}
 
 	if (item is null) {
@@ -289,14 +306,198 @@ string post(string url, string data = "") {
 
 	item.response = resp;
 	item.tick_count = HostGetTickCount();
-	item.valid_time = default_valid_time;
-	ResponseCache[key] = @item;
+	item.valid_time = ConfigData.cacheValidTime * 1000;
+	ResponseCache[key] = item;
 
 	return resp;
 }
 
-string apiPost(string api, string data="") {
-	return post(host + api);
+array<dictionary> generateChapter(const string &in bvid) {
+	array<dictionary> chapter;
+    const float MIN_CHAPTER_DURATION = 1.0f;
+    dictionary typesToName = {
+        {"sponsor", "赞助"},
+        {"selfpromo", "推广"},
+        {"exclusive_access", "品牌合作"},
+        {"interaction", "三连提醒"},
+        {"poi_highlight", "精彩时刻"},
+        {"intro", "开场动画"},
+        {"outro", "片尾"},
+        {"preview", "预览"},
+        {"padding", "填充内容"},
+        {"filler", "离题"},
+        {"music_offtopic", "非音乐"}
+    };
+
+    string headers = "origin: chrome-extension://eaoelafamejbnggahofapllmfhlhajdd\r\nx-ext-version: 0.13.1\r\n";
+    string url = "https://bsbsb.top/api/skipSegments?videoID=" + bvid;
+
+	// headers += "User-Agent: " + UserAgent + "\r\n" + "Referer: " + Referer;
+	// string temp = HostUrlGetString("http://localhost:8080", "", headers);
+	// temp = post("http://localhost:8080");
+	// temp = HostUrlGetStringWithAPI("http://localhost:8080", "", headers);
+
+	string resp;
+	for (int i = 0; i < 3; i++) {
+		uint start = HostGetTickCount();
+		resp = post(url, "", headers);
+		uint elapsed = HostGetTickCount() - start;
+		HostPrintUTF8("SponsorBlock Request #" + i + ": " + elapsed + " ms");
+	}
+
+    // string resp = HostUrlGetString(url, "", headers);
+	uint parsingStart = HostGetTickCount();
+
+	if (resp.empty()) {
+        log("SponsorBlock response is empty. url: " + url);
+        return chapter;
+    }
+
+    JsonReader Reader;
+    JsonValue SponsorBlock;
+
+    if (!Reader.parse(resp, SponsorBlock) || !SponsorBlock.isArray()) {
+        log("Failed to parse SponsorBlock response. url: " + url);
+        return chapter;
+    }
+	log("SponsorBlock Parsing: " + ( HostGetTickCount() - parsingStart) + " ms");
+    if (SponsorBlock.size() == 0) return chapter;
+
+    array<float> starts;
+    array<float> ends;
+    array<string> titles;
+    array<float> times;
+
+    for (int i = 0; i < SponsorBlock.size(); i++) {
+        JsonValue item = SponsorBlock[i];
+        string category = item["category"].asString();
+
+        if (!typesToName.exists(category)) continue;
+
+        float start = item["segment"][0].asFloat();
+        float end = item["segment"][1].asFloat();
+
+        if (start >= end) continue;
+
+        starts.insertLast(start);
+        ends.insertLast(end);
+        titles.insertLast(string(typesToName[category]));
+
+        times.insertLast(start);
+        times.insertLast(end);
+    }
+
+    if (starts.size() == 0) return chapter;
+
+    for (int i = 1; i < times.size(); i++) {
+        float value = times[i];
+        int j = i - 1;
+
+        while (j >= 0 && times[j] > value) {
+            times[j + 1] = times[j];
+            j--;
+        }
+
+        times[j + 1] = value;
+    }
+
+    array<float> sortedTimes;
+
+    for (int i = 0; i < times.size(); i++) {
+        if (sortedTimes.size() == 0 ||
+            sortedTimes[sortedTimes.size() - 1] != times[i]) {
+            sortedTimes.insertLast(times[i]);
+        }
+    }
+
+    array<float> resultTimes;
+    array<string> resultTitles;
+    string lastTitle;
+
+    for (int i = 0; i < sortedTimes.size(); i++) {
+        float time = sortedTimes[i];
+
+        string currentTitle;
+        float selectedStart = -1;
+
+        for (int j = 0; j < starts.size(); j++) {
+            if (starts[j] <= time && ends[j] > time) {
+                if (starts[j] > selectedStart) {
+                    selectedStart = starts[j];
+                    currentTitle = titles[j];
+                }
+            }
+        }
+
+        if (currentTitle.empty()) currentTitle = "正片";
+        if (currentTitle == lastTitle) continue;
+
+        resultTimes.insertLast(time);
+        resultTitles.insertLast(currentTitle);
+        lastTitle = currentTitle;
+    }
+
+    array<float> filteredTimes;
+    array<string> filteredTitles;
+
+    for (int i = 0; i < resultTimes.size(); i++) {
+        if (i == 0) {
+            filteredTimes.insertLast(resultTimes[i]);
+            filteredTitles.insertLast(resultTitles[i]);
+            continue;
+        }
+
+        float duration = resultTimes[i] - resultTimes[i - 1];
+
+        if (duration < MIN_CHAPTER_DURATION) {
+            if (filteredTimes.size() > 0) {
+                filteredTimes.removeLast();
+                filteredTitles.removeLast();
+            }
+
+            filteredTimes.insertLast(resultTimes[i]);
+            filteredTitles.insertLast(resultTitles[i]);
+            continue;
+        }
+
+        filteredTimes.insertLast(resultTimes[i]);
+        filteredTitles.insertLast(resultTitles[i]);
+    }
+
+    array<float> finalTimes;
+    array<string> finalTitles;
+
+    for (int i = 0; i < filteredTimes.size(); i++) {
+        if (finalTitles.size() > 0 &&
+            finalTitles[finalTitles.size() - 1] == filteredTitles[i]) {
+            continue;
+        }
+
+        finalTimes.insertLast(filteredTimes[i]);
+        finalTitles.insertLast(filteredTitles[i]);
+    }
+
+    for (int i = 0; i < finalTimes.size(); i++) {
+        dictionary chapterItem;
+
+        chapterItem["title"] = finalTitles[i];
+        chapterItem["time"] = formatFloat(finalTimes[i] * 1000, "", 32, 0);
+        chapter.insertLast(chapterItem);
+    }
+
+    for (int i = 0; i < chapter.size(); i++) {
+        string title;
+        string time;
+
+        chapter[i].get("title", title);
+        chapter[i].get("time", time);
+
+        log("Chapter: " + title + " Time: " + time);
+    }
+
+	uint parsingEnd = HostGetTickCount();
+	log("SponsorBlock Parsing: " + ( HostGetTickCount() - parsingStart) + " ms");
+    return chapter;
 }
 
 string getMixinKey() {
@@ -476,6 +677,8 @@ array<dictionary> RelatedVideos(const string &in path) {
 						log("item is not exists.");
 					}
 				}
+			} else {
+				log("no related videos");
 			}
 		} else {
 			log("Video view API code != 0", Root["code"].asInt());
@@ -539,7 +742,12 @@ string Video(string id, const string &in path, dictionary &MetaData, array<dicti
 			MetaData["dislikeCount"] = data["stat"]["dislike"].asString();
 			MetaData["date"] = UnixTimeToDate(data["pubdate"].asInt());
 			MetaData["resolution"] = data["dimension"]["width"].asInt() + "x" + data["dimension"]["height"].asInt();
-
+			if (ConfigData.enableSponsorBlock) {
+				status = 5;
+				array<dictionary> chapter = generateChapter(bvid);
+				if (!chapter.empty() && (@QualityList !is null)) MetaData["chapter"] = chapter;
+				status = 4;
+			}
 			if (ConfigData.danmakuEnable) {
 				dictionary dic;
 				dic["name"] = "【弹幕】" + title;
@@ -598,7 +806,7 @@ string Video(string id, const string &in path, dictionary &MetaData, array<dicti
 		}
 	}
 
-	status = 3;
+	status = 6;
 
 	params = "bvid=" + bvid + "&avid=" + aid + "&cid=" + cid + "&qn=" + qn + "&fnval=4048&fourk=1";
 	res = apiPost("/x/player/wbi/playurl?" + params + "&w_rid=" + encWbi(params));
@@ -1351,9 +1559,9 @@ array<dictionary> Banggumi(string id, string type) {
 				JsonValue item = episodes[i];
 				dictionary video;
 				if (item["badge"].asString().empty()) {
-					video["title"] = item["share_copy"].asString();
+					video["title"] = item["show_title"].asString();
 				} else {
-					video["title"] = "【" + item["badge"].asString() + "】" + item["share_copy"].asString();
+					video["title"] = "【" + item["badge"].asString() + "】" + item["show_title"].asString();
 				}
 				video["duration"] = item["duration"].asInt();
 				video["url"] = "https://www.bilibili.com/video/" + item["bvid"].asString() + "?cid=" + item["cid"].asString();
@@ -1725,7 +1933,7 @@ string Audio(const string &in path, dictionary &MetaData, array<dictionary> &Qua
 		}
 	}
 
-	status = 3;
+	status = 6;
 	res = post("https://www.bilibili.com/audio/music-service-c/web/url?privilege=2&quality=2&sid=" + id);
 	res = HostDecompress(res);
 	if (Reader.parse(res, Root) && Root.isObject()) {
@@ -1762,7 +1970,7 @@ string Live(string id, const string &in path, dictionary &MetaData, array<dictio
 	MetaData["viewCount"] = Root["watched_show"]["num"].asString();
 	MetaData["likeCount"] = Root["like_info_v3"]["like"].asString();
 	
-	status = 3;
+	status = 6;
 	
 	array<int> accept_qns;
 	string default_format;
@@ -1983,10 +2191,6 @@ string Live(string id, const string &in path, dictionary &MetaData, array<dictio
 }
 
 bool isPlaylist(const string &in path) {
-	if (videoIsUGCorPGC.url == makeWebUrl(path)){
-		return (videoIsUGCorPGC.isPGC || videoIsUGCorPGC.isUGCSeason);
-	}
-
 	string bvid = parseBVId(path);
 	string aid = parseAVId(path);
 	string params;
@@ -2020,7 +2224,8 @@ bool isPlaylist(const string &in path) {
 
 bool PlayitemCheck(const string &in path) {
 	log("PlayitemCheck - path", path);
-	status = 0;
+	status = 1;	
+
 	if (path.find("bilibili.com") < 0) {
 		return false;
 	}
@@ -2038,22 +2243,22 @@ bool PlayitemCheck(const string &in path) {
 	if (path.find("www.bilibili.com/audio/au") >= 0) {
 		return true;
 	}
-
+	log("PlayitemCheck", "false");
 	return false;
 }
 
 bool PlaylistCheck(const string &in path) {
 	log("PlaylistCheck - path: ", path);
-	status = 0;
+	status = 2;
 	if (path.find("bilibili.com") < 0) {
 		return false;
 	}
 	if (isPlaylist(path)) {
 		return true;
 	}
-	if (!parseBVId(path).empty() || !parseAVId(path).empty()) {
-		return true;
-	}
+	// if (!parseBVId(path).empty() || !parseAVId(path).empty()) {
+	// 	return true;
+	// }
 	if (path.find("search.bilibili.com") >= 0) {
 		return true;
 	}
@@ -2123,13 +2328,14 @@ bool PlaylistCheck(const string &in path) {
 		return true;
 	}
 
+	log("PlaylistCheck", "false");
 	return false;
 }
 
 array<dictionary> PlaylistParse(const string &in url) {
 	string path = url;
 	log("PlaylistParse - path", path);
-	status = 1;
+	status = 3;
 	array<dictionary> result;
 
 	if (videoIsUGCorPGC.isPGC) path = videoIsUGCorPGC.pgcURL;
@@ -2223,7 +2429,7 @@ array<dictionary> PlaylistParse(const string &in url) {
 
 string PlayitemParse(const string &in path, dictionary &MetaData, array<dictionary> &QualityList) {
 	log("PlayitemParse - path", path);
-	status = 2;
+	status = 4;
 
 	if (path.find("/video/BV") >= 0 ) {
 		string bvid = parseBVId(path);
