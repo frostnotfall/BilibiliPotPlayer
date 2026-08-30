@@ -56,53 +56,44 @@
 * ~~支持精准空降（视 PotPlayer 是否提供相关支持）~~，目前搭配油猴脚本实现。
 * ~~支持空降助手~~。
 
-# 一些可能的问题及解决办法
+## 一些可能的问题及解决办法
 
-#### 播放视频时一直转圈，右下角画质选项不断跳动
+### 播放视频时一直转圈，右下角画质选项不断跳动
 
 这通常是由于 PotPlayer 中保存了旧的 `Cookie`、`Header` 或 `Referer` 信息导致的。可以尝试清理相关配置后重新播放。
 
-**如果未勾选「保存设置到 INI 文件」：** (按 F5 打开选项"设置 - 基本" 页面下)
+#### 检查是否「保存设置到 INI 文件」
+(按 F5 打开选项"设置 - 基本" 页面下)
 
-1. 打开注册表编辑器（`regedit`）。
+* **如果未勾选「保存设置到 INI 文件」：** 
 
-2. 定位到：
+  1. 打开注册表编辑器（`regedit`）。
 
-   `计算机\HKEY_CURRENT_USER\Software\DAUM\`
+  2. 定位到： `计算机\HKEY_CURRENT_USER\Software\DAUM\`
 
-3. 根据你平时使用的 PotPlayer 程序，进入对应的注册表项：
-
+  3. 根据你平时使用的 PotPlayer 程序，进入对应的注册表项：（一般情况下使用的是 `PotPlayerMini64`）
    * `PotPlayer64`
    * `PotPlayerMini64`
 
-   一般情况下使用的是 `PotPlayerMini64`。
-
-4. 删除其中的以下键值（如果存在）：
-
+  4. 删除其中的以下键值（如果存在）：
    * `_UrlCookie`
    * `_UrlHeader`
    * `_UrlReferer`
 
-**如果已勾选「保存设置到 INI 文件」：**
+* **如果已勾选「保存设置到 INI 文件」：**
 
-1. 打开 PotPlayer 安装目录。
+  1. 打开 PotPlayer 安装目录。
 
-2. 根据你平时使用的程序，打开对应的配置文件：
-
+  2. 根据你平时使用的程序，打开对应的配置文件：(一般情况下使用的是 `PotPlayerMini64.ini`。)
    * `PotPlayerMini64.ini`
    * `PotPlayer64.ini`
 
-   一般情况下使用的是 `PotPlayerMini64.ini`。
-
-3. 在文件中删除以下配置节（如果存在）：
-
-   ```ini
-   [_UrlCookie]
-
-   [_UrlHeader]
-
-   [_UrlReferer]
-   ```
+  3. 在文件中删除以下配置节（如果存在）：
+    ```ini
+        [_UrlCookie]
+        [_UrlHeader]
+        [_UrlReferer]
+    ```
 
 完成后重新启动 PotPlayer，再尝试播放。
 
