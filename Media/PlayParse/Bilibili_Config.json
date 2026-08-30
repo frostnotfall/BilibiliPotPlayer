@@ -23,5 +23,7 @@
     "cacheValidTime": 300,
     // 启用空降助手，其域名 ipv6 地址波动较大，如遇到 potplayer 超时问题先禁用
     "enableSponsorBlock": false,
-    "debug": true
+    // 空降助手镜像地址
+    "sponsorBlockMirror": "",
+    "debug": false
 }

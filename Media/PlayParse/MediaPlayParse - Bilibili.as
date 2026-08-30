@@ -115,6 +115,7 @@ class Config {
 	bool blockP2PCDN = true;
 	int cacheValidTime = 300;
 	bool enableSponsorBlock = false;
+	string sponsorBlockMirror;
 	bool debug = false;
 
 	string danmakuUrl;
@@ -180,6 +181,9 @@ Config ReadConfigFile(string file) {
 		}
 		if (root["enableSponsorBlock"].isBool()) {
 			config.enableSponsorBlock = root["enableSponsorBlock"].asBool();
+		}
+		if (root["sponsorBlockMirror"].isString()) {
+			config.sponsorBlockMirror = root["sponsorBlockMirror"].asString();
 		}
 
 		if (root["debug"].isBool()) {
@@ -273,13 +277,22 @@ string post(string url, string data="", string headers="") {
 string apiPost(string api, string data="") {	
 	string key;
 	if (!data.empty()) {
-		 key = api + "\n" + data;
+		key = api + "?" + data;
 	} else {
 		key = api;
 	}
 
 	ResponseCacheItem item;
-	if (ResponseCache.get(key, item) && HostGetTickCount() - item.tick_count <= item.valid_time) return item.response;
+	if (ResponseCache.get(key, item)) {
+		if (HostGetTickCount() - item.tick_count <= item.valid_time) {
+			log("Cache Hit, url:", api);
+			return item.response;
+		} else {
+			log("Cache expire, url:", api);
+		}
+	} else {
+		log("Cache not Hit, url:", api);
+	}
 
 	string resp = post(host + api, data);
 	if (resp.empty()) {
@@ -297,11 +310,6 @@ string apiPost(string api, string data="") {
 		log("error code: " + Root["code"].asInt() + "\n" + "error message: " + Root["message"].asString() + "\n" + "url:"  + host + api);
 		HostMessageBox("error code: " + Root["code"].asInt() + "\n" + "error message: " + Root["message"].asString() + "\n" + "url:"  + host + api,  Root["message"].asString());
 		return "";
-	}
-
-	if (item is null) {
-		ResponseCacheItem newItem = ResponseCacheItem();
-		item = newItem;
 	}
 
 	item.response = resp;
@@ -329,24 +337,15 @@ array<dictionary> generateChapter(const string &in bvid) {
         {"music_offtopic", "非音乐"}
     };
 
-    string headers = "origin: chrome-extension://eaoelafamejbnggahofapllmfhlhajdd\r\nx-ext-version: 0.13.1\r\n";
-    string url = "https://bsbsb.top/api/skipSegments?videoID=" + bvid;
-
-	// headers += "User-Agent: " + UserAgent + "\r\n" + "Referer: " + Referer;
-	// string temp = HostUrlGetString("http://localhost:8080", "", headers);
-	// temp = post("http://localhost:8080");
-	// temp = HostUrlGetStringWithAPI("http://localhost:8080", "", headers);
+    string headers = "origin: https://github.com/frostnotfall/BilibiliPotPlayer\r\nx-ext-version: " + GetVersion() + "\r\n";
+    string url = !ConfigData.sponsorBlockMirror.empty() ? ConfigData.sponsorBlockMirror + "/api/skipSegments?videoID=" + bvid : "https://bsbsb.top/api/skipSegments?videoID=" + bvid;
 
 	string resp;
 	for (int i = 0; i < 3; i++) {
 		uint start = HostGetTickCount();
 		resp = post(url, "", headers);
 		uint elapsed = HostGetTickCount() - start;
-		HostPrintUTF8("SponsorBlock Request #" + i + ": " + elapsed + " ms");
 	}
-
-    // string resp = HostUrlGetString(url, "", headers);
-	uint parsingStart = HostGetTickCount();
 
 	if (resp.empty()) {
         log("SponsorBlock response is empty. url: " + url);
@@ -360,7 +359,7 @@ array<dictionary> generateChapter(const string &in bvid) {
         log("Failed to parse SponsorBlock response. url: " + url);
         return chapter;
     }
-	log("SponsorBlock Parsing: " + ( HostGetTickCount() - parsingStart) + " ms");
+
     if (SponsorBlock.size() == 0) return chapter;
 
     array<float> starts;
@@ -485,18 +484,6 @@ array<dictionary> generateChapter(const string &in bvid) {
         chapter.insertLast(chapterItem);
     }
 
-    for (int i = 0; i < chapter.size(); i++) {
-        string title;
-        string time;
-
-        chapter[i].get("title", title);
-        chapter[i].get("time", time);
-
-        log("Chapter: " + title + " Time: " + time);
-    }
-
-	uint parsingEnd = HostGetTickCount();
-	log("SponsorBlock Parsing: " + ( HostGetTickCount() - parsingStart) + " ms");
     return chapter;
 }
 
@@ -757,51 +744,6 @@ string Video(string id, const string &in path, dictionary &MetaData, array<dicti
 		} else {
 			log("Video view API code != 0", root["code"].asInt());
 			log("Video view API message", root["message"].asString());
-			return url;
-		}
-	}
-
-	params = "bvid=" + bvid + "&cid=" + cid;
-	res = apiPost("/x/player/wbi/v2?" + params + "&w_rid=" + encWbi(params));
-	if (reader.parse(res, root) && root.isObject()) {
-		if (root["code"].asInt() == 0) {
-			JsonValue data = root["data"];
-			if (ConfigData.danmakuEnable) {
-				JsonValue subs;
-				subs = root["data"]["subtitle"]["subtitles"];
-				if (subs.isArray()) {
-					for (int i = 0; i < subs.size(); i++) {
-						JsonValue sub = subs[i];
-						dictionary dic;
-						dic["name"] = "【字幕】" + sub["lan_doc"].asString();
-						if (sub["subtitle_url"].asString().find("http") == 0) {
-							dic["url"] = ConfigData.subtitleUrl + sub["subtitle_url"].asString();
-						} else {
-							dic["url"] = ConfigData.subtitleUrl + "http:" + sub["subtitle_url"].asString();
-						}
-						subtitle.insertLast(dic);
-					}
-				}
-				if (!subtitle.empty()) {
-					MetaData["subtitle"] = subtitle;
-				}
-			}
-			if (data["options"]["is_360"].asBool()) MetaData["is360"] = 1;
-			JsonValue points = data["view_points"];
-			if (points.isArray()) {
-				array<dictionary> chapt;
-				for (int i = 0; i < points.size(); i++) {
-					JsonValue point = points[i];
-					dictionary item;
-					item["title"] = point["content"].asString();
-					item["time"] = formatUInt(point["from"].asInt() * 1000);
-					chapt.insertLast(item);
-				}
-				if (!chapt.empty() && (@QualityList !is null)) {
-					MetaData["chapter"] = chapt;
-				}
-			}
-		} else {
 			return url;
 		}
 	}
