@@ -285,13 +285,13 @@ string apiPost(string api, string data="") {
 	ResponseCacheItem item;
 	if (ResponseCache.get(key, item)) {
 		if (HostGetTickCount() - item.tick_count <= item.valid_time) {
-			log("Cache Hit, url:", api);
+			log("Cache Hit, url", host + api);
 			return item.response;
 		} else {
-			log("Cache expire, url:", api);
+			log("Cache expire, url", host + api);
 		}
 	} else {
-		log("Cache not Hit, url:", api);
+		log("Cache not Hit, url", host + api);
 	}
 
 	string resp = post(host + api, data);
@@ -341,11 +341,7 @@ array<dictionary> generateChapter(const string &in bvid) {
     string url = !ConfigData.sponsorBlockMirror.empty() ? ConfigData.sponsorBlockMirror + "/api/skipSegments?videoID=" + bvid : "https://bsbsb.top/api/skipSegments?videoID=" + bvid;
 
 	string resp;
-	for (int i = 0; i < 3; i++) {
-		uint start = HostGetTickCount();
-		resp = post(url, "", headers);
-		uint elapsed = HostGetTickCount() - start;
-	}
+	resp = post(url, "", headers);
 
 	if (resp.empty()) {
         log("SponsorBlock response is empty. url: " + url);
@@ -2198,9 +2194,9 @@ bool PlaylistCheck(const string &in path) {
 	if (isPlaylist(path)) {
 		return true;
 	}
-	// if (!parseBVId(path).empty() || !parseAVId(path).empty()) {
-	// 	return true;
-	// }
+	if (!parseBVId(path).empty() || !parseAVId(path).empty()) {
+		return true;
+	}
 	if (path.find("search.bilibili.com") >= 0) {
 		return true;
 	}
