@@ -47,8 +47,7 @@
   - `FLAC` → **Hi-Res 无损 FLAC**
 - 当同时存在杜比全景声与Hi-Res无损时，默认使用Hi-Res无损。
 - 视频与播放列表增加多项属性，如果你足够细心的话，就可以发现。
-- 增加 [空降助手](https://github.com/hanydd/BilibiliSponsorBlock) 支持。作者所在网络线路访问空降助手服务端 ipv6 地址不稳定，默认禁用。
-
+- 增加 [空降助手](https://github.com/hanydd/BilibiliSponsorBlock) 支持。通过配置文件设置，另外支持指定镜像站点，以解决主站访问不稳定的问题。（由于目前主站访问不稳定，镜像站是临时的，所以默认禁用。）
 
 ## TODO
 
@@ -201,10 +200,6 @@
 
 ![Create_Playlist](https://cdn.jsdelivr.net/gh/chen310/BilibiliPotPlayer/public/create_playlist_2.png)
 
-本项目源自 [chen310/BilibiliPotPlayer](https://github.com/chen310/BilibiliPotPlayer)，
-并基于 [juening2000/BilibiliPotPlayer](https://github.com/juening2000/BilibiliPotPlayer)
-继续进行修改和维护。
-
 # 声明
 - 致敬原作者：[chen310/BilibiliPotPlayer](https://github.com/chen310/BilibiliPotPlayer) 
 - 致敬上游作者：[juening2000/BilibiliPotPlayer](https://github.com/juening2000/BilibiliPotPlayer)
@@ -214,7 +209,6 @@
 - [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)
 - [Make-Bilibili-Great-Than-Ever-Before](https://github.com/SukkaW/Make-Bilibili-Great-Than-Ever-Before)
 - [hgcat-360/PotPlayer-Extension_yt-dlp](https://github.com/hgcat-360/PotPlayer-Extension_yt-dlp)
-
 
 ## 关于精准空降
 
