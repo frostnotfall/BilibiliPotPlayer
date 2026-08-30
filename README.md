@@ -72,21 +72,21 @@
   2. 定位到： `计算机\HKEY_CURRENT_USER\Software\DAUM\`
 
   3. 根据你平时使用的 PotPlayer 程序，进入对应的注册表项：（一般情况下使用的是 `PotPlayerMini64`）
-   * `PotPlayer64`
-   * `PotPlayerMini64`
+    * `PotPlayer64`
+    * `PotPlayerMini64`
 
   4. 删除其中的以下键值（如果存在）：
-   * `_UrlCookie`
-   * `_UrlHeader`
-   * `_UrlReferer`
+    * `_UrlCookie`
+    * `_UrlHeader`
+    * `_UrlReferer`
 
 * **如果已勾选「保存设置到 INI 文件」：**
 
   1. 打开 PotPlayer 安装目录。
 
   2. 根据你平时使用的程序，打开对应的配置文件：(一般情况下使用的是 `PotPlayerMini64.ini`。)
-   * `PotPlayerMini64.ini`
-   * `PotPlayer64.ini`
+    * `PotPlayerMini64.ini`
+    * `PotPlayer64.ini`
 
   3. 在文件中删除以下配置节（如果存在）：
     ```ini
