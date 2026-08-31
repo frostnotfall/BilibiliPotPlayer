@@ -1,8 +1,8 @@
 # BilibiliPotPlayer
 
-本项目基于 [chen310/BilibiliPotPlayer](https://github.com/chen310/BilibiliPotPlayer) 及其上游版本 [juening2000/BilibiliPotPlayer](https://github.com/juening2000/BilibiliPotPlayer) 进行维护，并针对个人使用需求持续进行功能改进、Bug 修复和测试。
+适用于 PotPlayer 的 Bilibili 插件。如果配合[油猴脚本](#油猴脚本)，可以直接在网页打开 PotPlayer 进行播放
 
-本项目主要用于持续测试、维护和提交改进。
+本项目基于 [chen310/BilibiliPotPlayer](https://github.com/chen310/BilibiliPotPlayer) 及其上游版本 [juening2000/BilibiliPotPlayer](https://github.com/juening2000/BilibiliPotPlayer) 进行维护，并针对个人使用需求持续进行功能改进、Bug 修复和测试。
 
 如果上游项目恢复持续更新，本项目将优先向上游提交相关改进，并根据上游项目的维护情况决定是否继续维护本项目。
 
@@ -25,7 +25,7 @@
 
 ### 🔧 整体优化
 - 本地缓存响应数据，降低 API 请求次数。可在配置文件中设置，默认300s。
-- 清理部分无用旧代码。
+- 清理无用代码。
 
 ### 📺 直播
 
@@ -39,63 +39,26 @@
 - 支持屏蔽 P2PCDN，可通过配置文件调整，默认屏蔽
 - 修复部分 Host 为 `upos` 的点播 URL 播放失败的问题
 - Bilibili 点播更换新接口，尽量使用wbi签名认证防止接口失效
-- 重新支持用户合集视频，并支持多合集，potplayer 播放列表( 快捷键 <kbd>F6</kbd> ) 正确显示合集视频。
-  - 当存在用户视频合集时，播放列表里只展示合集视频。
-  - 当只存在单个视频时，播放列表里包含当前视频与推荐视频（是否包含推荐视频取决于配置文件`showRecommendedVideos`开关）
+- 重新支持用户合集视频，并支持多合集，potplayer 播放列表( 快捷键 <kbd>F6</kbd> ) 正确显示合集视频。当存在用户视频合集时，播放列表里只展示合集视频。当只存在单个视频时，播放列表里包含当前视频与推荐视频（是否包含推荐视频取决于配置文件`showRecommendedVideos`开关）
 - 播放番剧，电视剧等其它PGC合集或用户合集时，正确定位当前视频，不会出现从第一集开始播放的问题
 - 支持AV播放地址
 - 优化 Bilibili 音频画质选项显示：
   - `EC-3` → **杜比全景声 EC-3**
   - `FLAC` → **Hi-Res 无损 FLAC**
-- 当同时存在 `杜比全景声` 与 `Hi-Res无损` 时，默认使用 `Hi-Res无损`。
+- 当同时存在杜比全景声与Hi-Res无损时，默认使用Hi-Res无损。
 - 视频与播放列表增加多项属性，如果你足够细心的话，就可以发现。
-- 增加 [空降助手](https://github.com/hanydd/BilibiliSponsorBlock) 支持。通过配置文件设置，另外支持指定镜像站点，以解决主站访问不稳定的问题。（由于目前主站访问不稳定，镜像站是临时的，所以默认禁用。）
+- 增加 [空降助手](https://github.com/hanydd/BilibiliSponsorBlock) 支持。通过配置文件设置，默认禁用。
+
+   另外支持指定镜像站点，以解决主站访问不稳定的问题。（由于目前主站访问不稳定，镜像站是临时的，所以默认禁用。）  
+
+- 换用新的画质选项名称生成逻辑，现在动态获取，与官方名称一致。
+- 画质选项增加更多属性
+- 换用新的 itag 选择机制。
 
 ## TODO
 
 * ~~支持精准空降（视 PotPlayer 是否提供相关支持）~~，目前搭配油猴脚本实现。
 * ~~支持空降助手~~。
-
-## 一些可能的问题及解决办法
-
-### 播放视频时一直转圈，右下角画质选项不断跳动
-
-这通常是由于 PotPlayer 中保存了旧的 `Cookie`、`Header` 或 `Referer` 信息导致的。可以尝试清理相关配置后重新播放。
-
-#### 检查是否「保存设置到 INI 文件」
-(按 F5 打开选项"设置 - 基本" 页面下)
-
-* **如果未勾选「保存设置到 INI 文件」：** 
-
-  1. 打开注册表编辑器（`regedit`）。
-
-  2. 定位到： `计算机\HKEY_CURRENT_USER\Software\DAUM\`
-
-  3. 根据你平时使用的 PotPlayer 程序，进入对应的注册表项：（一般情况下使用的是 `PotPlayerMini64`）
-    * `PotPlayer64`
-    * `PotPlayerMini64`
-
-  4. 删除其中的以下键值（如果存在）：
-    * `_UrlCookie`
-    * `_UrlHeader`
-    * `_UrlReferer`
-
-* **如果已勾选「保存设置到 INI 文件」：**
-
-  1. 打开 PotPlayer 安装目录。
-
-  2. 根据你平时使用的程序，打开对应的配置文件：(一般情况下使用的是 `PotPlayerMini64.ini`。)
-    * `PotPlayerMini64.ini`
-    * `PotPlayer64.ini`
-
-  3. 在文件中删除以下配置节（如果存在）：
-    ```ini
-        [_UrlCookie]
-        [_UrlHeader]
-        [_UrlReferer]
-    ```
-
-完成后重新启动 PotPlayer，再尝试播放。
 
 ## 油猴脚本
 
@@ -107,11 +70,9 @@
 
 * **打开 PotPlayer 时自动暂停网页端视频**：启动 PotPlayer 播放后，自动暂停 Bilibili 网页端正在播放的视频，避免音视频重复播放。
 
-
 ### 声明
 
 修改版脚本 `BilibiliPotPlayer-改` [https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-改](https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-%E6%94%B9)) 基于`原版油猴脚本` [油猴脚本https://greasyfork.org/zh-CN/scripts/461800-bilibilipotplayer](https://greasyfork.org/zh-CN/scripts/461800-bilibilipotplayer)，并保留原作者及原项目相关信息。如原作者对本脚本的发布或再分发存在异议，并要求停止发布，本人将配合下架本脚本。
-
 
 ## 安装插件
 
@@ -193,18 +154,34 @@
 
 ![Create_Playlist](https://cdn.jsdelivr.net/gh/chen310/BilibiliPotPlayer/public/create_playlist_2.png)
 
-# 声明
-- 致敬原作者：[chen310/BilibiliPotPlayer](https://github.com/chen310/BilibiliPotPlayer) 
-- 致敬上游作者：[juening2000/BilibiliPotPlayer](https://github.com/juening2000/BilibiliPotPlayer)
-- 在上游项目的基础上，本项目根据个人使用需求进行了进一步的功能调整与兼容性修复，主要用于搭配 [vs-mlrt](https://github.com/AmusementClub/vs-mlrt) 的学习与测试。
+## 油猴脚本
 
-## THANKS
-- [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)
-- [Make-Bilibili-Great-Than-Ever-Before](https://github.com/SukkaW/Make-Bilibili-Great-Than-Ever-Before)
-- [hgcat-360/PotPlayer-Extension_yt-dlp](https://github.com/hgcat-360/PotPlayer-Extension_yt-dlp)
+由于从 PotPlayer 内部实现精准空降存在一定难度<sup>[2](#关于精准空降)</sup>，因此目前采用外部油猴脚本的方式实现其功能。
+
+目前修改版脚本 [BilibiliPotPlayer-改](https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-改) 支持：
+
+* **精准空降**：将网页端指定的播放时间传递给 PotPlayer，实现精准跳转。
+
+* **打开 PotPlayer 时自动暂停网页端视频**：启动 PotPlayer 播放后，自动暂停 Bilibili 网页端正在播放的视频，避免音视频重复播放。
+
+### 油猴脚本声明
+
+修改版脚本 `BilibiliPotPlayer-改` [https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-改](https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-%E6%94%B9)) 基于`原版油猴脚本` [油猴脚本https://greasyfork.org/zh-CN/scripts/461800-bilibilipotplayer](https://greasyfork.org/zh-CN/scripts/461800-bilibilipotplayer)，并保留原作者及原项目相关信息。如原作者对本脚本的发布或再分发存在异议，并要求停止发布，本人将配合下架本脚本。
 
 ## 关于精准空降
 
 目前发现 PotPlayer 播放 youtube 可支持精准空降，但分析研究 `MediaPlayParse - YouTube.as`，未找到其相关控制代码。
 
 目前精准空降的实现是通过搭配的[修改版油猴脚本](#油猴脚本)实现。
+
+# 声明
+- 致敬原作者：[chen310/BilibiliPotPlayer](https://github.com/chen310/BilibiliPotPlayer) 
+- 致敬上游作者：[juening2000/BilibiliPotPlayer](https://github.com/juening2000/BilibiliPotPlayer)
+- 在上游项目的基础上，本项目根据个人使用需求进行了进一步的功能调整与兼容性修复，主要用于搭配 [vs-mlrt](https://github.com/AmusementClub/vs-mlrt) 的学习与测试。
+
+# THANKS
+- [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)
+- [Make-Bilibili-Great-Than-Ever-Before](https://github.com/SukkaW/Make-Bilibili-Great-Than-Ever-Before)
+- [hgcat-360/PotPlayer-Extension_yt-dlp](https://github.com/hgcat-360/PotPlayer-Extension_yt-dlp)
+
+
