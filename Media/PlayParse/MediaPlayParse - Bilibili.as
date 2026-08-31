@@ -1,7 +1,9 @@
 /*
 	Bilibili media parse
-	author: chen310
-	link: https://github.com/chen310/BilibiliPotPlayer
+	author: frostnotfall
+	link: https://github.com/frostnotfall/BilibiliPotPlayer
+	originalAuthor: chen310
+	originalLink: https://github.com/chen310/BilibiliPotPlayer
 */
 
 // void OnInitialize()
@@ -73,7 +75,7 @@ string GetTitle() {
 }
 
 string GetVersion() {
-	return "2.6.8";
+	return "2.6.9";
 }
 
 string GetDesc() {
@@ -580,6 +582,7 @@ array<dictionary> UGCSeason(const string &in path) {
 							video["date"] = UnixTimeToDate(item["arc"]["pubdate"].asInt());
 							video["resolution"] = item["arc"]["dimension"]["width"].asInt() + "x" + item["arc"]["dimension"]["height"].asInt();
 							if (item["bvid"].asString() == bvid || item["aid"].asString() == aid) video["current"] = "1";
+							video["referer"] = "https://www.bilibili.com/video/" +  Root["data"]["View"]["bvid"].asString();
 							videos.insertLast(video);
 						} else {
 							log("item is empty");
@@ -621,26 +624,28 @@ array<dictionary> RelatedVideos(const string &in path) {
 				return videos;
 			}
 
-			JsonValue data = Root["data"]["View"];
+			JsonValue view = Root["data"]["View"];
 			
 			dictionary video;
-			video["title"] = data["title"].asString();
-			video["duration"] = data["duration"].asInt() * 1000;
-			video["thumbnail"] = data["pic"].asString();
-			video["author"] = data["owner"]["name"].asString();
+			video["title"] = view["title"].asString();
+			video["duration"] = view["duration"].asInt() * 1000;
+			video["thumbnail"] = view["pic"].asString();
+			video["author"] = view["owner"]["name"].asString();
 			video["url"] = "https://www.bilibili.com/video/" + bvid;
-			video["viewCount"] = data["stat"]["view"].asString();
-			video["likeCount"] = data["stat"]["like"].asString();
-			video["dislikeCount"] = data["stat"]["dislike"].asString();
-			video["date"] = UnixTimeToDate(data["pubdate"].asInt());
-			video["resolution"] = data["dimension"]["width"].asInt() + "x" + data["dimension"]["height"].asInt();
+			if (!view["desc"].asString().empty() || view["desc"].asString() != "-")  video["content"] = view["desc"].asString();
+			video["viewCount"] = view["stat"]["view"].asString();
+			video["likeCount"] = view["stat"]["like"].asString();
+			video["dislikeCount"] = view["stat"]["dislike"].asString();
+			video["date"] = UnixTimeToDate(view["pubdate"].asInt());
+			video["resolution"] = view["dimension"]["width"].asInt() + "x" + view["dimension"]["height"].asInt();
 			video["current"] = "1";
+			video["referer"] = "https://www.bilibili.com/video/" + view["bvid"].asString();
 			videos.insertLast(video);
 
 			if (!ConfigData.showRecommendedVideos) return videos;
 
 			JsonValue related = Root["data"]["Related"];
-			if (related.isArray()) {			
+			if (related.isArray()) {
 				for (int i = 0; i < related.size(); i++) {
 					JsonValue item = related[i];
 					if (item.isObject()) {
@@ -650,11 +655,13 @@ array<dictionary> RelatedVideos(const string &in path) {
 						video["thumbnail"] = item["pic"].asString();
 						video["author"] = item["owner"]["name"].asString();
 						video["url"] = "https://www.bilibili.com/video/" + item["bvid"].asString();
+						if (!item["desc"].asString().empty() || item["desc"].asString() != "-")  video["content"] = item["desc"].asString();
 						video["viewCount"] = item["stat"]["view"].asString();
 						video["likeCount"] = item["stat"]["like"].asString();
 						video["dislikeCount"] = item["stat"]["dislike"].asString();
 						video["date"] = UnixTimeToDate(item["pubdate"].asInt());
 						video["resolution"] = item["dimension"]["width"].asInt() + "x" + item["dimension"]["height"].asInt();
+						video["referer"] = "https://www.bilibili.com/video/" + view["bvid"].asString();
 						videos.insertLast(video);
 					} else {
 						log("item is not exists.");
@@ -680,6 +687,43 @@ string makeWebUrl(string path) {
 		return path;
 	}
 	return strs[0];
+}
+
+dictionary AppendAudioQualityList(JsonValue audio, string bvid) {
+	dictionary audioqualityitem;
+	string format;
+
+	int itag = 0;
+	int audioid = audio["id"].asInt();
+	audioqualityitem["itag"] = getAudioItag(audioid);
+	audioqualityitem["url"] = getFixedURL(audio);
+	
+	bool audioIsDefault = false;
+	if (audioid == 30250) {
+		audioqualityitem["quality"] = "杜比全景声";
+	} else if (audioid == 30251) {
+		audioqualityitem["quality"] = "Hi-Res无损";
+		audioIsDefault = true;
+	} else if (audio["codecs"].asString().MakeLower().find("mp4a") >= 0) {
+		audioqualityitem["quality"] = "AAC";
+	}
+	audioqualityitem["qualityDetail"] = audioqualityitem["quality"];
+	audioqualityitem["audioIsDefault"] = audioIsDefault;
+	
+	int bitrateVal = audio["bandwidth"].asInt();
+	string bitrate = formatFloat(bitrateVal / 1000.0, "", 0, 1) + "Kbps";
+	audioqualityitem["bitrateVal"] = bitrateVal;
+	audioqualityitem["bitrate"] = bitrate;
+
+	string codec = audio["codecs"].asString().MakeLower();
+	string mimeType = audio["mimeType"].asString().MakeLower();
+	audioqualityitem["format"] = mimeType.substr(mimeType.findLast("/") + 1) + ", " + codec.substr(0, codec.find(".")) + ", " + bitrate;
+
+	audioqualityitem["resolution"] = "audio only";
+	audioqualityitem["va"] = "a";
+	audioqualityitem["referer"] = "https://www.bilibili.com/video/" + bvid;
+	
+	return audioqualityitem;
 }
 
 string Video(string id, const string &in path, dictionary &MetaData, array<dictionary> &QualityList) {
@@ -714,17 +758,21 @@ string Video(string id, const string &in path, dictionary &MetaData, array<dicti
 			aid = data["aid"].asString();
 			cid = data["cid"].asString();
 			title = data["title"].asString();
-			MetaData["title"] = title;
-			MetaData["duration"] = data["duration"].asInt() * 1000;
-			MetaData["thumbnail"] = data["pic"].asString();
-			MetaData["author"] = data["owner"]["name"].asString();
-			MetaData["content"] = data["desc"].asString();
-			MetaData["webUrl"] = "https://www.bilibili.com/video/" + data["bvid"].asString();
-			MetaData["viewCount"] = data["stat"]["view"].asString();
-			MetaData["likeCount"] = data["stat"]["like"].asString();
-			MetaData["dislikeCount"] = data["stat"]["dislike"].asString();
-			MetaData["date"] = UnixTimeToDate(data["pubdate"].asInt());
-			MetaData["resolution"] = data["dimension"]["width"].asInt() + "x" + data["dimension"]["height"].asInt();
+			
+			if (@MetaData !is null) {
+				MetaData["title"] = title;
+				MetaData["duration"] = data["duration"].asInt() * 1000;
+				MetaData["thumbnail"] = data["pic"].asString();
+				MetaData["author"] = data["owner"]["name"].asString();
+				MetaData["content"] = data["desc"].asString();
+				MetaData["webUrl"] = "https://www.bilibili.com/video/" + data["bvid"].asString();
+				MetaData["viewCount"] = data["stat"]["view"].asString();
+				MetaData["likeCount"] = data["stat"]["like"].asString();
+				MetaData["dislikeCount"] = data["stat"]["dislike"].asString();
+				MetaData["date"] = UnixTimeToDate(data["pubdate"].asInt());
+				MetaData["resolution"] = data["dimension"]["width"].asInt() + "x" + data["dimension"]["height"].asInt();
+			}
+
 			if (ConfigData.enableSponsorBlock) {
 				status = 5;
 				array<dictionary> chapter = generateChapter(bvid);
@@ -754,59 +802,64 @@ string Video(string id, const string &in path, dictionary &MetaData, array<dicti
 
 			if (data["dash"].isObject()) {
 				JsonValue videos = data["dash"]["video"];
-				if (@QualityList !is null) {
-					for (int i = 0; i < videos.size(); i++) {
-						int quality = videos[i]["id"].asInt();
-						dictionary qualityitem;
-						int codecid = videos[i]["codecid"].asInt();
-						url = getFixedURL(videos[i]);
-						qualityitem["url"] = url;
-						int itag = videos[i]["id"].asInt() * 10 + codecid;
-						int trueitag = getTrueItag(itag);
-						qualityitem["quality"] = getVideoquality(quality) + getCodec(codecid);
-						qualityitem["qualityDetail"] = qualityitem["quality"];
-						qualityitem["itag"] = trueitag;
-						QualityList.insertLast(qualityitem);
+				for (int i = 0; i < videos.size(); i++) {
+					JsonValue video = videos[i];
+					dictionary qualityitem;
+
+					int itag = 0;
+					int quality = video["id"].asInt();
+					int codecid = video["codecid"].asInt();
+					url = getFixedURL(video);
+					qualityitem["url"] = url;
+
+					if (itag <= 0 || HostExistITag(itag)) {
+						itag = HostGetITag(video["height"].asInt(), 0, true, false);
+						if (itag <= 0) itag = HostGetITag(video["height"].asInt(), 0, true, true);
+					}
+					while (HostExistITag(itag)) itag++; 
+					HostSetITag(itag);
+					qualityitem["itag"] = itag;
+
+					qualityitem["quality"] = getVideoquality(data["support_formats"], quality);
+					qualityitem["qualityDetail"] = qualityitem["quality"];
+					qualityitem["resolution"] = formatInt(video["width"].asInt()) + "x" + formatInt(video["height"].asInt());
+					qualityitem["isHDR"] = (quality == 125 || quality == 126 || quality == 129);
+
+					int bitrateVal = video["bandwidth"].asInt();
+					string bitrate = formatFloat(bitrateVal / 1000.0, "", 0, 1) + "Kbps";
+					qualityitem["bitrateVal"] = bitrateVal;
+					qualityitem["bitrate"] = formatFloat(bitrateVal / 1000.0, "", 0, 0) + "	Kbps";
+					if (video["frameRate"].isFloat()) qualityitem["fps"] = video["frameRate"].asFloat();
+					
+					string mimeType = video["mimeType"].asString().MakeLower();
+					qualityitem["format"] = mimeType.substr(mimeType.findLast("/") + 1) + ", " + getCodec(codecid) + ", " + bitrate;
+
+					qualityitem["audioIsDefault"] = false;
+					qualityitem["va"] = "v";
+					qualityitem["referer"] = "https://www.bilibili.com/video/" + bvid;
+
+					if (@QualityList !is null) QualityList.insertLast(qualityitem);
+				}
+
+				JsonValue audios;
+				JsonValue audio;
+				if (data["dash"]["audio"].isArray()) {
+					audios = data["dash"]["audio"];
+					for (int i = 0; i < audios.size(); i++) {
+						audio = audios[i];
+						if (@QualityList !is null) QualityList.insertLast(AppendAudioQualityList(audio, bvid));
 					}
 				}
 				if (data["dash"]["dolby"]["audio"].isArray()){
-					string dolbyquality;
-					dolbyquality = formatFloat(data["dash"]["dolby"]["audio"][0]["bandwidth"].asInt() / 1000.0, "", 0, 1) + "K";
-					dictionary dolbyqualityitem;
-					dolbyqualityitem["url"] = getFixedURL(data["dash"]["dolby"]["audio"][0]);
-					dolbyqualityitem["quality"] = "杜比全景声 EC-3 " + dolbyquality;
-					dolbyqualityitem["qualityDetail"] = dolbyqualityitem["quality"];
-					dolbyqualityitem["itag"] = 328;
-					// dolbyqualityitem["audioCode"] = data["dash"]["dolby"]["audio"][0]["codecs"];
-					QualityList.insertLast(dolbyqualityitem);
+					audios = data["dash"]["dolby"]["audio"];
+					for (int i = 0; i < audios.size(); i++) {
+						audio = audios[i];
+						if (@QualityList !is null) QualityList.insertLast(AppendAudioQualityList(audio, bvid));
+					}
 				}
 				if (data["dash"]["flac"].isObject()){
-					string flacquality;
-					flacquality = formatFloat(data["dash"]["flac"]["audio"]["bandwidth"].asInt() / 1000.0, "", 0, 1) + "K";
-					dictionary flacqualityitem;
-					flacqualityitem["url"] = getFixedURL(data["dash"]["flac"]["audio"]);
-					flacqualityitem["quality"] = "Hi-Res无损 FLAC " + flacquality;
-					flacqualityitem["qualityDetail"] = flacqualityitem["quality"];
-					flacqualityitem["itag"] = 258;
-					// flacqualityitem["audioCode"] = data["dash"]["flac"]["audio"]["codecs"];
-					flacqualityitem["audioIsDefault"] = true;
-					QualityList.insertLast(flacqualityitem);
-				}
-				JsonValue audios = data["dash"]["audio"];
-				if (@QualityList !is null) {
-					for (int i = 0; i < audios.size(); i++) {
-						string audioquality;
-						audioquality = formatFloat(audios[i]["bandwidth"].asInt() / 1000.0, "", 0, 1) + "K";
-						dictionary audioqualityitem;
-						int audioid = audios[i]["id"].asInt();
-						int audioitag = getAudioItag(audioid);
-						audioqualityitem["url"] = getFixedURL(audios[i]);
-						audioqualityitem["quality"] =  "AAC " + audioquality;
-						audioqualityitem["qualityDetail"] = audioqualityitem["quality"];
-						audioqualityitem["itag"] = audioitag;
-						// audioqualityitem["audioCode"] = audios[i]["codecs"];
-						QualityList.insertLast(audioqualityitem);
-					}
+					audio = data["dash"]["flac"]["audio"];
+					if (@QualityList !is null) QualityList.insertLast(AppendAudioQualityList(audio, bvid));
 				}
 			}
 		} else {
@@ -1101,9 +1154,12 @@ array<dictionary> spaceVideo(string path) {
 							dictionary video;
 							video["title"] = item["title"].asString();
 							video["duration"] = parseTime(item["length"].asString());
-							video["url"] = "https://www.bilibili.com/video/" + item["bvid"].asString();
 							video["thumbnail"] = item["pic"].asString();
 							video["author"] = item["author"].asString();
+							video["url"] = "https://www.bilibili.com/video/" + item["bvid"].asString();
+							if (!item["description"].asString().empty() || item["description"].asString() != "-")  video["content"] = item["description"].asString();
+							video["viewCount"] = item["play"].asString();
+							video["date"] = UnixTimeToDate(item["created"].asInt());
 							videos.insertLast(video);
 						}
 					}
@@ -1729,14 +1785,6 @@ int getItag(int qn) {
 	return qn;
 }
 
-int getVideoItag(int qn) {
-	array<int> qns = {127, 126, 125, 120, 116, 112, 80, 74, 64, 32, 16, 6};
-	int idx = qns.find(qn);
-	if (idx >= 0) {
-		return idx;
-	}
-	return qn;
-}
 
 int getTrueItag(int itag) {
 	array<int> itags = {1282,1283,1272,1273,1262,1263,1207,1212,1213,1167,1172,1173,1127,1132,1133,807,812,813,647,652,653,327,332,333,167,172,173,67,72,73};
@@ -1749,8 +1797,9 @@ int getTrueItag(int itag) {
 }
 
 int getAudioItag(int id) {
-	array<int> ids = {30280, 30232, 30216};
-	array<int> itags = {327, 256, 139};
+	// 增加 EC-3/E-AC3 和 flac 的 itag 映射，flac 没有对应的 itag，使用 AC3 替代
+	array<int> ids = {30251, 30250, 30280, 30232, 30216};
+	array<int> itags = {258, 328, 327, 256, 139};
 	int idx = ids.find(id);
 	if (idx >= 0) {
 		return itags[idx];
@@ -1758,7 +1807,7 @@ int getAudioItag(int id) {
 	return id;
 }
 
-uint getUniItag(void)
+uint getUniItag()
 {
 	uint itag = 1;
 	while (HostExistITag(itag)) itag++;
@@ -1766,19 +1815,16 @@ uint getUniItag(void)
 	return itag;
 }
 
-string getVideoquality(int qn) {
-	array<int> qns = {127, 126, 125, 120, 116, 112, 80, 74, 64, 32, 16, 6};
-	array<string> qualities = {"8K 超高清", "杜比视界", "HDR 真彩色", "4K 超清", "1080P60 高帧率", "1080P+ 高码率", "1080P 高清", "720P60 高帧率", "720P 高清", "480P 清晰", "360P 流畅", "240P 极速"};
-	int idx = qns.find(qn);
-	if (idx >= 0) {
-		return qualities[idx];
+string getVideoquality(JsonValue support_formats, int quality) {
+	for (int i = 0; i <= support_formats.size(); i++) {
+		if (support_formats[i]["quality"].asInt() == quality) return support_formats[i]["new_description"].asString();
 	}
 	return "未知";
 }
 
 string getCodec(int codecid) {
 	array<int> codecids = {7, 12, 13};
-	array<string> codec = {" AVC", " HEVC", " AV1"};
+	array<string> codec = {"avc", "hevc", "av1"};
 	int idx = codecids.find(codecid);
 	if (idx >= 0) {
 		return codec[idx];
@@ -1900,13 +1946,15 @@ string Live(string id, const string &in path, dictionary &MetaData, array<dictio
 
 	JsonValue data = Root["data"]["room_info"];
 
-	MetaData["title"] = data["title"].asString();
-	MetaData["thumbnail"] = data["cover"].asString();
-	MetaData["author"] = Root["data"]["anchor_info"]["base_info"]["uname"].asString();
-	MetaData["content"] = data["description"].asString();
-	MetaData["webUrl"] = makeWebUrl(path);
-	MetaData["viewCount"] = Root["watched_show"]["num"].asString();
-	MetaData["likeCount"] = Root["like_info_v3"]["like"].asString();
+	if (@MetaData !is null) {
+		MetaData["title"] = data["title"].asString();
+		MetaData["thumbnail"] = data["cover"].asString();
+		MetaData["author"] = Root["data"]["anchor_info"]["base_info"]["uname"].asString();
+		MetaData["content"] = data["description"].asString();
+		MetaData["webUrl"] = makeWebUrl(path);
+		MetaData["viewCount"] = Root["watched_show"]["num"].asString();
+		MetaData["likeCount"] = Root["like_info_v3"]["like"].asString();
+	}
 	
 	status = 6;
 	
