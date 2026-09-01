@@ -20,6 +20,8 @@
 // void ServerLogout() 									-> logout
 // string GetWebAccountUrl()							-> login process by WebBrowser
 // string GetWebAccountDomain()							-> transport cookie domain for login
+// string GetConfigFile()
+// void ApplyConfigFile()
 //------------------------------------------------------------------------------------------------
 // bool PlayitemCheck(const string &in)					-> check playitem
 // array<dictionary> PlayitemParse(const string &in)	-> parse playitem
@@ -57,10 +59,9 @@ void OnInitialize() {
 	}
 
 	string configFile = HostGetScriptFolder() + ConfigFileName;
-	if (!isFileExists(configFile)) {
-		HostMessageBox("配置文件不存在\n\n路径：" + configFile + "\n\n进入设置→<扩展功能>→<媒体播放列表/项目>→选中<Bilibili>→点击下方<设置文件>进行编辑\n或\n手动建立该配置文件", "配置文件不存在");
+	if (!HostFileExist(configFile)) {
+		HostMessageBox("配置文件不存在\n\n路径: " + configFile , "[BilibiliPotplayer] 配置文件不存在", 0, 0);
 	}
-
 	ConfigData = ReadConfigFile(configFile);
 	if (ConfigData.debug) {
 		HostOpenConsole();
@@ -71,7 +72,23 @@ string host = "https://api.bilibili.com";
 string mixin_key;
 
 string GetTitle() {
-	return "Bilibili";
+	string title = "Bilibili";
+	if (!HostFileExist(HostGetScriptFolder() + ConfigFileName)) {
+		return title + "（配置文件不存在）";
+	}
+
+	Config config;
+	uintptr fp = HostFileOpen(HostGetScriptFolder() + ConfigFileName);
+	config.fullConfig = HostFileRead(fp, HostFileLength(fp));
+	HostFileClose(fp);
+	
+	JsonReader reader;
+	JsonValue root;
+	if (!reader.parse(config.fullConfig, root) && !root.isObject()) {
+		return title + "（配置文件格式错误）";
+	}
+	
+	return title;
 }
 
 string GetVersion() {
@@ -85,6 +102,23 @@ string GetDesc() {
 string GetConfigFile() {
 	return HostGetScriptFolder() + ConfigFileName;
 }
+
+void ApplyConfigFile() {
+	string msg;
+	Config config;
+	uintptr fp = HostFileOpen(HostGetScriptFolder() + ConfigFileName);
+	config.fullConfig = HostFileRead(fp, HostFileLength(fp));
+	HostFileClose(fp);
+	
+	JsonReader reader;
+	JsonValue root;
+	if (!reader.parse(config.fullConfig, root) && !root.isObject()) {
+		msg = "配置文件存在问题";
+	}
+
+	HostMessageBox(msg, "[BilibiliPotplayer] 配置文件错误", 0,1);
+}
+
 string GetWebAccountUrl() {
 	return "https://passport.bilibili.com/login";
 }
@@ -97,10 +131,6 @@ string GetWebAccountDomain() {
         domains += BilibiliDomains[i];
     }
     return domains;
-}
-
-bool isFileExists(string path) {
-	return HostFileOpen(path) > 0;
 }
 
 class Config {
@@ -139,9 +169,54 @@ class ResponseCacheItem {
 	uint valid_time;
 }
 
+class QualityListItem {
+	string url;
+	string quality;
+	string qualityDetail;
+	string resolution;
+	string bitrate;
+	string format;
+	int itag = 0;
+	int fps = 0.0;
+	int type3D = 0; // 1:sbs, 2:t&b
+	bool is360 = false;
+	bool isHDR = false;
+	string audioName;
+	string audioCode;
+	bool audioIsDefault = false;
+	int bitrateVal = 0;
+	string va;
+	string referer;
+
+	dictionary toDictionary() {
+		dictionary ret;
+
+		ret["url"] = url;
+		ret["quality"] = quality;
+		ret["qualityDetail"] = qualityDetail;
+		ret["resolution"] = resolution;
+		ret["bitrate"] = bitrate;
+		ret["format"] = format;
+		ret["itag"] = itag;
+		ret["fps"] = fps;
+		ret["type3D"] = type3D;
+		ret["is360"] = is360;
+		ret["isHDR"] = isHDR;
+		ret["audioName"] = audioName;
+		ret["audioCode"] = audioCode;
+		ret["audioIsDefault"] = audioIsDefault;
+		ret["bitrateVal"] = bitrateVal;
+		ret["va"] = va;
+		ret["referer"] = referer;
+
+		return ret;
+	}
+};
+
 Config ReadConfigFile(string file) {
 	Config config;
-	config.fullConfig = HostFileRead(HostFileOpen(file), 10000);
+	uintptr fp = HostFileOpen(file);
+	config.fullConfig = HostFileRead(fp, HostFileLength(fp));
 	JsonReader reader;
 	JsonValue root;
 	if (reader.parse(config.fullConfig, root) && root.isObject()) {
@@ -196,7 +271,12 @@ Config ReadConfigFile(string file) {
 			config.subtitleUrl = config.danmakuServer + "/subtitle?url=";
 		}
 
+	} else{
+		HostMessageBox("配置文件存在问题", "[BilibiliPotplayer] 配置文件错误", 0,1);
 	}
+
+	HostFileClose(fp);
+
 	return config;
 }
 
@@ -273,7 +353,7 @@ string UnixTimeToDate(int64 t) {
 string post(string url, string data="", string headers="") {
 	if (headers.empty()) headers = "User-Agent: " + UserAgent + "\r\n" + "Referer: " + Referer + "\r\n";
 	log("request url", url);
-	return HostUrlGetStringWithAPI(url, "", headers, data);
+	return HostUrlGetString(url, "", headers, data);
 }
 
 string apiPost(string api, string data="") {	
@@ -565,7 +645,7 @@ array<dictionary> UGCSeason(const string &in path) {
 			if (sections.isArray()) {
 				string title;
 				for (int j = 0; j < sections.size(); j++) {
-					if (sections.size() > 0) title =  "【" + sections[j]["title"].asString() + "】";
+					if (sections.size() > 1) title =  "【" + sections[j]["title"].asString() + "】";
 					JsonValue episodes = sections[j]["episodes"];
 					for (int i = 0; i < episodes.size(); i++) {
 						JsonValue item = episodes[i];
@@ -690,40 +770,94 @@ string makeWebUrl(string path) {
 }
 
 dictionary AppendAudioQualityList(JsonValue audio, string bvid) {
-	dictionary audioqualityitem;
+	QualityListItem item;
 	string format;
 
 	int itag = 0;
 	int audioid = audio["id"].asInt();
-	audioqualityitem["itag"] = getAudioItag(audioid);
-	audioqualityitem["url"] = getFixedURL(audio);
+	item.itag = getAudioItag(audioid);
+	item.url = getFixedURL(audio);
 	
 	bool audioIsDefault = false;
 	if (audioid == 30250) {
-		audioqualityitem["quality"] = "杜比全景声";
+		item.quality = "杜比全景声";
 	} else if (audioid == 30251) {
-		audioqualityitem["quality"] = "Hi-Res无损";
+		item.quality = "Hi-Res无损";
 		audioIsDefault = true;
 	} else if (audio["codecs"].asString().MakeLower().find("mp4a") >= 0) {
-		audioqualityitem["quality"] = "AAC";
+		item.quality = "AAC";
 	}
-	audioqualityitem["qualityDetail"] = audioqualityitem["quality"];
-	audioqualityitem["audioIsDefault"] = audioIsDefault;
+	item.qualityDetail = item.quality;
+	item.audioIsDefault = audioIsDefault;
 	
 	int bitrateVal = audio["bandwidth"].asInt();
-	string bitrate = formatFloat(bitrateVal / 1000.0, "", 0, 1) + "Kbps";
-	audioqualityitem["bitrateVal"] = bitrateVal;
-	audioqualityitem["bitrate"] = bitrate;
+	string bitrate = HostFormatBitrate(bitrateVal) + "bps";
+	item.bitrateVal = bitrateVal;
+	item.bitrate = bitrate;
 
 	string codec = audio["codecs"].asString().MakeLower();
 	string mimeType = audio["mimeType"].asString().MakeLower();
-	audioqualityitem["format"] = mimeType.substr(mimeType.findLast("/") + 1) + ", " + codec.substr(0, codec.find(".")) + ", " + bitrate;
+	item.format = mimeType.substr(mimeType.findLast("/") + 1) + ", " + codec.substr(0, codec.find(".")) + ", " + bitrate;
 
-	audioqualityitem["resolution"] = "audio only";
-	audioqualityitem["va"] = "a";
-	audioqualityitem["referer"] = "https://www.bilibili.com/video/" + bvid;
-	
-	return audioqualityitem;
+	item.resolution = "audio only";
+	item.va = "a";
+	item.referer = "https://www.bilibili.com/video/" + bvid;
+
+	return item.toDictionary();
+}
+
+JsonValue SortVideos(JsonValue &videos)
+{
+	array<int> VideoIdOrder = {6, 16, 32, 64, 74, 80, 100, 112, 116, 120, 127, 125, 126, 129};
+    JsonReader reader;
+    JsonValue sortedVideos;
+
+    reader.parse("[]", sortedVideos);
+
+    array<bool> used(videos.size(), false);
+
+    for (uint i = 0; i < videos.size(); i++)
+    {
+        int minIndex = -1;
+        int minOrder = 999;
+
+        for (uint j = 0; j < videos.size(); j++)
+        {
+            if (used[j])
+                continue;
+
+            int id = videos[j]["id"].asInt();
+            int order = VideoIdOrder.length();
+
+            for (uint k = 0; k < VideoIdOrder.length(); k++)
+            {
+                if (VideoIdOrder[k] == id)
+                {
+                    order = int(k);
+                    break;
+                }
+            }
+
+            if (minIndex == -1 || order < minOrder)
+            {
+                minIndex = int(j);
+                minOrder = order;
+            }
+            else if (order == minOrder)
+            {
+                int codecidA = videos[j]["codecid"].asInt();
+                int codecidB = videos[minIndex]["codecid"].asInt();
+
+                if (codecidA < codecidB)
+                    minIndex = int(j);
+            }
+        }
+
+        sortedVideos[i] = videos[minIndex];
+        used[minIndex] = true;
+    }
+
+    return sortedVideos;
 }
 
 string Video(string id, const string &in path, dictionary &MetaData, array<dictionary> &QualityList) {
@@ -801,44 +935,48 @@ string Video(string id, const string &in path, dictionary &MetaData, array<dicti
 			JsonValue data = root["data"];
 
 			if (data["dash"].isObject()) {
+				int itag = 0;
 				JsonValue videos = data["dash"]["video"];
+				videos = SortVideos(videos);
 				for (int i = 0; i < videos.size(); i++) {
-					JsonValue video = videos[i];
-					dictionary qualityitem;
+					if (@QualityList !is null) {
+						JsonValue video = videos[i];
+						QualityListItem item;
 
-					int itag = 0;
-					int quality = video["id"].asInt();
-					int codecid = video["codecid"].asInt();
-					url = getFixedURL(video);
-					qualityitem["url"] = url;
+						int quality = video["id"].asInt();
+						int codecid = video["codecid"].asInt();
+						url = getFixedURL(video);
+						item.url = url;
+						
+						itag = getVideoItag(quality, codecid);
+						if (itag <= 0 || HostExistITag(itag)) {
+							itag = HostGetITag(video["height"].asInt(), 0, true, false);
+							if (itag <= 0) itag = HostGetITag(video["height"].asInt(), 0, true, true);
+						}
+						while (HostExistITag(itag)) itag++;
+						HostSetITag(itag);
+						item.itag = itag;
 
-					if (itag <= 0 || HostExistITag(itag)) {
-						itag = HostGetITag(video["height"].asInt(), 0, true, false);
-						if (itag <= 0) itag = HostGetITag(video["height"].asInt(), 0, true, true);
+						item.quality = getVideoquality(data["support_formats"], quality);
+						item.qualityDetail = item.quality;
+						item.resolution = formatInt(video["width"].asInt()) + "x" + formatInt(video["height"].asInt());
+						item.isHDR = (quality == 125 || quality == 126 || quality == 129);
+
+						int bitrateVal = video["bandwidth"].asInt();
+						string bitrate = HostFormatBitrate(bitrateVal) + "bps";
+						item.bitrateVal = bitrateVal;
+						item.bitrate = bitrate;
+						item.fps =  parseInt(video["frameRate"].asString());
+						
+						string mimeType = video["mimeType"].asString().MakeLower();
+						item.format = mimeType.substr(mimeType.findLast("/") + 1) + ", " + getCodec(codecid) + ", " + bitrate;
+
+						item.audioIsDefault = false;
+						item.va = "v";
+						item.referer = "https://www.bilibili.com/video/" + bvid;
+
+						if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
 					}
-					while (HostExistITag(itag)) itag++; 
-					HostSetITag(itag);
-					qualityitem["itag"] = itag;
-
-					qualityitem["quality"] = getVideoquality(data["support_formats"], quality);
-					qualityitem["qualityDetail"] = qualityitem["quality"];
-					qualityitem["resolution"] = formatInt(video["width"].asInt()) + "x" + formatInt(video["height"].asInt());
-					qualityitem["isHDR"] = (quality == 125 || quality == 126 || quality == 129);
-
-					int bitrateVal = video["bandwidth"].asInt();
-					string bitrate = formatFloat(bitrateVal / 1000.0, "", 0, 1) + "Kbps";
-					qualityitem["bitrateVal"] = bitrateVal;
-					qualityitem["bitrate"] = formatFloat(bitrateVal / 1000.0, "", 0, 0) + "	Kbps";
-					if (video["frameRate"].isFloat()) qualityitem["fps"] = video["frameRate"].asFloat();
-					
-					string mimeType = video["mimeType"].asString().MakeLower();
-					qualityitem["format"] = mimeType.substr(mimeType.findLast("/") + 1) + ", " + getCodec(codecid) + ", " + bitrate;
-
-					qualityitem["audioIsDefault"] = false;
-					qualityitem["va"] = "v";
-					qualityitem["referer"] = "https://www.bilibili.com/video/" + bvid;
-
-					if (@QualityList !is null) QualityList.insertLast(qualityitem);
 				}
 
 				JsonValue audios;
@@ -1785,6 +1923,70 @@ int getItag(int qn) {
 	return qn;
 }
 
+int getVideoItag(int id, int codecid) {
+	array<array<int>> videoItagMap = {
+		//240P
+		{6,   7,  133},
+		{6,   12, 133},
+		{6,   13, 395},
+		// 360P
+		{16,  7,  134},
+		{16,  12, 134},
+		{16,  13, 396},
+		// 480P
+		{32,  7,  135},
+		{32,  12, 135},
+		{32,  13, 397},
+		// 720P
+		{64,  7,  136},
+		{64,  12, 136},
+		{64,  13, 398},
+		// 720P60
+		{74,  7,  298},
+		{74,  12, 298},
+		{74,  13, 398},
+		// 1080P
+		{80,  7,  137},
+		{80,  12, 137},
+		{80,  13, 399},
+		// 1080P+
+		{112, 7,  137},
+		{112, 12, 137},
+		{112, 13, 399},
+		// 1080P60
+		{116, 7,  299},
+		{116, 12, 299},
+		{116, 13, 399},
+		// 4K
+		{120, 7,  266},
+		{120, 12, 266},
+		{120, 13, 401},
+		// HDR
+		{125, 7,  337},
+		{125, 12, 337},
+		{125, 13, 701},
+		// 杜比视界
+		{126, 7,  337},
+		{126, 12, 337},
+		{126, 13, 701},
+		// 8K
+		{127, 7,  571},
+		{127, 12, 571},
+		{127, 13, 571},
+		// HDR Vivid
+		{129, 7,  337},
+		{129, 12, 337},
+		{129, 13, 701}
+	};
+	
+	for (int i = 0; i < videoItagMap.size(); i++) {
+		if (videoItagMap[i][0] == id && videoItagMap[i][1] == codecid) {
+			return videoItagMap[i][2];
+		}
+	}
+
+	return 0;
+}
 
 int getTrueItag(int itag) {
 	array<int> itags = {1282,1283,1272,1273,1262,1263,1207,1212,1213,1167,1172,1173,1127,1132,1133,807,812,813,647,652,653,327,332,333,167,172,173,67,72,73};
