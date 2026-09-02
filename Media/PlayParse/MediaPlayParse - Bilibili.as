@@ -921,7 +921,6 @@ string Video(string id, const string &in path, dictionary &MetaData, array<dicti
 				dictionary dic;
 				dic["name"] = "【弹幕】" + title;
 				dic["url"] = ConfigData.danmakuUrl + cid;
-				log('dic["url"]', ConfigData.danmakuUrl + cid);
 				subtitle.insertLast(dic);
 			}
 			if (!subtitle.empty()) {
