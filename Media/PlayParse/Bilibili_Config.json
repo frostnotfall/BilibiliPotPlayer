@@ -25,5 +25,10 @@
     "enableSponsorBlock": false,
     // 空降助手镜像地址
     "sponsorBlockMirror": "",
+    // 废弃，经测试对画质选择无影响。
+    // 默认：false。少数情况会出现低画质流 itag 高于高画质流的情况，禁用 AVC 可绝对避免此种情况。
+    "disableAVC": true,
+    // HDR优先。默认：false。跟随官方设定，“8K超高清” itag 高于 “HDR/杜比视界”。设为 true：“杜比视界/HDR真彩色” itag 高于“8K超高清”。
+    "preferHDR": true,
     "debug": false
 }
