@@ -92,7 +92,7 @@ string GetTitle() {
 }
 
 string GetVersion() {
-	return "2.6.10";
+	return "2.6.9";
 }
 
 string GetDesc() {
@@ -148,6 +148,8 @@ class Config {
 	int cacheValidTime = 300;
 	bool enableSponsorBlock = false;
 	string sponsorBlockMirror;
+	bool disableAVC = false;
+	bool preferHDR = false;
 	bool debug = false;
 
 	string danmakuUrl;
@@ -187,6 +189,7 @@ class QualityListItem {
 	int bitrateVal = 0;
 	string va;
 	string referer;
+	bool videoIsDefault;
 
 	dictionary toDictionary() {
 		dictionary ret;
@@ -208,6 +211,7 @@ class QualityListItem {
 		ret["bitrateVal"] = bitrateVal;
 		ret["va"] = va;
 		ret["referer"] = referer;
+		ret["videoIsDefault"] = videoIsDefault;
 
 		return ret;
 	}
@@ -262,7 +266,9 @@ Config ReadConfigFile(string file) {
 		if (root["sponsorBlockMirror"].isString()) {
 			config.sponsorBlockMirror = root["sponsorBlockMirror"].asString();
 		}
-
+		if (root["disableAVC"].isBool()) {
+			config.disableAVC = root["disableAVC"].asBool();
+		}
 		if (root["debug"].isBool()) {
 			config.debug = root["debug"].asBool();
 		}
@@ -350,9 +356,9 @@ string UnixTimeToDate(int64 t) {
     return formatInt(y) + "-" + formatInt(m + 100).substr(1) + "-" + formatInt(int(d) + 101).substr(1) + " " + formatInt(h + 100).substr(1) + ":" + formatInt(min + 100).substr(1) + ":" + formatInt(s + 100).substr(1);
 }
 
-string post(string url, string data="", string headers="") {
+string post(string url, string data = "", string headers = "", bool debug = true) {
 	if (headers.empty()) headers = "User-Agent: " + UserAgent + "\r\n" + "Referer: " + Referer + "\r\n";
-	log("request url", url);
+	if (debug) log("request url", url);
 	return HostUrlGetString(url, "", headers, data);
 }
 
@@ -806,52 +812,50 @@ dictionary AppendAudioQualityList(JsonValue audio, string bvid) {
 	return item.toDictionary();
 }
 
-JsonValue SortVideos(JsonValue &videos)
-{
-	array<int> VideoIdOrder = {6, 16, 32, 64, 74, 80, 100, 112, 116, 120, 127, 125, 126, 129};
+JsonValue SortVideos(JsonValue &videos) {
+	array<int> VideoIdOrder;
+	if (ConfigData.preferHDR) {
+		 VideoIdOrder = {6, 16, 32, 64, 74, 80, 100, 112, 116, 120, 127, 125, 126, 129};
+	} else {
+		VideoIdOrder = {6, 16, 32, 64, 74, 80, 100, 112, 116, 120, 125, 126, 127, 129};
+	}
+
     JsonReader reader;
     JsonValue sortedVideos;
-
     reader.parse("[]", sortedVideos);
 
     array<bool> used(videos.size(), false);
 
-    for (uint i = 0; i < videos.size(); i++)
-    {
+    for (uint i = 0; i < videos.size(); i++) {
         int minIndex = -1;
-        int minOrder = 999;
+        int minOrder;
 
-        for (uint j = 0; j < videos.size(); j++)
-        {
-            if (used[j])
-                continue;
+        for (uint j = 0; j < videos.size(); j++) {
+            if (used[j]) continue;
 
-            int id = videos[j]["id"].asInt();
+			int codecid = videos[j]["codecid"].asInt();
+
+			if (ConfigData.disableAVC && codecid == 7) continue;
+
             int order = VideoIdOrder.length();
+            int id = videos[j]["id"].asInt();
 
-            for (uint k = 0; k < VideoIdOrder.length(); k++)
-            {
-                if (VideoIdOrder[k] == id)
-                {
+            for (uint k = 0; k < VideoIdOrder.length(); k++) {
+                if (VideoIdOrder[k] == id) {
                     order = int(k);
                     break;
                 }
             }
 
-            if (minIndex == -1 || order < minOrder)
-            {
+            if (minIndex == -1 || order < minOrder) {
                 minIndex = int(j);
                 minOrder = order;
-            }
-            else if (order == minOrder)
-            {
-                int codecidA = videos[j]["codecid"].asInt();
-                int codecidB = videos[minIndex]["codecid"].asInt();
-
-                if (codecidA < codecidB)
-                    minIndex = int(j);
+            } else if (order == minOrder && codecid < videos[minIndex]["codecid"].asInt()) {
+                minIndex = int(j);
             }
         }
+
+        if (minIndex == -1) break;
 
         sortedVideos[i] = videos[minIndex];
         used[minIndex] = true;
@@ -938,6 +942,7 @@ string Video(string id, const string &in path, dictionary &MetaData, array<dicti
 				int itag = 0;
 				JsonValue videos = data["dash"]["video"];
 				videos = SortVideos(videos);
+
 				for (int i = 0; i < videos.size(); i++) {
 					if (@QualityList !is null) {
 						JsonValue video = videos[i];
@@ -974,6 +979,8 @@ string Video(string id, const string &in path, dictionary &MetaData, array<dicti
 						item.audioIsDefault = false;
 						item.va = "v";
 						item.referer = "https://www.bilibili.com/video/" + bvid;
+
+						if (i == videos.size() - 1) item.videoIsDefault = true;
 
 						if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
 					}
@@ -2135,7 +2142,7 @@ string Audio(const string &in path, dictionary &MetaData, array<dictionary> &Qua
 }
 
 string GetM3u8RealURL(string url) {
-	string resp = post(url);
+	string resp = post(url, "", "", false);
     array<string> lines = resp.split("\n");
 
     for (uint i = 0; i < lines.size(); i++) {
@@ -2334,9 +2341,7 @@ string Live(string id, const string &in path, dictionary &MetaData, array<dictio
 						string url_info_url = codec["url_info"][j]["host"].asString() + codec["base_url"].asString() + codec["url_info"][j]["extra"].asString();
 						url_info_url = GetM3u8RealURL(url_info_url);
 						
-						if (best_qn == codec["current_qn"].asInt() && url.empty()) {
-							url = url_info_url;
-						}
+						if (best_qn == codec["current_qn"].asInt()) url = url_info_url;
 
 						if (@QualityList !is null) {
 							for (int k = 0; k < QualityList.size(); k++) {
@@ -2346,25 +2351,25 @@ string Live(string id, const string &in path, dictionary &MetaData, array<dictio
  
 							JsonValue video_color_info = codec["video_color_info"];
 							string quality = getLiveQuality(g_qn_desc, codec["current_qn"].asInt(), codec["hdr_type"].asInt(), video_color_info);
+
+							string qualityDetail;
+							if (j == 0) qualityDetail = quality  + " - 主 ";
+							if (j > 0) {
+								string backup = " - 备 ";
+								if (j > 1) {
+									backup += j - 1;
+								}
+								qualityDetail = quality + backup;
+							}
 							
-							int width = codec["width"].asInt();
-							int height = codec["height"].asInt();
+							int width = codec["media_info"]["width"].asInt();
+							int height = codec["media_info"]["height"].asInt();
 							string resolution = width + "x" + height;
 
 							int bitrateVal = parseInt(HostRegExpParse(url_info_url, "(?:[?&]origin_bitrate=)(\\d+)(?:&|$)"));
 							string bitrate = HostFormatBitrate(bitrateVal * 1000.0) + "bps";
 
 							string format = codec_name + ", " + bitrate;
-							if (j == 0) format = "主, " + format;
-							if (j > 0) {
-								string backup = "备";
-								if (j > 1) {
-									backup += j - 1;
-								}
-								format = backup + ", " + format;
-							}
-
-							// itag = getVideoItag(quality, codecid);
 							if (itag <= 0 || HostExistITag(itag)) itag = HostGetITag(height, 0, true, true);
 							while (HostExistITag(itag)) itag++;
 							HostSetITag(itag);
@@ -2374,7 +2379,7 @@ string Live(string id, const string &in path, dictionary &MetaData, array<dictio
 							item.itag = itag;
 							item.url = url_info_url;
 							item.quality = quality;
-							item.qualityDetail = quality;
+							item.qualityDetail = qualityDetail;
 							item.bitrateVal = bitrateVal;
 							item.bitrate =  HostFormatBitrate(item.bitrateVal * 1000.0) + "bps";
 							item.format = format;
@@ -2388,6 +2393,7 @@ string Live(string id, const string &in path, dictionary &MetaData, array<dictio
 			}
 		}
 	}
+
 	log("url", url);
 	// log("Quality items", QualityList.length());
 	// for (uint i = 0; i < QualityList.length(); i++) {
