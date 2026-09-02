@@ -38,7 +38,7 @@ VideoIsUGCorPGC videoIsUGCorPGC;
 dictionary ResponseCache;
 
 const string ConfigFileName = "Bilibili_Config.json";
-const array<string> BilibiliDomains = {"bilibili.com", "bilivideo.com", "bilivideo.cn"};
+const array<string> BilibiliDomains = {"bilibili.com", "bilivideo.com", "bilivideo.cn", "smtcdns.net"};
 const array<string> knownP2pCdnDomainPattern = {
 	"302ppio",
 	"302kodo",
@@ -92,7 +92,7 @@ string GetTitle() {
 }
 
 string GetVersion() {
-	return "2.6.9";
+	return "2.6.10";
 }
 
 string GetDesc() {
@@ -620,6 +620,14 @@ uint gettid(string path) {
 	return 0;
 }
 
+string makeWebUrl(string path) {
+	array<string> strs = path.split("?");
+	if (strs.length() <= 1) {
+		return path;
+	}
+	return strs[0];
+}
+
 array<dictionary> UGCSeason(const string &in path) {
 	array<dictionary> videos;
 
@@ -759,14 +767,6 @@ array<dictionary> RelatedVideos(const string &in path) {
 	}
 
 	return videos;
-}
-
-string makeWebUrl(string path) {
-	array<string> strs = path.split("?");
-	if (strs.length() <= 1) {
-		return path;
-	}
-	return strs[0];
 }
 
 dictionary AppendAudioQualityList(JsonValue audio, string bvid) {
@@ -1915,7 +1915,7 @@ array<dictionary> Recommend(uint page) {
 }
 
 int getItag(int qn) {
-	array<int> qns = {10000, 400, 250, 150, 80};
+	array<int> qns = {30000, 25000, 20000, 10000, 400, 250, 150, 80};
 	int idx = qns.find(qn);
 	if (idx >= 0) {
 		return idx;
@@ -2134,6 +2134,27 @@ string Audio(const string &in path, dictionary &MetaData, array<dictionary> &Qua
 	return url;
 }
 
+string GetM3u8RealURL(string url) {
+	string resp = post(url);
+    array<string> lines = resp.split("\n");
+
+    for (uint i = 0; i < lines.size(); i++) {
+        string line = lines[i].Trim();
+
+        if (line.find("#EXT-X-STREAM-INF:") == 0) {
+            if (i + 1 < lines.size()) {
+                string m3u8 = lines[i + 1].Trim();
+
+                if (m3u8.find("http://") == 0 || m3u8.find("https://") == 0) {
+                    return m3u8;
+                }
+            }
+        }
+    }
+
+    return url;
+}
+
 string Live(string id, const string &in path, dictionary &MetaData, array<dictionary> &QualityList) {
 	log("==============================live==============================");
 	string url;
@@ -2242,12 +2263,14 @@ string Live(string id, const string &in path, dictionary &MetaData, array<dictio
 	}
 
 	int best_qn = 0;
+	accept_qns.sortAsc();
 	for (int i = 0; i < accept_qns.size(); i++) {
 		if (best_qn < accept_qns[i]) {
 			best_qn = accept_qns[i];
 		}
 	}
 
+	int itag = 0;
 	for (int i = 0; i < accept_qns.size(); i++) {
 		qn = accept_qns[i];
 		res = post("https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?room_id=" + room_id + "&qn=" + accept_qns[i] + "&codec=0,1,2&format=0,1,2&mask=0&no_playurl=0&platform=web&protocol=0,1&eotf=0,1,2");
@@ -2297,6 +2320,7 @@ string Live(string id, const string &in path, dictionary &MetaData, array<dictio
 				for (int i = 0; i < codecs.size(); i++) {
 					JsonValue codec = codecs[i];
 					string codec_name = codec["codec_name"].asString();
+
 					if (codec["current_qn"].asInt() != qn) {
 						continue;
 					}
@@ -2306,66 +2330,60 @@ string Live(string id, const string &in path, dictionary &MetaData, array<dictio
 						continue;
 					}
 
-					dictionary qualityItemMain;
-					dictionary qualityItemBackup;
+					for (int j = 0; j < url_infos.size(); j++) {
+						string url_info_url = codec["url_info"][j]["host"].asString() + codec["base_url"].asString() + codec["url_info"][j]["extra"].asString();
+						url_info_url = GetM3u8RealURL(url_info_url);
+						
+						if (best_qn == codec["current_qn"].asInt() && url.empty()) {
+							url = url_info_url;
+						}
 
-					string codec_suffix;
-					int codecOffset = 1;
-					if (codec_name == "avc") {
-						codec_suffix = " AVC";
-						codecOffset = 1;
-					} else if (codec_name == "hevc") {
-						codec_suffix = " HEVC";
-						codecOffset = 2;
-					} else if (codec_name == "av1") {
-						codec_suffix = " AV1";
-						codecOffset = 3;
-					} else {
-						codec_suffix = " " + codec_name;
-						codecOffset = 4;
+						if (@QualityList !is null) {
+							for (int k = 0; k < QualityList.size(); k++) {
+								QualityList[i].get("url", url);
+								if (url == url_info_url) continue;
+							}
+ 
+							JsonValue video_color_info = codec["video_color_info"];
+							string quality = getLiveQuality(g_qn_desc, codec["current_qn"].asInt(), codec["hdr_type"].asInt(), video_color_info);
+							
+							int width = codec["width"].asInt();
+							int height = codec["height"].asInt();
+							string resolution = width + "x" + height;
+
+							int bitrateVal = parseInt(HostRegExpParse(url_info_url, "(?:[?&]origin_bitrate=)(\\d+)(?:&|$)"));
+							string bitrate = HostFormatBitrate(bitrateVal * 1000.0) + "bps";
+
+							string format = codec_name + ", " + bitrate;
+							if (j == 0) format = "主, " + format;
+							if (j > 0) {
+								string backup = "备";
+								if (j > 1) {
+									backup += j - 1;
+								}
+								format = backup + ", " + format;
+							}
+
+							// itag = getVideoItag(quality, codecid);
+							if (itag <= 0 || HostExistITag(itag)) itag = HostGetITag(height, 0, true, true);
+							while (HostExistITag(itag)) itag++;
+							HostSetITag(itag);
+
+							QualityListItem item;
+
+							item.itag = itag;
+							item.url = url_info_url;
+							item.quality = quality;
+							item.qualityDetail = quality;
+							item.bitrateVal = bitrateVal;
+							item.bitrate =  HostFormatBitrate(item.bitrateVal * 1000.0) + "bps";
+							item.format = format;
+							item.resolution = resolution;
+							item.isHDR = (codec["hdr_type"].asInt() == 1);
+
+							QualityList.insertLast(item.toDictionary());
+						}
 					}
-
-
-					JsonValue video_color_info = codec["video_color_info"];
-					bool isHDR = false;
-					if (codec["hdr_type"].asInt() == 1) {
-						isHDR = true;
-					}
-					int bitrate = 0;
-					string bitrateStr;
-
-					string main_url = codec["url_info"][0]["host"].asString() + codec["base_url"].asString() + codec["url_info"][0]["extra"].asString();
-					if (best_qn == codec["current_qn"].asInt() && url.empty()) url = main_url;
-					qualityItemMain["url"] = main_url;
-					qualityItemMain["quality"] = getLiveQuality(g_qn_desc, codec["current_qn"].asInt(), codec["hdr_type"].asInt(), video_color_info) + codec_suffix;
-					// qualityItemMain["quality"] = getLiveQualityNew(g_qn_desc, codec["current_qn"].asInt(), codec["hdr_type"].asInt(), video_color_info);
-					// qualityItemMain["format"] = codec_name;
-					qualityItemMain["qualityDetail"] = qualityItemMain["quality"];
-					qualityItemMain["itag"] = getUniItag();
-					qualityItemMain["resolution"] = codec["width"].asInt() + "x" + codec["height"].asInt();
-					qualityItemMain["isHDR"] = isHDR;
-					bitrateStr = HostRegExpParse(main_url, "(?:[?&]origin_bitrate=)(\\d+)(?:&|$)");
-					if (!bitrateStr.empty()) bitrate = HostString2UIntPtr(bitrateStr); 
-					qualityItemMain["bitrate"] = bitrate * 1000;
-					if (@QualityList !is null) QualityList.insertLast(qualityItemMain);
-
-					if (url_infos.size() <= 1) {
-						continue;
-					}
-					
-					string backup_url = codec["url_info"][1]["host"].asString() + codec["base_url"].asString() + codec["url_info"][1]["extra"].asString();
-					qualityItemBackup["url"] = backup_url;
-					qualityItemBackup["quality"] =  "- " + getLiveQuality(g_qn_desc, codec["current_qn"].asInt(), codec["hdr_type"].asInt(), video_color_info) + codec_suffix + " 备份";
-					// qualityItemBackup["quality"] =  "- " + getLiveQualityNew(g_qn_desc, codec["current_qn"].asInt(), codec["hdr_type"].asInt(), video_color_info) + " 备份";
-					// qualityItemBackup["format"] = codec_name;
-					qualityItemBackup["qualityDetail"] = qualityItemBackup["quality"];
-					qualityItemBackup["itag"] = getUniItag();
-					qualityItemBackup["resolution"] = codec["width"].asInt() + "x" + codec["height"].asInt();
-					qualityItemBackup["isHDR"] = isHDR;
-					bitrateStr = HostRegExpParse(url, "(?:[?&]origin_bitrate=)(\\d+)(?:&|$)");
-					if (!bitrateStr.empty()) bitrate = HostString2UIntPtr(bitrateStr);
-					qualityItemBackup["bitrate"] = bitrate * 1000;
-					if (@QualityList !is null) QualityList.insertLast(qualityItemBackup);
 				}
 			}
 		}
