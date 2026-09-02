@@ -92,7 +92,7 @@ string GetTitle() {
 }
 
 string GetVersion() {
-	return "2.6.11";
+	return "2.6.9";
 }
 
 string GetDesc() {
@@ -921,7 +921,11 @@ string Video(string id, const string &in path, dictionary &MetaData, array<dicti
 				dictionary dic;
 				dic["name"] = "【弹幕】" + title;
 				dic["url"] = ConfigData.danmakuUrl + cid;
+				log('dic["url"]', ConfigData.danmakuUrl + cid);
 				subtitle.insertLast(dic);
+			}
+			if (!subtitle.empty()) {
+				MetaData["subtitle"] = subtitle;
 			}
 		} else {
 			log("Video view API code != 0", root["code"].asInt());
