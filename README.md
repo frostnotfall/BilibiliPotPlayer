@@ -25,7 +25,7 @@
 
 ### 🔧 整体优化
 - 本地缓存响应数据，降低 API 请求次数。可在配置文件中设置，默认300s。
-- 清理无用代码。
+- 清理无用代码，较为激进，有问题请提issue。
 - 换用新的 itag 选择机制。
 
 ### 📺 直播
@@ -67,20 +67,6 @@
 ## wiki
 
 一些问题的解决办法，[wiki](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E4%B8%80%E4%BA%9B%E5%8F%AF%E8%83%BD%E7%9A%84%E9%97%AE%E9%A2%98%E5%8F%8A%E9%83%A8%E5%88%86%E8%A7%A3%E5%86%B3%E5%8A%9E%E6%B3%95)
-
-## 油猴脚本
-
-由于从 PotPlayer 内部实现精准空降存在一定难度<sup>[1](#关于精准空降)</sup>，因此目前采用外部油猴脚本的方式实现其功能。
-
-目前修改版脚本 [BilibiliPotPlayer-改](https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-改) 支持：
-
-* **精准空降**：将网页端指定的播放时间传递给 PotPlayer，实现精准跳转。
-
-* **打开 PotPlayer 时自动暂停网页端视频**：启动 PotPlayer 播放后，自动暂停 Bilibili 网页端正在播放的视频，避免音视频重复播放。
-
-### 油猴脚本声明
-
-修改版脚本 `BilibiliPotPlayer-改` [https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-改](https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-%E6%94%B9)) 基于`原版油猴脚本` [油猴脚本https://greasyfork.org/zh-CN/scripts/461800-bilibilipotplayer](https://greasyfork.org/zh-CN/scripts/461800-bilibilipotplayer)，并保留原作者及原项目相关信息。如原作者对本脚本的发布或再分发存在异议，并要求停止发布，本人将配合下架本脚本。
 
 ## 安装插件
 
@@ -164,14 +150,17 @@
 
 ## 油猴脚本
 
-由于从 PotPlayer 内部实现精准空降存在一定难度<sup>[2](#关于精准空降)</sup>，因此目前采用外部油猴脚本的方式实现其功能。
+由于从 PotPlayer 内部实现精准空降存在一定难度<sup>[1](#关于精准空降)</sup>，因此目前采用外部油猴脚本的方式实现其功能。
 
 目前修改版脚本 [BilibiliPotPlayer-改](https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-改) 支持：
 
 * **精准空降**：将网页端指定的播放时间传递给 PotPlayer，实现精准跳转。
 
 * **打开 PotPlayer 时自动暂停网页端视频**：启动 PotPlayer 播放后，自动暂停 Bilibili 网页端正在播放的视频，避免音视频重复播放。
-对本脚本的发布或再分发存在异议，并要求停止发布，本人将配合下架本脚本。
+
+### 油猴脚本声明
+
+修改版脚本 `BilibiliPotPlayer-改` [https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-改](https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-%E6%94%B9)) 基于`原版油猴脚本` [油猴脚本https://greasyfork.org/zh-CN/scripts/461800-bilibilipotplayer](https://greasyfork.org/zh-CN/scripts/461800-bilibilipotplayer)，并保留原作者及原项目相关信息。如原作者对本脚本的发布或再分发存在异议，并要求停止发布，本人将配合下架本脚本。
 
 ## 关于精准空降
 
