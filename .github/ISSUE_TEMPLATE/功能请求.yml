@@ -1,0 +1,50 @@
+name: 功能请求
+description: 提议新的功能或改进
+title: "[Feature]: "
+labels:
+  - enhancement
+
+body:
+  - type: textarea
+    id: feature
+    attributes:
+      label: 功能描述
+      description: 请描述希望增加或改进的功能。
+      placeholder: |
+        请描述：
+        - 希望增加什么功能
+        - 具体希望如何工作
+    validations:
+      required: true
+
+  - type: textarea
+    id: reason
+    attributes:
+      label: 使用场景
+      description: 请说明为什么需要这个功能，以及它解决了什么问题。
+      placeholder: |
+        请描述具体的使用场景或遇到的问题。
+    validations:
+      required: true
+
+  - type: textarea
+    id: reference
+    attributes:
+      label: 参考信息
+      description: 如果有相关项目、接口、实现方式或其他参考资料，请提供。
+      placeholder: |
+        可以提供：
+        - 相关项目
+        - API 文档
+        - 示例链接
+        - 其他实现方案
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: 其他信息
+      description: 其他可能有帮助的信息。
+      placeholder: |
+        如有其他补充信息，请填写在这里。
