@@ -1,0 +1,53 @@
+name: Bug 反馈
+description: 报告播放或脚本相关问题
+title: "[Bug]: "
+labels:
+  - bug
+
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 请详细描述遇到的问题，包括实际行为和预期行为。
+      placeholder: |
+        请描述：
+        - 什么情况下出现问题
+        - 实际发生了什么
+        - 预期应该是什么
+    validations:
+      required: true
+
+  - type: input
+    id: url
+    attributes:
+      label: 视频链接
+      description: 如果是特定视频无法播放，请提供对应的 Bilibili 视频链接。
+      placeholder: https://www.bilibili.com/...
+    validations:
+      required: false
+
+  - type: input
+    id: potplayer
+    attributes:
+      label: PotPlayer 版本
+      placeholder: 例如 250xxx
+    validations:
+      required: true
+
+  - type: input
+    id: plugin
+    attributes:
+      label: BilibiliPotPlayer 版本
+      description: 请填写使用的版本号或 Commit。
+      placeholder: 例如 v1.0.0 或 commit SHA
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: 其他信息
+      description: 其他可能有帮助的信息，例如日志、错误信息等。
+      placeholder: |
+        如有相关日志，请粘贴在这里。
