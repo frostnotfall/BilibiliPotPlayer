@@ -3,7 +3,7 @@
     "danmaku": {
         // 控制是否接收弹幕。按 Alt+H 可显示/隐藏弹幕
         "enable": true,
-        "server": "",
+        "server": "https://subtitle.lm379.gq",
         // 字体
         "font": "微软雅黑 Light",
         // 字号
@@ -17,18 +17,30 @@
     },
     // 播放单个视频时是否显示推荐的视频
     "showRecommendedVideos": true,
+    
     // 是否屏蔽 P2P CDN
     "blockP2PCDN": true,
+
     // 设定请求缓存的时间，单位(s)
     "cacheValidTime": 300,
+
     // 启用空降助手，其域名 ipv6 地址波动较大，如遇到 potplayer 超时问题先禁用
     "enableSponsorBlock": false,
     // 空降助手镜像地址
     "sponsorBlockMirror": "",
+
+    // 解析真实 M3U8 地址。默认不开启，此种情况下当出现 M3U8 redirect 时，potplayer 会将该播放流名称覆盖为 HLS；若开启，则会尝试解析真实的 M3U8 地址，但会造成额外的请求延迟。当出现 "解析真实M3U8地址" 时间过长时，可以尝试关闭此项。
+    "parseM3u8RealUrl": false,
+
+    // Bilibili_Danmuji 地址。，若存在，观看直播时 potplayer 播放列表侧会出现 Bilibili_Danmuji 窗口，不再需要登录网页收发弹幕。注：需自己部署 Bilibili_Danmuji 服务。
+    "bilibiliDanmujiServer": "",
+
     // 废弃，经测试对画质选择无影响。
     // 默认：false。少数情况会出现低画质流 itag 高于高画质流的情况，禁用 AVC 可绝对避免此种情况。
     "disableAVC": false,
+
     // HDR优先。默认：false。跟随官方设定，“8K超高清” itag 高于 “HDR/杜比视界”。设为 true：“杜比视界/HDR真彩色” itag 高于“8K超高清”。
-    "preferHDR": false,
-    "debug": false
+    "preferHDR": true,
+
+    "debug": true
 }
