@@ -128,6 +128,8 @@ class Config {
     int cacheValidTime = 300;
     bool enableSponsorBlock = false;
     string sponsorBlockMirror;
+    bool parseM3u8RealUrl = false;
+    string bilibiliDanmujiServer;
     bool disableAVC = false;
     bool preferHDR = false;
     bool debug = false;
@@ -233,16 +235,26 @@ string GetStatus() {
         info = "解析视频信息";
         break;
     case 5:
-        info = "请求空降助手接口";
+        info = "解析真实播放地址";
         break;
     case 6:
-        info = "解析真实播放地址";
+        info = "请求空降助手接口";
+        break;
+    case 7:
+        info = "解析真实M3U8地址";
         break;
     default:
         info = "请等待";
     }
 
     return info;
+}
+
+void OnFinalize() {
+    if (!ConfigData.bilibiliDanmujiServer.isEmpty()) {
+        string unixTime = formatInt(DatetimeToUnixTime(FormatDateTime(datetime())));
+        post(ConfigData.bilibiliDanmujiServer + "/disconnectRoom?_=" + unixTime);
+    }
 }
 
 Config ReadConfigFile(string file) {
@@ -293,6 +305,12 @@ Config ReadConfigFile(string file) {
         }
         if (root["sponsorBlockMirror"].isString()) {
             config.sponsorBlockMirror = root["sponsorBlockMirror"].asString();
+        }
+        if (root["parseM3u8RealUrl"].isBool()) {
+            config.parseM3u8RealUrl = root["parseM3u8RealUrl"].asBool();
+        }
+        if (root["bilibiliDanmujiServer"].isString()) {
+            config.bilibiliDanmujiServer = root["bilibiliDanmujiServer"].asString();
         }
         if (root["disableAVC"].isBool()) {
             config.disableAVC = root["disableAVC"].asBool();
@@ -447,9 +465,10 @@ string post(string url, string data = "", string headers = "", bool debug = true
     return HostUrlGetString(url, "", headers, data);
 }
 
-string apiPost(string api, string data = "") {	
+string apiPost(string api, string data = "", string host=Host) {	
+    host = host.isEmpty() ? Host : host;
     string key;
-    ;
+
     if (!data.empty()) {
         key = HostRegExpRemove(HostRegExpRemove(api, "&w_rid=[^&]*"), "&wts=[^&]*") + "?" + data;
     } else {
@@ -460,25 +479,25 @@ string apiPost(string api, string data = "") {
     ResponseCacheItem item;
     if (ResponseCache.get(key, item)) {
         if (HostGetTickCount() - item.tick_count <= item.valid_time) {
-            log("Cache Hit, url", Host + api);
+            log("Cache Hit, url", host + api);
             return item.response;
         } else {
-            log("Cache expire, url", Host + api);
+            log("Cache expire");
         }
     } else {
-        log("Cache not Hit, url", Host + api);
+        log("Cache not Hit");
     }
 
-    string resp = post(Host + api, data);
+    string resp = post(host + api, data);
     if (resp.empty()) {
-        HostMessageBox("未获取到响应数据，请等待一段时间后重试一下\nurl: " + Host + api, "请求失败");
+        HostMessageBox("未获取到响应数据，请等待一段时间后重试一下\nurl: " + host + api, "请求失败");
         return "";
     }
 
     JsonReader Reader;
     JsonValue Root;
     if (!Reader.parse(resp, Root) || !Root.isObject()) {
-        HostMessageBox("未能解析响应数据\nurl: " + Host + api, "请求失败");
+        HostMessageBox("未能解析响应数据\nurl: " + host + api, "请求失败");
         return "";
     }
     if (Root["code"].asInt() != 0) {
@@ -672,7 +691,11 @@ string getCodec(int codecid) {
 }
 
 string GetM3u8RealURL(string url) {
-    string resp = post(url, "", "", false);
+    status = 7;
+    uint tickCount = HostGetTickCount();
+    string resp = post(url, "", "", true);
+    HostIncTimeOut(HostGetTickCount() - tickCount);
+
     array<string> lines = resp.split("\n");
 
     for (uint i = 0; i < lines.size(); i++) {
@@ -689,6 +712,7 @@ string GetM3u8RealURL(string url) {
         }
     }
 
+    status = 5;
     return url;
 }
 
@@ -857,7 +881,7 @@ string getVideoQuality(JsonValue support_formats, int quality) {
 }
 
 void AppenVideoQualityList(string bvid, string aid, string cid, string& url, array<dictionary>& QualityList) {
-    status = 6;
+    status = 5;
 
     int qn = 127;
     string params;
@@ -1508,6 +1532,45 @@ JsonValue SortVideos(JsonValue& videos) {
 	return sortedVideos;
 }
 
+string getChatUrl(const string room_id, string server) {
+    string chatUrl;
+    uint tickCount;
+    JsonReader Reader;
+    JsonValue Root;
+
+    tickCount = HostGetTickCount();
+
+    string unixTime;
+    unixTime = formatInt(DatetimeToUnixTime(FormatDateTime(datetime())));
+    post(server + "/disconnectRoom?_=" + unixTime);
+    
+    HostIncTimeOut(HostGetTickCount() - tickCount);
+
+    tickCount = HostGetTickCount();
+
+    unixTime = formatInt(DatetimeToUnixTime(FormatDateTime(datetime())));
+    string res = post(server + "/connectRoom?roomid=" + room_id + "&_=" + unixTime);
+
+    HostIncTimeOut(HostGetTickCount() - tickCount);
+
+    if (!Reader.parse(res, Root) || !Root.isObject()) {
+        log('getChatUrl - connectRoom failed', '!Reader.parse(res, Root) || !Root.isObject()');
+        return chatUrl;
+    }
+
+    if (Root["code"].asString() != "200") {
+        log("getChatUrl - connectRoom failed, code: " + Root["code"].asString() + ", msg: " + Root["msg"].asString());
+        
+        return chatUrl;
+    }
+
+    string host = HostRegExpParse(server, "^https?://([^/]+)");
+
+    chatUrl = host + "/danmu_widget?sub=ws://" + host + "/danmu/sub";
+    
+    return chatUrl;
+}
+
 array<dictionary> BangumiEpisodes(string id, string type) {
     log("============================BangumiEpisodes============================");
     array<dictionary> videos;
@@ -1873,7 +1936,7 @@ string Bangumi(const string&in path, dictionary& MetaData, array<dictionary>& Qu
                     }
 
                     if (ConfigData.enableSponsorBlock) {
-                        status = 5;
+                        status = 6;
                         chapter = generateChapter(bvid, chapter, episode["duration"].asFloat());
                         status = 4;
                     }
@@ -1964,7 +2027,7 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
         MetaData["fileExt"] = "mp4";
 
         if (ConfigData.enableSponsorBlock) {
-            status = 5;
+            status = 6;
             chapter = generateChapter(bvid, chapter, view["duration"].asInt() * 1000.0);
             status = 4;
         }
@@ -1989,7 +2052,7 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
     string url;
     string res;
 
-    res = post("https://api.live.bilibili.com/xlive/web-room/v1/index/getInfoByRoom?room_id=" + id);
+    res = apiPost("/xlive/web-room/v1/index/getInfoByRoom?room_id=" + id, "", "https://api.live.bilibili.com");
     JsonReader Reader;
     JsonValue Root;
     if (!Reader.parse(res, Root) || !Root.isObject() || Root["code"].asInt() != 0) {
@@ -1997,6 +2060,7 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
     }
 
     JsonValue data = Root["data"]["room_info"];
+    string room_id = data["room_id"].asInt();
 
     if (@MetaData !is null) {
         MetaData["title"] = data["title"].asString();
@@ -2006,16 +2070,23 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
         MetaData["webUrl"] = makeWebUrl(path);
         MetaData["viewCount"] = Root["watched_show"]["num"].asString();
         MetaData["likeCount"] = Root["like_info_v3"]["like"].asString();
+        MetaData["fileExt"] = "mp4";
+
+        if (!ConfigData.bilibiliDanmujiServer.isEmpty()) {
+            string chatUrl = getChatUrl(room_id, ConfigData.bilibiliDanmujiServer);
+            log('chatUrl', chatUrl);
+            MetaData["chatUrl"] = chatUrl;
+        }
     }
 	
-    status = 6;
+    status = 5;
 	
     array<int> accept_qns;
     string default_format;
-    string room_id = data["room_id"].asInt();
+    
     int qn = 30000;
 
-    res = post("https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?room_id=" + room_id + "&qn=" + qn + "&codec=0,1,2&format=0,1,2&mask=0&no_playurl=0&platform=web&protocol=0,1&eotf=0,1,2");
+    res = apiPost("/xlive/web-room/v2/index/getRoomPlayInfo?room_id=" + room_id + "&qn=" + qn + "&codec=0,1,2&format=0,1,2&mask=0&no_playurl=0&platform=web&protocol=0,1&eotf=0,1,2", "", "https://api.live.bilibili.com");
     if (!Reader.parse(res, Root) || !Root.isObject() || Root["code"].asInt() != 0) {
         return url;
     }
@@ -2102,7 +2173,7 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
     int itag = 0;
     for (int i = 0; i < accept_qns.size(); i++) {
         qn = accept_qns[i];
-        res = post("https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?room_id=" + room_id + "&qn=" + accept_qns[i] + "&codec=0,1,2&format=0,1,2&mask=0&no_playurl=0&platform=web&protocol=0,1&eotf=0,1,2");
+        res = apiPost("/xlive/web-room/v2/index/getRoomPlayInfo?room_id=" + room_id + "&qn=" + accept_qns[i] + "&codec=0,1,2&format=0,1,2&mask=0&no_playurl=0&platform=web&protocol=0,1&eotf=0,1,2", "", "https://api.live.bilibili.com");
 
         if (!Reader.parse(res, Root) || !Root.isObject() || Root["code"].asInt() != 0) {
             return url;
@@ -2161,7 +2232,8 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 
                     for (int j = 0; j < url_infos.size(); j++) {
                         string url_info_url = codec["url_info"][j]["host"].asString() + codec["base_url"].asString() + codec["url_info"][j]["extra"].asString();
-                        url_info_url = GetM3u8RealURL(url_info_url);
+
+                        if (ConfigData.parseM3u8RealUrl) url_info_url = GetM3u8RealURL(url_info_url);
 						
                         if (best_qn == codec["current_qn"].asInt()) url = url_info_url;
 
@@ -2242,7 +2314,7 @@ string Audio(const string&in path, dictionary& MetaData, array<dictionary>& Qual
         }
     }
 
-    status = 6;
+    status = 5;
     res = post("https://www.bilibili.com/audio/music-service-c/web/url?privilege=2&quality=2&sid=" + id);
     res = HostDecompress(res);
     if (Reader.parse(res, Root) && Root.isObject()) {
@@ -2974,6 +3046,7 @@ bool PlaylistCheck(const string&in path) {
         if (path.find("areaId") >= 0 || path.find("lol") >= 0 || path.find("hpjy") >= 0) {
             return true;
         }
+        return true;
     }
     if (path.find("www.bilibili.com") >= 0 && HostRegExpParse(path, "www.bilibili.com/([a-zA-Z0-9]+)").empty()) {
         return true;

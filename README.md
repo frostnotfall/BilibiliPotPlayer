@@ -34,7 +34,8 @@
 - 默认使用低延迟的 HLS/fMP4 流，无法提供时回退至 HLS/TS。
 - 支持直播备用地址。
 - 动态生成直播画质选项。
-- 规避画质选项 potplayer 自动覆盖成 HLS 的问题。
+- 增加 解析真实 M3U8 开关。规避画质选项 potplayer 自动覆盖成 HLS 的问题。详见配置项注释。
+- 支持 [Bilibili_Danmuji](https://github.com/BanqiJane/Bilibili_Danmuji)，增加 potplayer 收发弹幕功能。需自建 Bilibili_Danmuji 服务，详见配置项注释。
 
 ### ▶️ 点播
 
