@@ -74,83 +74,7 @@
 
 ## 安装插件
 
-[下载项目](https://github.com/frostnotfall/BilibiliPotPlayer/archive/refs/heads/master.zip)
-
-将项目 `Media/PlayParse` 路径下的 `MediaPlayParse - Bilibili.as`、`MediaPlayParse - Bilibili.ico` 和 `Bilibili_Config.json` 三个文件复制到 `{PotPlayer 安装路径}\Extension\Media\PlayParse` 文件夹下。
-
-`MediaPlayParse - Bilibili.as` 提供了解析 `Bilibili` 链接的功能。
-
-将项目 `Media/UrlList` 路径下的 `MediaUrlList - Bilibili.as` 和 `MediaUrlList - Bilibili.ico` 两个文件复制到 `{PotPlayer 安装路径}\Extension\Media\UrlList` 文件夹下。
-
-`MediaUrlList - Bilibili.as` 提供了列出 `Bilibili` 常用链接的功能，使用方式为按下 <kbd>ctrl</kbd> + <kbd>U</kbd> 并选择要播放的项目，如下图所示
-
-![UrlList](https://cdn.jsdelivr.net/gh/chen310/BilibiliPotPlayer/public/urllist.png)
-
-## 新登录方式（旧cookie方式已弃用）
-
-打开 PotPlayer，按 <kbd>F5</kbd> 打开选项，点击`扩展功能`，此时有两种登录方式，任选其一即可：
-
-* 第一种，点击`媒体播放列表/项目`，再点击 `Bilibili`，然后点击`设置`，此时弹出一个网页进程，按照正常网页端登录即可。
-
-![login_1](public/login_1.png)
-
-* 第二种，点击右方向右箭头，找到`网络账户`并点击，然后点击`Bilibili`，最后点击`管理账户`，同样会弹出一个网页进程，按照正常网页端登录即可。
-
-![login_2](/public/login_2.png)
-
-### 网页登陆界面
-注：窗口大小可手动调整
-![login_web](/public/login_web.png)
-
-## 使用方法
-
-### 播放视频/直播
-
-将 Bilibili 链接拖到 PotPlayer，或者按 <kbd>ctrl</kbd> + <kbd>U</kbd> 粘贴 Bilibili 链接即可播放。可参考[视频](https://www.bilibili.com/video/BV1mM41177kT)
-
-### 搜索
-
-按 <kbd>ctrl</kbd> + <kbd>U</kbd>，在文件地址列表中选择`搜索`，然后到上面的输入框中替换关键词，最后回车即可
-
-![Search](https://cdn.jsdelivr.net/gh/chen310/BilibiliPotPlayer/public/search.png)
-
-### 跳过片头片尾（通过空降助手）
-
-对于一些电视剧、番剧，能够跳过片头和片尾。具体设置为：在 PotPlayer 上点击鼠标右键，选择`播放`-`跳略播放`-`跳略播放设置`
-
-![Skip_Settings](https://cdn.jsdelivr.net/gh/chen310/BilibiliPotPlayer/public/skip_1.png)
-
-勾选`跳略播放`和`章节名称`，并在名称列表中追加片段名称（例如：`开场动画`和`片尾`），每一项之间用英文分号`;`隔开，所有片段名称如下：
-
-- `赞助`
-- `推广`
-- `品牌合作`
-- `三连提醒`
-- `精彩时刻`
-- `开场动画`
-- `片尾`
-- `预览`
-- `填充内容`
-- `离题`
-- `非音乐`
-
-**注**：是否存在这些片段跳过取决于 [空降助手](https://github.com/hanydd/BilibiliSponsorBlock)  服务端是否有该视频对应的数据，而数据需要用户手动上传。网页端可安装 [浏览器扩展](https://chromewebstore.google.com/detail/%E5%B0%8F%E7%94%B5%E8%A7%86%E7%A9%BA%E9%99%8D%E5%8A%A9%E6%89%8B/eaoelafamejbnggahofapllmfhlhajdd)，欢迎添加片段。
-
-![Skip_Settings](/public/skip_2.png)
-
-### 在列表中显示缩略图
-
-按 <kbd>F6</kbd> 打开播放列表，点击鼠标右键，点击`样式`，选择`显示缩略图`，即可显示视频的缩略图。
-
-![Thumbnail](https://cdn.jsdelivr.net/gh/chen310/BilibiliPotPlayer/public/thumbnail.png)
-
-### 创建自动更新的播放列表
-
-按 <kbd>F6</kbd> 打开播放列表，点击新建专辑，起一个合适的专辑名称，选择外部播放列表，并填写相应的链接，再点击确定即可。这样就得到一个可以自动更新的列表。
-
-![Create_Playlist](https://cdn.jsdelivr.net/gh/chen310/BilibiliPotPlayer/public/create_playlist_1.png)
-
-![Create_Playlist](https://cdn.jsdelivr.net/gh/chen310/BilibiliPotPlayer/public/create_playlist_2.png)
+参考 [安装及基本使用教程](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E5%AE%89%E8%A3%85%E5%8F%8A%E5%9F%BA%E6%9C%AC%E4%BD%BF%E7%94%A8%E6%95%99%E7%A8%8B)
 
 ## 油猴脚本
 
@@ -165,12 +89,6 @@
 ### 油猴脚本声明
 
 修改版脚本 `BilibiliPotPlayer-改` [https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-改](https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-%E6%94%B9)) 基于`原版油猴脚本` [油猴脚本https://greasyfork.org/zh-CN/scripts/461800-bilibilipotplayer](https://greasyfork.org/zh-CN/scripts/461800-bilibilipotplayer)，并保留原作者及原项目相关信息。如原作者对本脚本的发布或再分发存在异议，并要求停止发布，本人将配合下架本脚本。
-
-## 关于精准空降
-
-目前发现 PotPlayer 播放 youtube 可支持精准空降，但分析研究 `MediaPlayParse - YouTube.as`，未找到其相关控制代码。
-
-目前精准空降的实现是通过搭配的[修改版油猴脚本](#油猴脚本)实现。
 
 # 声明
 - 致敬原作者：[chen310/BilibiliPotPlayer](https://github.com/chen310/BilibiliPotPlayer) 
