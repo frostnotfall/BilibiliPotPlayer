@@ -2230,8 +2230,12 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
                         continue;
                     }
 
+
                     for (int j = 0; j < url_infos.size(); j++) {
+
                         string url_info_url = codec["url_info"][j]["host"].asString() + codec["base_url"].asString() + codec["url_info"][j]["extra"].asString();
+
+                        if (isP2PCDN(url_info_url)) continue;
 
                         if (ConfigData.parseM3u8RealUrl) url_info_url = GetM3u8RealURL(url_info_url);
 						
@@ -2364,7 +2368,7 @@ array<dictionary> watchlater() {
 array<dictionary> History() {
     array<dictionary> videos;
     uint max = 0;
-    uint ps = 20;
+    uint ps = 30;
     string res = apiPost("/x/web-interface/history/cursor?max=" + max + "&ps=" + ps);
     JsonReader Reader;
     JsonValue Root;
@@ -2626,11 +2630,21 @@ array<dictionary> followingLive(uint page) {
     return videos;
 }
 
-array<dictionary> liveCategory(uint page, string cateid, string parentAreaId, uint liveRoomCount) {
+array<dictionary> liveCategory(string path, uint page, string cateid, string parentAreaId, uint liveRoomCount) {
+    JsonReader Reader;
+    JsonValue Root;
+    
+    string renderData = HostRegExpParse(post(path), "window\\._render_data_\\s*=\\s*(\\{\"access_id\":\"[^\"]+\"\\})");
+    if (!Reader.parse(renderData, Root) || !Root.isObject()) return array<dictionary>();
+
+    return liveCategory(page, cateid, parentAreaId, liveRoomCount, Root["access_id"].asString());
+}
+
+array<dictionary> liveCategory(uint page, string cateid, string parentAreaId, uint liveRoomCount, string w_webid) {
     array<dictionary> videos;
     JsonReader Reader;
     JsonValue Root;
-    string params = "platform=web&parent_area_id=" + parentAreaId + "&area_id=" + cateid + "&page=" + page;
+    string params = "platform=web&parent_area_id=" + parentAreaId + "&area_id=" + cateid + "&page=" + page + "&w_webid=" + w_webid;
     string url = "https://api.live.bilibili.com/xlive/web-interface/v1/second/getList?" + encWbi(params);
     string res = post(url);
     if (Reader.parse(res, Root) && Root.isObject()) {
@@ -2651,7 +2665,7 @@ array<dictionary> liveCategory(uint page, string cateid, string parentAreaId, ui
                     }
                 }
                 if (Root["data"]["has_more"].asBool()) {
-                    array<dictionary> nextVideos = liveCategory(page + 1, cateid, parentAreaId, liveRoomCount);
+                    array<dictionary> nextVideos = liveCategory(page + 1, cateid, parentAreaId, liveRoomCount, w_webid);
                     for (uint i = 0; i < nextVideos.size(); i++) {
                         videos.insertLast(nextVideos[i]);
                     }
@@ -3127,13 +3141,13 @@ array<dictionary> PlaylistParse(const string&in url) {
     }
     if (path.find("live.bilibili.com") >= 0) {
         if (path.find("areaId") >= 0) {
-            return liveCategory(1, HostRegExpParse(path, "areaId=([0-9]+)"), HostRegExpParse(path, "parentAreaId=([0-9]+)"), 0);
+            return liveCategory(path, 1, HostRegExpParse(path, "areaId=([0-9]+)"), HostRegExpParse(path, "parentAreaId=([0-9]+)"), 0);
         }
         if (path.find("lol") >= 0) {
-            return liveCategory(1, "86", "2", 0);
+            return liveCategory(path, 1, "86", "2", 0);
         }
         if (path.find("hpjy") >= 0) {
-            return liveCategory(1, "256", "3", 0);
+            return liveCategory(path, 1, "256", "3", 0);
         }
     }
     if (path.find("www.bilibili.com") >= 0 && HostRegExpParse(path, "www.bilibili.com/([a-zA-Z0-9]+)").empty()) {
