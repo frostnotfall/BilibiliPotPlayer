@@ -42,5 +42,5 @@
     // HDR优先。默认：false。跟随官方设定，“8K超高清” itag 高于 “HDR/杜比视界”。设为 true：“杜比视界/HDR真彩色” itag 高于“8K超高清”。
     "preferHDR": true,
 
-    "debug": true
+    "debug": false
 }
