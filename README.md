@@ -74,7 +74,7 @@
 
 ## 安装插件
 
-参考 [安装及基本使用教程](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E5%AE%89%E8%A3%85%E5%8F%8A%E5%9F%BA%E6%9C%AC%E4%BD%BF%E7%94%A8%E6%95%99%E7%A8%8B)
+参考 [安装及基本使用教程](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E5%AE%89%E8%A3%85%E5%8F%8A%E5%9F%BA%E6%9C%AC%E4%BD%BF%E7%94%A8%E6%95%99%E7%A8%8B)，[进阶教程](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E8%BF%9B%E9%98%B6%E6%95%99%E7%A8%8B)。
 
 ## 油猴脚本
 
