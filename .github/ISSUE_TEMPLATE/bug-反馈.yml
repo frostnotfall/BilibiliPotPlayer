@@ -28,15 +28,16 @@ body:
       required: false
 
   - type: input
-    id: potplayer
+    id: config
     attributes:
-      label: PotPlayer 版本
-      placeholder: 例如 250xxx
+      label: 配置文件
+      description: 贴出你的配置
+      placeholder: 将你的配置文件内容贴出来
     validations:
       required: true
 
   - type: input
-    id: plugin
+    id: bilibilipotPlayer
     attributes:
       label: BilibiliPotPlayer 版本
       description: 请填写使用的版本号或 Commit。
@@ -44,10 +45,18 @@ body:
     validations:
       required: true
 
+  - type: input
+    id: potplayer
+    attributes:
+      label: PotPlayer 版本
+      placeholder: 例如 250xxx
+    validations:
+      required: true
+
   - type: textarea
     id: additional
     attributes:
       label: 其他信息
-      description: 其他可能有帮助的信息，例如日志、错误信息等。
+      description: 其他可能有帮助的信息，例如日志、错误信息等。可将 debug 设为 true，potplayer 播放失败后将调试窗口内容完整贴出。
       placeholder: |
         如有相关日志，请粘贴在这里。
