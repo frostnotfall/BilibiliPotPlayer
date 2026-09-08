@@ -44,25 +44,225 @@ string post(string url, string data="") {
 
 array<dictionary> Ranking() {
 	return {
-		{ { "title", "全站" }, { "url", "https://www.bilibili.com/v/popular/rank/all" } },
-		{ { "title", "国创相关" }, { "url", "https://www.bilibili.com/v/popular/rank/guochuang" } },
+		{ { "title", "全部" }, { "url", "https://www.bilibili.com/v/popular/rank/all" } },
+		{ { "title", "番剧" }, { "url", "https://www.bilibili.com/v/popular/rank/anime" } },
+		{ { "title", "国创" }, { "url", "https://www.bilibili.com/v/popular/rank/guochuang" } },
+		{ { "title", "纪录片" }, { "url", "https://www.bilibili.com/v/popular/rank/documentary" } },
+		{ { "title", "电影" }, { "url", "https://www.bilibili.com/v/popular/rank/movie" } },
+		{ { "title", "电视剧" }, { "url", "https://www.bilibili.com/v/popular/rank/tv" } },
+		{ { "title", "综艺" }, { "url", "https://www.bilibili.com/v/popular/rank/variety" } },
 		{ { "title", "动画" }, { "url", "https://www.bilibili.com/v/popular/rank/douga" } },
+		{ { "title", "游戏" }, { "url", "https://www.bilibili.com/v/popular/rank/game" } },
+		{ { "title", "鬼畜" }, { "url", "https://www.bilibili.com/v/popular/rank/kichiku" } },
 		{ { "title", "音乐" }, { "url", "https://www.bilibili.com/v/popular/rank/music" } },
 		{ { "title", "舞蹈" }, { "url", "https://www.bilibili.com/v/popular/rank/dance" } },
-		{ { "title", "游戏" }, { "url", "https://www.bilibili.com/v/popular/rank/game" } },
-		{ { "title", "知识" }, { "url", "https://www.bilibili.com/v/popular/rank/knowledge" } },
-		{ { "title", "科技" }, { "url", "https://www.bilibili.com/v/popular/rank/tec" } },
-		{ { "title", "运动" }, { "url", "https://www.bilibili.com/v/popular/rank/spor" } },
-		{ { "title", "汽车" }, { "url", "https://www.bilibili.com/v/popular/rank/car" } },
-		{ { "title", "生活" }, { "url", "https://www.bilibili.com/v/popular/rank/life" } },
-		{ { "title", "美食" }, { "url", "https://www.bilibili.com/v/popular/rank/food" } },
-		{ { "title", "动物圈" }, { "url", "https://www.bilibili.com/v/popular/rank/animal" } },
-		{ { "title", "鬼畜" }, { "url", "https://www.bilibili.com/v/popular/rank/kichiku" } },
-		{ { "title", "时尚" }, { "url", "https://www.bilibili.com/v/popular/rank/fashion" } },
-		{ { "title", "娱乐" }, { "url", "https://www.bilibili.com/v/popular/rank/en" } },
 		{ { "title", "影视" }, { "url", "https://www.bilibili.com/v/popular/rank/cinephile" } },
+		{ { "title", "娱乐" }, { "url", "https://www.bilibili.com/v/popular/rank/ent" } },
+		{ { "title", "知识" }, { "url", "https://www.bilibili.com/v/popular/rank/knowledge" } },
+		{ { "title", "科技数码" }, { "url", "https://www.bilibili.com/v/popular/rank/tech" } },
+		{ { "title", "美食" }, { "url", "https://www.bilibili.com/v/popular/rank/food" } },
+		{ { "title", "汽车" }, { "url", "https://www.bilibili.com/v/popular/rank/car" } },
+		{ { "title", "时尚美妆" }, { "url", "https://www.bilibili.com/v/popular/rank/fashion" } },
+		{ { "title", "体育运动" }, { "url", "https://www.bilibili.com/v/popular/rank/sports" } },
+		{ { "title", "动物" }, { "url", "https://www.bilibili.com/v/popular/rank/animal" } },		
 	};
 }
+
+array<dictionary> RankingPgc(string path) {
+	array<dictionary> videos;
+
+	string key = HostRegExpParse(path, "/v/popular/rank/([^/?#]+)");
+	if (key.empty()) {
+		return videos;
+	}
+
+	string configJson = '{'
+		'"all":         {"title":"全部",     "api":"/x/web-interface/ranking/v2",        "rid":0},'
+		'"anime":       {"title":"番剧",     "api":"/pgc/web/rank/list",                  "season_type":1},'
+		'"guochuang":   {"title":"国创",     "api":"/pgc/season/rank/web/list",           "season_type":4},'
+		'"documentary": {"title":"纪录片",   "api":"/pgc/season/rank/web/list",           "season_type":3},'
+		'"movie":       {"title":"电影",     "api":"/pgc/season/rank/web/list",           "season_type":2},'
+		'"tv":          {"title":"电视剧",   "api":"/pgc/season/rank/web/list",           "season_type":5},'
+		'"variety":     {"title":"综艺",     "api":"/pgc/season/rank/web/list",           "season_type":7},'
+
+		'"douga":       {"title":"动画",     "api":"/x/web-interface/ranking/v2",         "rid":1005},'
+		'"game":        {"title":"游戏",     "api":"/x/web-interface/ranking/v2",         "rid":1008},'
+		'"kichiku":     {"title":"鬼畜",     "api":"/x/web-interface/ranking/v2",         "rid":1007},'
+		'"music":       {"title":"音乐",     "api":"/x/web-interface/ranking/v2",         "rid":1003},'
+		'"dance":       {"title":"舞蹈",     "api":"/x/web-interface/ranking/v2",         "rid":1004},'
+		'"cinephile":   {"title":"影视",     "api":"/x/web-interface/ranking/v2",         "rid":1001},'
+		'"ent":         {"title":"娱乐",     "api":"/x/web-interface/ranking/v2",         "rid":1002},'
+		'"knowledge":   {"title":"知识",     "api":"/x/web-interface/ranking/v2",         "rid":1010},'
+		'"tech":        {"title":"科技数码", "api":"/x/web-interface/ranking/v2",         "rid":1012},'
+		'"food":        {"title":"美食",     "api":"/x/web-interface/ranking/v2",         "rid":1020},'
+		'"car":         {"title":"汽车",     "api":"/x/web-interface/ranking/v2",         "rid":1013},'
+		'"fashion":     {"title":"时尚美妆", "api":"/x/web-interface/ranking/v2",         "rid":1014},'
+		'"sports":      {"title":"体育运动", "api":"/x/web-interface/ranking/v2",         "rid":1018},'
+		'"animal":      {"title":"动物",     "api":"/x/web-interface/ranking/v2",         "rid":1024}'
+	'}';
+
+	JsonReader Reader;
+	JsonValue Config;
+
+	if (!Reader.parse(configJson, Config) || !Config.isObject()) {
+		return videos;
+	}
+
+	JsonValue config = Config[key];
+
+	if (!config.isObject()) {
+		return videos;
+	}
+
+	string api = config["api"].asString();
+	JsonValue Root;
+	string params;
+
+	if (api == "/x/web-interface/ranking/v2") {
+		params = "rid=" + config["rid"].asInt() + "&type=all&web_location=0.0";
+		string res = post("https://api.bilibili.com" + api + "?" + params);
+
+		if (!Reader.parse(res, Root) || !Root.isObject()) return videos;
+		if (Root["code"].asInt() != 0) return videos;
+
+		JsonValue list = Root["data"]["list"];
+		if (!list.isArray()) return videos;
+
+		for (int i = 0; i < list.size(); i++) {
+			JsonValue item = list[i];
+			dictionary video;
+
+			video["title"] = item["title"].asString();
+			video["url"] = "https://www.bilibili.com/video/" + item["bvid"].asString();
+			// video["duration"] = item["duration"].asInt() * 1000;
+			// video["thumbnail"] = item["pic"].asString();
+			// video["author"] = item["owner"]["name"].asString();
+			// video["date"] = UnixTimeToDateTime(item["pubdate"].asInt64());
+
+			videos.insertLast(video);
+		}
+	}
+	else if (api == "/pgc/web/rank/list") {
+		params = "day=3&season_type=" + config["season_type"].asInt() + "&web_location=0.0";
+		string res = post("https://api.bilibili.com" + api + "?" + params);
+
+		if (!Reader.parse(res, Root) || !Root.isObject()) return videos;
+		if (Root["code"].asInt() != 0) return videos;
+
+		JsonValue list = Root["result"]["list"];
+		if (!list.isArray()) return videos;
+
+		for (int i = 0; i < list.size(); i++) {
+			JsonValue item = list[i];
+			dictionary video;
+
+			video["title"] = item["title"].asString();
+			video["url"] = item["url"].asString();
+			// video["duration"] = item["duration"].asInt() * 1000;
+			// video["thumbnail"] = item["ss_horizontal_cover"].asString();
+			// video["author"] = item["owner"]["name"].asString();
+			// video["date"] = UnixTimeToDateTime(item["pubdate"].asInt64());
+			// video["viewCount"] = item["stat"]["view"].asString();
+
+			videos.insertLast(video);
+		}
+	}
+	else if (api == "/pgc/season/rank/web/list") {
+		params = "day=3&season_type=" + config["season_type"].asInt() + "&web_location=0.0";
+		string res = post("https://api.bilibili.com" + api + "?" + params);
+
+		if (!Reader.parse(res, Root) || !Root.isObject()) return videos;
+		if (Root["code"].asInt() != 0) return videos;
+
+		JsonValue list = Root["data"]["list"];
+		if (!list.isArray()) return videos;
+
+		for (int i = 0; i < list.size(); i++) {
+			JsonValue item = list[i];
+			dictionary video;
+
+			video["title"] = item["title"].asString();
+			video["url"] = item["url"].asString();
+			// video["duration"] = item["duration"].asInt() * 1000;
+			// video["thumbnail"] = item["ss_horizontal_cover"].asString();
+			// video["author"] = item["owner"]["name"].asString();
+			// video["date"] = UnixTimeToDateTime(item["pubdate"].asInt64());
+			// video["viewCount"] = item["stat"]["view"].asString();
+
+			videos.insertLast(video);
+		}
+	}
+
+	return videos;
+}
+
+array<dictionary> RankingBangumi() {
+	return RankingPgc("/v/popular/rank/anime");
+}
+
+array<dictionary> RankingGuochuang() {
+	return RankingPgc("/v/popular/rank/guochuang");
+}
+
+array<dictionary> RankingDocumentary() {
+	return RankingPgc("/v/popular/rank/documentary");
+}
+
+array<dictionary> RankingMovie() {
+	return RankingPgc("/v/popular/rank/movie");
+}
+
+array<dictionary> RankingTV() {
+	return RankingPgc("/v/popular/rank/tv");
+}
+
+array<dictionary> RankingVariety() {
+	return RankingPgc("/v/popular/rank/variety");
+}
+
+// array<dictionary> Dynamic() {
+// 	return {
+// 		{ { "title", "番剧" }, { "url", "https://www.bilibili.com/anime/" } },
+// 		{ { "title", "电影" }, { "url", "https://www.bilibili.com/movie/" } },
+// 		{ { "title", "国创" }, { "url", "https://www.bilibili.com/guochuang/" } },
+// 		{ { "title", "电视剧" }, { "url", "https://www.bilibili.com/tv/" } },
+// 		{ { "title", "综艺" }, { "url", "https://www.bilibili.com/variety/" } },
+// 		{ { "title", "纪录片" }, { "url", "https://www.bilibili.com/documentary/" } },
+// 		{ { "title", "动画" }, { "url", "https://www.bilibili.com/c/douga/" } },
+// 		{ { "title", "游戏" }, { "url", "https://www.bilibili.com/c/game/" } },
+// 		{ { "title", "鬼畜" }, { "url", "https://www.bilibili.com/c/kichiku/" } },
+// 		{ { "title", "音乐" }, { "url", "https://www.bilibili.com/c/music/" } },
+// 		{ { "title", "舞蹈" }, { "url", "https://www.bilibili.com/c/dance/" } },
+// 		{ { "title", "影视" }, { "url", "https://www.bilibili.com/c/cinephile/" } },
+// 		{ { "title", "娱乐" }, { "url", "https://www.bilibili.com/c/ent/" } },
+// 		{ { "title", "知识" }, { "url", "https://www.bilibili.com/c/knowledge/" } },
+// 		{ { "title", "科技数码" }, { "url", "https://www.bilibili.com/c/tech/" } },
+// 		{ { "title", "资讯" }, { "url", "https://www.bilibili.com/c/information/" } },
+// 		{ { "title", "美食" }, { "url", "https://www.bilibili.com/c/food/" } },
+// 		{ { "title", "小剧场" }, { "url", "https://www.bilibili.com/c/shortplay/" } },
+// 		{ { "title", "汽车" }, { "url", "https://www.bilibili.com/c/car" } },
+// 		{ { "title", "时尚美妆" }, { "url", "https://www.bilibili.com/c/fashion/" } },
+// 		{ { "title", "体育运动" }, { "url", "https://www.bilibili.com/c/sports/" } },
+// 		{ { "title", "动物" }, { "url", "https://www.bilibili.com/c/animal/" } },
+// 		{ { "title", "vlog" }, { "url", "https://www.bilibili.com/c/vlog/" } },
+// 		{ { "title", "绘画" }, { "url", "https://www.bilibili.com/c/painting/" } },
+// 		{ { "title", "人工智能" }, { "url", "https://www.bilibili.com/c/ai/" } },
+// 		{ { "title", "家装房产" }, { "url", "https://www.bilibili.com/c/home/" } },
+// 		{ { "title", "户外潮流" }, { "url", "https://www.bilibili.com/c/outdoors/" } },
+// 		{ { "title", "健身" }, { "url", "https://www.bilibili.com/c/gym/" } },
+// 		{ { "title", "手工" }, { "url", "https://www.bilibili.com/c/handmake/" } },
+// 		{ { "title", "旅游出行" }, { "url", "https://www.bilibili.com/c/travel/" } },
+// 		{ { "title", "三农" }, { "url", "https://www.bilibili.com/c/rural/" } },
+// 		{ { "title", "亲子" }, { "url", "https://www.bilibili.com/c/parenting/" } },
+// 		{ { "title", "健康" }, { "url", "https://www.bilibili.com/c/health/" } },
+// 		{ { "title", "情感" }, { "url", "https://www.bilibili.com/c/emotion/" } },
+// 		{ { "title", "生活兴趣" }, { "url", "https://www.bilibili.com/c/life_joy/" } },
+// 		{ { "title", "生活经验" }, { "url", "https://www.bilibili.com/c/life_experience/" } },
+// 		{ { "title", "公益" }, { "url", "https://love.bilibili.com" } },
+// 		{ { "title", "超高清" }, { "url", "https://www.bilibili.com/blackboard/era/Vp41b8bsU9Wkog3X.html" } },
+// 		{ { "title", "视频播客" }, { "url", "https://www.bilibili.com/blackboard/era/jpyPhRRrMn3fmZ2B.html" } },
+// 	};
+// }
 
 array<dictionary> Dynamic() {
 	return {
@@ -196,6 +396,16 @@ array<dictionary> Dynamic() {
 	};
 }
 
+
+array<dictionary> Popular() {
+	return {
+		{ { "title", "综合热门" }, { "url", "https://www.bilibili.com/v/popular/all" } },
+		{ { "title", "每周必看（最新一期）" }, { "url", "https://www.bilibili.com/v/popular/weekly" } },
+		{ { "title", "入站必刷" }, { "url", "https://www.bilibili.com/v/popular/history" } },
+		{ { "title", "排行榜（全部）" }, { "url", "https://www.bilibili.com/v/popular/rank/all" } },
+	};
+}
+
 array<dictionary> PopularHistory() {
 	array<dictionary> ret;
 	string res = post("https://api.bilibili.com/x/web-interface/popular/series/list");
@@ -223,39 +433,64 @@ array<dictionary> PopularHistory() {
 
 array<dictionary> Other() {
 	return {
-		{ { "title", "首页推荐" }, { "url", "https://www.bilibili.com" } },
+		{ { "title", "动态首页" }, { "url", "https://t.bilibili.com" } },
 		{ { "title", "我关注的直播" }, { "url", "https://link.bilibili.com/p/center/index#/user-center/follow/1" } },
-		{ { "title", "入站必刷" }, { "url", "https://www.bilibili.com/v/popular/history/" } },
+		{ { "title", "首页推荐" }, { "url", "https://www.bilibili.com" } },
 		{ { "title", "搜索" }, { "url", "https://search.bilibili.com/video?keyword=陈奕迅" } },
 		{ { "title", "稍后再看" }, { "url", "https://www.bilibili.com/watchlater/#/list" } },
 		{ { "title", "历史记录" }, { "url", "https://www.bilibili.com/account/history" } },
-		{ { "title", "动态首页" }, { "url", "https://t.bilibili.com" } },
 	};
 }
 
-array<dictionary> GetCategorys()
-{
+array<dictionary> GetCategorys() {
 	return {
-		{ { "title", "分区 - 排行榜" }, { "Category", "Ranking" } },
-		{ { "title", "分区 - 最新投稿" }, { "Category", "Dynamic" } },
-		{ { "title", "每周必看" }, { "Category", "PopularHistory" } },
-		{ { "title", "其他" }, { "Category", "Other" } },
+		{ { "title", "主要" }, { "Category", "Other" } },
+		{ { "title", "热门" }, { "Category", "Popular" } },
+		{ { "title", "热门 - 每周必看（历史分期）" }, { "Category", "PopularHistory" } },
+		{ { "title", "热门 - 排行榜（分区）" }, { "Category", "Ranking" } },
+		{ { "title", "排行榜 - 番剧" }, { "Category", "RankingBangumi" } },
+		{ { "title", "排行榜 - 国创" }, { "Category", "RankingGuochuang" } },
+		{ { "title", "排行榜 - 纪录片" }, { "Category", "RankingDocumentary" } },
+		{ { "title", "排行榜 - 电影" }, { "Category", "RankingMovie" } },
+		{ { "title", "排行榜 - 电视剧" }, { "Category", "RankingTV" } },
+		{ { "title", "排行榜 - 综艺" }, { "Category", "RankingVariety" } },
+		// { { "title", "分区 - 最新投稿" }, { "Category", "Dynamic" } },
 	};
 }
 
-array<dictionary> GetUrlList(string Category, string Extra, string PathToken, string Query, string PageToken)
-{
+array<dictionary> GetUrlList(string Category, string Extra, string PathToken, string Query, string PageToken) {
 	if (Category == "Ranking") {
 		return Ranking();
 	}
 	if (Category == "Dynamic") {
 		return Dynamic();
 	}
+	if (Category == "Popular") {
+		return Popular();
+	}
 	if (Category == "PopularHistory") {
 		return PopularHistory();
 	}
 	if (Category == "Other") {
 		return Other();
+	}
+	if (Category == "RankingBangumi") {
+		return RankingBangumi();
+	}
+	if (Category == "RankingGuochuang") {
+		return RankingGuochuang();
+	}
+	if (Category == "RankingDocumentary") {
+		return RankingDocumentary();
+	}
+	if (Category == "RankingMovie") {
+		return RankingMovie();
+	}
+	if (Category == "RankingTV") {
+		return RankingTV();
+	}
+	if (Category == "RankingVariety") {
+		return RankingVariety();
 	}
 
 	array<dictionary> ret;
