@@ -1,5 +1,4 @@
 {
-    "maxliveroom": 100,
     "danmaku": {
         // 控制是否接收弹幕。按 Alt+H 可显示/隐藏弹幕
         "enable": true,
@@ -15,9 +14,13 @@
         // 弹幕显示时间
         "stayTime": 15.0
     },
+
     // 播放单个视频时是否显示推荐的视频
     "showRecommendedVideos": true,
-    
+
+    // 是否显示番剧/电影预告片。
+    "showTrailer": false,
+
     // 是否屏蔽 P2P CDN
     "blockP2PCDN": true,
 
@@ -28,12 +31,6 @@
     "enableSponsorBlock": false,
     // 空降助手镜像地址
     "sponsorBlockMirror": "",
-
-    // 解析真实 M3U8 地址。默认不开启，此种情况下当出现 M3U8 redirect 时，potplayer 会将该播放流名称覆盖为 HLS；若开启，则会尝试解析真实的 M3U8 地址，但会造成额外的请求延迟。当出现 "解析真实M3U8地址" 时间过长时，可以尝试关闭此项。
-    "parseM3u8RealUrl": false,
-
-    // Bilibili_Danmuji 地址。，若存在，观看直播时 potplayer 播放列表侧会出现 Bilibili_Danmuji 窗口，不再需要登录网页收发弹幕。注：需自己部署 Bilibili_Danmuji 服务。
-    "bilibiliDanmujiServer": "",
 
     // 各类页面的视频生成数量。数字越大视频越多，但会增加加载时间，极端情况会因超时而加载失败，以及触发风控，需谨慎设置。
     "videoNums": {
@@ -47,6 +44,18 @@
         "popularAllPages": 1,
         // 个人“空间动态” 视频数量，默认 30。从 个人“空间动态” 页面获取的视频数量，最终数量可能会大于设置的值。
         "spaceDynamicVideoNums": 30
+    },
+
+    // 直播
+    "live": {
+        // 解析真实 M3U8 地址。不开启，当出现 M3U8 redirect 时，potplayer 会将该播放流名称覆盖为 HLS；若开启，则会尝试解析真实的 M3U8 地址，但会造成额外的请求延迟。当出现 "解析真实M3U8地址" 时间过长时，可以尝试关闭此项。
+        "parseM3u8RealUrl": true,
+        // BBilibili_Danmuji 地址。，若存在，观看直播时 potplayer 播放列表侧会出现 Bilibili_Danmuji 窗口，不再需要登录网页收发弹幕。注：需自己部署 Bilibili_Danmuji 服务。
+        "bilibiliDanmujiServer": "http://router.frostfall.cn:23333",
+        // 直播分区页面查询的最大房间数。
+        "maxliveroom": 50,
+        // 直播 缩略图 使用关键帧截图，仅适用于打开直播分区页面的情况。
+        "useSystemCover": true
     },
 
     // 废弃，经测试对画质选择无影响。
