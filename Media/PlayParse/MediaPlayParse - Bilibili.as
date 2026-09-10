@@ -272,6 +272,7 @@ class Config {
 	string sponsorBlockMirror;
 	bool parseM3u8RealUrl = false;
 	string bilibiliDanmujiServer;
+	int maxliveroom = 100;
 	int webDynamicVideoNums = 50;
 	int recommendVideoNums = 30;
 	int historyVideoNums = 30;
@@ -284,8 +285,6 @@ class Config {
 	string danmakuUrl;
 	string subtitleUrl;
 	bool usingDanmuji = false;
-
-	int maxliveroom = 100;
 }
 
 Config ReadConfigFile(string file) {
@@ -524,14 +523,18 @@ string post(string url, string data = "", string headers = "", bool debug = true
 }
 
 string apiPost(string api, bool useCache = true) {
-	return apiPost(api, "", Host, useCache);
+	return apiPost(api, "", Host, "", useCache);
 }
 
 string apiPost(string api, string data, bool useCache = true) {
-	return apiPost(api, data, Host, useCache);
+	return apiPost(api, data, Host, "", useCache);
 }
 
 string apiPost(string api, string data, string host, bool useCache = true) {
+	return apiPost(api, data, host, "", useCache);
+}
+
+string apiPost(string api, string data, string host, string headers, bool useCache = true) {
 	ResponseCacheItem item;
 	string key;
 
@@ -554,9 +557,9 @@ string apiPost(string api, string data, string host, bool useCache = true) {
 		}
 	}
 
-	string resp = post(host + api, data);
+	string resp = post(host + api, data, headers);
 	if (resp.empty()) {
-		HostMessageBox("未获取到响应数据，请等待一段时间后重试一下\nurl: " + host + api, "请求失败");
+		HostMessageBox("未获取到响应数据，请等待一段时间后重试一下\n\nurl: " + host + api, "请求失败");
 		return "";
 	}
 
@@ -567,8 +570,8 @@ string apiPost(string api, string data, string host, bool useCache = true) {
 		return "";
 	}
 	if (Root["code"].asInt() != 0) {
-		log("error code: " + Root["code"].asInt() + "\n" + "error message: " + Root["message"].asString() + "\n" + "url:" + Host + api);
-		HostMessageBox("error code: " + Root["code"].asInt() + "\n" + "error message: " + Root["message"].asString() + "\n" + "url:" + Host + api, Root["message"].asString());
+		log("error code: " + Root["code"].asInt() + ", " + "error message: " + Root["message"].asString() + ", " + "url:" + Host + api);
+		HostMessageBox("error code: " + Root["code"].asInt() + "\n" + "error message: " + Root["message"].asString() + "\n\n" + "url:" + Host + api, Root["message"].asString());
 		return "";
 	}
 	if (useCache) {
@@ -758,7 +761,6 @@ string getCodec(int codecid) {
 }
 
 string GetM3u8RealURL(string url) {
-	status = 7;
 	uint tickCount = HostGetTickCount();
 	string resp = post(url, "", "", false);
 	HostIncTimeOut(HostGetTickCount() - tickCount);
@@ -778,18 +780,19 @@ string GetM3u8RealURL(string url) {
 			}
 		}
 	}
-
-	status = 5;
 	return url;
 }
 
 bool isPlaylist(const string&in path) {
 	string bvid = parseBVId(path);
 	string aid = parseAVId(path);
-	string params;
-	if (!bvid.empty()) params += "bvid=" + bvid;
-	if (!aid.empty()) params += "aid=" + aid;	
-	if (bvid.empty() && aid.empty()) return false;
+
+	array<string> queryParts;
+	if (!bvid.empty()) queryParts.insertLast("bvid=" + bvid);
+	if (!aid.empty()) queryParts.insertLast("aid=" + aid);
+
+	string params = join(queryParts, "&");
+	if (params.empty()) return false;
 
 	string res = apiPost("/x/web-interface/wbi/view/detail?" + encWbi(params));
 
@@ -960,6 +963,7 @@ void AppendVideoQualityList(string bvid, string aid, string cid, string& url, ar
 	int qn = 127;
 	string params;
 	string res;
+	string referer;
 	JsonReader reader;
 	JsonValue root;
 
@@ -997,6 +1001,7 @@ void AppendVideoQualityList(string bvid, string aid, string cid, string& url, ar
 					}
 					while (HostExistITag(itag)) itag++;
 					HostSetITag(itag);
+					referer = "https://www.bilibili.com/video/" + bvid;
 	
 					QualityListItem item;
 
@@ -1012,7 +1017,7 @@ void AppendVideoQualityList(string bvid, string aid, string cid, string& url, ar
 					item.itag = itag;
 					item.audioIsDefault = false;
 					item.va = "v";
-					item.referer = "https://www.bilibili.com/video/" + bvid;
+					item.referer = referer;
 					if (i == videos.size() - 1) item.videoIsDefault = true;
 						
 					if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
@@ -1024,19 +1029,19 @@ void AppendVideoQualityList(string bvid, string aid, string cid, string& url, ar
 					audios = data["dash"]["audio"];
 					for (int i = 0; i < audios.size(); i++) {
 						audio = audios[i];
-						AppendAudioQualityList(audio, bvid, QualityList);
+						AppendAudioQualityList(audio, referer, QualityList);
 					}
 				}
 				if (data["dash"]["dolby"]["audio"].isArray()) {
 					audios = data["dash"]["dolby"]["audio"];
 					for (int i = 0; i < audios.size(); i++) {
 						audio = audios[i];
-						AppendAudioQualityList(audio, bvid, QualityList);
+						AppendAudioQualityList(audio, referer, QualityList);
 					}
 				}
 				if (data["dash"]["flac"].isObject()) {
 					audio = data["dash"]["flac"]["audio"];
-					AppendAudioQualityList(audio, bvid, QualityList);
+					AppendAudioQualityList(audio, referer, QualityList);
 				}
 			} else if (data["durl"].isArray()) {
 				log('/x/player/wbi/playurl has data["durl"]!!!');
@@ -1054,7 +1059,7 @@ void AppendVideoQualityList(string bvid, string aid, string cid, string& url, ar
 	log("url", url);
 }
 
-void AppendAudioQualityList(JsonValue audio, string bvid, array<dictionary>& QualityList) {
+void AppendAudioQualityList(JsonValue audio, string referer, array<dictionary>& QualityList) {
 	QualityListItem item;
 
 	int itag = 0;
@@ -1098,7 +1103,7 @@ void AppendAudioQualityList(JsonValue audio, string bvid, array<dictionary>& Qua
 	item.itag = itag;
 	item.audioIsDefault = audioIsDefault;
 	item.va = "a";
-	item.referer = "https://www.bilibili.com/video/" + bvid;
+	item.referer = referer;
 
 	if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
 }
@@ -1631,7 +1636,6 @@ string getChatUrl(const string room_id, string server) {
 
 	unixTime = formatInt(DatetimeToUnixTime(FormatDateTime(datetime())));
 	string res = post(server + "/connectRoom?roomid=" + room_id + "&_=" + unixTime);
-	ConfigData.usingDanmuji = true;
 
 	HostIncTimeOut(HostGetTickCount() - tickCount);
 
@@ -1647,8 +1651,8 @@ string getChatUrl(const string room_id, string server) {
 	}
 
 	string host = HostRegExpParse(server, "^https?://([^/]+)");
-
-	chatUrl = host + "/danmu_widget?sub=ws://" + host + "/danmu/sub";
+	chatUrl = server + "/danmu_widget?sub=ws://" + host + "/danmu/sub";
+	ConfigData.usingDanmuji = true;
 	
 	return chatUrl;
 }
@@ -1687,7 +1691,7 @@ array<dictionary> BangumiEpisodes(string id, string type) {
 
 	for (int j = 0; j < episodes.size(); j++) {
 		JsonValue episode = episodes[j];
-		if (episode["badge_type"].asInt() == 1) return videos;
+		if (episode["badge_type"].asInt() == 1) continue;
 
 		dictionary video;
 		video["title"] = episode["show_title"].asString();
@@ -1718,10 +1722,13 @@ array<dictionary> UGCSeason(const string&in path) {
 	string aid = parseAVId(path);
 	string cid;
 	string p = parse(path, "p", "1");
-	string params;
-	if (!bvid.empty()) params += "bvid=" + bvid;
-	if (!aid.empty()) params += "aid=" + aid;	
-	if (bvid.empty() && aid.empty()) return videos;
+
+	array<string> queryParts;
+	if (!bvid.empty()) queryParts.insertLast("bvid=" + bvid);
+	if (!aid.empty()) queryParts.insertLast("aid=" + aid);
+
+	string params = join(queryParts, "&");
+	if (params.empty()) return videos;
 
 	string res = apiPost("/x/web-interface/wbi/view/detail?" + encWbi(params));
 
@@ -1800,10 +1807,13 @@ array<dictionary> RelatedVideos(const string&in path) {
 
 	string bvid = parseBVId(path);
 	string aid = parseAVId(path);
-	string params;
-	if (!bvid.empty()) params += "bvid=" + bvid;
-	if (!aid.empty()) params += "aid=" + aid;	
-	if (bvid.empty() && aid.empty()) return videos;
+
+	array<string> queryParts;
+	if (!bvid.empty()) queryParts.insertLast("bvid=" + bvid);
+	if (!aid.empty()) queryParts.insertLast("aid=" + aid);
+
+	string params = join(queryParts, "&");
+	if (params.empty()) return videos;
 
 	string res = apiPost("/x/web-interface/wbi/view/detail?" + encWbi(params));
 
@@ -1823,7 +1833,7 @@ array<dictionary> RelatedVideos(const string&in path) {
 			video["duration"] = view["duration"].asInt() * 1000;
 			video["thumbnail"] = view["pic"].asString();
 			video["author"] = view["owner"]["name"].asString();
-			video["url"] = "https://www.bilibili.com/video/" + bvid;
+			video["url"] = "https://www.bilibili.com/video/" + view["bvid"].asString();
 			if (!view["desc"].asString().empty() && view["desc"].asString() != "-") video["content"] = view["desc"].asString();
 			video["viewCount"] = view["stat"]["view"].asString();
 			video["likeCount"] = view["stat"]["like"].asString();
@@ -2109,6 +2119,7 @@ string Bangumi(const string&in path, dictionary& MetaData, array<dictionary>& Qu
 	}
 
 	AppendVideoQualityList(bvid, aid, cid, url, QualityList);
+	// AppendBangumiQualityList(epid, url, QualityList);
 	
 	return url;
 }
@@ -2126,16 +2137,19 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 	JsonValue Root;
 	array<dictionary> subtitle;
 	array<dictionary> chapter;
-	
+	array<string> queryParts;
+
 	if (id.find("BV") == 0) {
 		bvid = id;
-		params += "bvid=" + id;
+		queryParts.insertLast("bvid=" + id);
 	}
 	string parsedAid = parseAVId(path);
 	if (!parsedAid.empty()) {
 		aid = parsedAid;
-		params += "aid=" + parsedAid;
+		queryParts.insertLast("aid=" + parsedAid);
 	}
+
+	params = join(queryParts, "&");
 
 	res = apiPost("/x/web-interface/wbi/view/detail?" + encWbi(params));
 	if (!reader.parse(res, Root) || !Root.isObject()) return url;
@@ -2228,8 +2242,8 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 
 		if (!ConfigData.bilibiliDanmujiServer.isEmpty()) {
 			string chatUrl = getChatUrl(room_id, ConfigData.bilibiliDanmujiServer);
+			if (!chatUrl.isEmpty()) MetaData["chatUrl"] = chatUrl;
 			log('chatUrl', chatUrl);
-			MetaData["chatUrl"] = chatUrl;
 		}
 	}
 	
@@ -2280,7 +2294,7 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 				default_format = "fmp4";
 				break;
 			}
-			if (format_name_candidate == "ts") {
+			if (format_name_candidate == "ts" && default_format.empty()) {
 				default_format = "ts";
 			}
 		}
@@ -2401,10 +2415,12 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 						if (urlExists) continue;
 
 						if (isP2PCDN(url_info_url)) continue;
-						if (ConfigData.parseM3u8RealUrl) url_info_url = GetM3u8RealURL(url_info_url);						
+						status = 7;
+						if (ConfigData.parseM3u8RealUrl) url_info_url = GetM3u8RealURL(url_info_url);
+						status = 5;
 						url = url_info_url;
 
-						JsonValue video_color_info = codec["video_color_info"];							
+						JsonValue video_color_info = codec["video_color_info"];	
 						int width = codec["media_info"]["width"].asInt();
 						int height = codec["media_info"]["height"].asInt();
 						int bitrateVal = parseInt(HostRegExpParse(url_info_url, "(?:[?&]origin_bitrate=)(\\d+)(?:&|$)"));
@@ -2781,27 +2797,53 @@ array<dictionary> followingLive(uint page) {
 	JsonReader Reader;
 	JsonValue Root;
 
-	string url = "/xlive/web-ucenter/v1/xfetter/GetWebList";
-	string res = apiPost(url, "", "https://api.live.bilibili.com", false);
-	Reader.parse(res, Root);
+	while (true) {
+		string url = "/xlive/web-ucenter/user/following?page=" + page;
+		string res = apiPost(url, "", "https://api.live.bilibili.com", false);
 
-	JsonValue rooms = Root["data"]["rooms"];
-	if (rooms.isArray()) {
-		if (rooms.size() != 0) {
-			for (int i = 0; i < rooms.size(); i++) {
-				JsonValue room = rooms[i];
-				dictionary video;
-				video["title"] = room["title"].asString();
-				video["url"] = room["link"].asString();
-				video["thumbnail"] = room["face"].asString();
-				video["author"] = room["uname"].asString();
-				videos.insertLast(video);
+		if (!Reader.parse(res, Root) || !Root.isObject() || Root["code"].asInt() != 0)
+			break;
+
+		JsonValue data = Root["data"];
+		JsonValue list = data["list"];
+
+		if (!list.isArray())
+			break;
+
+		bool hasOffline = false;
+
+		for (int i = 0; i < list.size(); i++) {
+			JsonValue item = list[i];
+
+			// 接口优先返回正在开播的用户，后面均为未开播
+			if (item["live_status"].asInt() == 0) {
+				hasOffline = true;
+				break;
 			}
+
+			dictionary video;
+			video["title"] = item["title"].asString();
+			video["url"] = "https://live.bilibili.com/" + item["roomid"].asString();
+			video["thumbnail"] = item["face"].asString();
+			video["author"] = item["uname"].asString();
+
+			videos.insertLast(video);
 		}
+
+		// 当前页已经出现未开播用户，后续页面无需请求
+		if (hasOffline)
+			break;
+
+		uint totalPage = data["totalPage"].asUInt();
+
+		if (page >= totalPage)
+			break;
+
+		page++;
 	}
 
 	if (videos.size() == 0) {
-		HostMessageBox("你 [关注的直播] 列表是空的，刷点别的视频吧。", "[关注的直播] 为空", 2,0);
+		HostMessageBox("[我关注的直播] 列表是空的，刷点别的视频吧。", "[关注的直播] 为空", 2, 0);
 	}
 
 	return videos;
@@ -3201,7 +3243,6 @@ array<dictionary> webDynamic(string path) {
 			}
 			JsonValue list = Root["data"]["items"];
 			if (list.isArray()) {
-				offset = Root["data"]["offset"].asString();
 				for (int j = 0; j < list.size(); j++) {
 					JsonValue dynamic = list[j]["modules"]["module_dynamic"];
 					if (dynamic.isObject()) {
@@ -3246,6 +3287,9 @@ array<dictionary> webDynamic(string path) {
 				}
 			}
 		}
+
+		if (offset == Root["data"]["offset"].asString()) break;
+		offset = Root["data"]["offset"].asString();
 	}
 	return videos;
 }
@@ -3323,10 +3367,11 @@ array<dictionary> spaceDynamic(string path) {
 
 array<dictionary> Recommend() {
 	array<dictionary> videos;
+	int maxPage = 10;
 	int ps = 30;
 	int page = 1;
 
-	while (videos.size() < ConfigData.recommendVideoNums) {
+	while (videos.size() < ConfigData.recommendVideoNums && page <= maxPage) {
 		string params = "web_location=1430650&y_num=3&fresh_type=4&feed_version=V8&fresh_idx_1h=" + page + "&fetch_row=" + (3 * page + 1) + "&fresh_idx=" + page + "&brush=" + page + "&device=win&homepage_ver=1&ps=" + ps + "&last_y_num=5";
 		string url = "/x/web-interface/wbi/index/top/feed/rcmd?" + encWbi(params);
 		
