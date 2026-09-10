@@ -266,18 +266,23 @@ class Config {
 	float danmakuDisplayArea = 0.8;
 	float danmakuStayTime = 15.0;
 	bool showRecommendedVideos = true;
+	bool showTrailer = true;
+
 	bool blockP2PCDN = true;
 	int cacheValidTime = 300;
 	bool enableSponsorBlock = false;
 	string sponsorBlockMirror;
-	bool parseM3u8RealUrl = false;
-	string bilibiliDanmujiServer;
-	int maxliveroom = 100;
+	
 	int webDynamicVideoNums = 50;
 	int recommendVideoNums = 30;
 	int historyVideoNums = 30;
 	int popularAllPages = 1;
 	int spaceDynamicVideoNums = 30;
+
+	bool parseM3u8RealUrl = false;
+	string bilibiliDanmujiServer;
+	int maxliveroom = 20;
+	bool useSystemCover = false;
 	bool disableAVC = false;
 	bool preferHDR = false;
 	bool debug = false;
@@ -294,9 +299,6 @@ Config ReadConfigFile(string file) {
 	JsonReader reader;
 	JsonValue root;
 	if (reader.parse(config.fullConfig, root) && root.isObject()) {
-		if (root["maxliveroom"].isNumeric()) {
-			config.maxliveroom = root["maxliveroom"].asInt();
-		}
 		if (root["danmaku"].isObject()) {
 			JsonValue danmaku = root["danmaku"];
 			if (danmaku["enable"].isBool()) {
@@ -324,6 +326,9 @@ Config ReadConfigFile(string file) {
 		if (root["showRecommendedVideos"].isBool()) {
 			config.showRecommendedVideos = root["showRecommendedVideos"].asBool();
 		}
+		if (root["showTrailer"].isBool()) {
+			config.showTrailer = root["showTrailer"].asBool();
+		}
 		if (root["blockP2PCDN"].isBool()) {
 			config.blockP2PCDN = root["blockP2PCDN"].asBool();
 		}
@@ -335,12 +340,6 @@ Config ReadConfigFile(string file) {
 		}
 		if (root["sponsorBlockMirror"].isString()) {
 			config.sponsorBlockMirror = root["sponsorBlockMirror"].asString();
-		}
-		if (root["parseM3u8RealUrl"].isBool()) {
-			config.parseM3u8RealUrl = root["parseM3u8RealUrl"].asBool();
-		}
-		if (root["bilibiliDanmujiServer"].isString()) {
-			config.bilibiliDanmujiServer = root["bilibiliDanmujiServer"].asString();
 		}
 		if (root["videoNums"].isObject()) {
 			JsonValue videoNums = root["videoNums"];
@@ -360,6 +359,21 @@ Config ReadConfigFile(string file) {
 				config.spaceDynamicVideoNums = videoNums["spaceDynamicVideoNums"].asInt();
 			}
 		}
+		if (root["live"].isObject()) {
+			JsonValue live = root["live"];
+			if (live["parseM3u8RealUrl"].isBool()) {
+				config.parseM3u8RealUrl = live["parseM3u8RealUrl"].asBool();
+			}
+			if (live["bilibiliDanmujiServer"].isString()) {
+				config.bilibiliDanmujiServer = live["bilibiliDanmujiServer"].asString();
+			}
+			if (live["maxliveroom"].isNumeric()) {
+				config.maxliveroom = live["maxliveroom"].asInt();
+			}
+			if (live["useSystemCover"].isBool()) {
+				config.useSystemCover = live["useSystemCover"].asBool();
+			}
+		}
 		if (root["disableAVC"].isBool()) {
 			config.disableAVC = root["disableAVC"].asBool();
 		}
@@ -369,11 +383,22 @@ Config ReadConfigFile(string file) {
 		if (root["debug"].isBool()) {
 			config.debug = root["debug"].asBool();
 		}
+
+		// 兼容性配置
+		if (root["parseM3u8RealUrl"].isBool()) {
+			config.parseM3u8RealUrl = root["parseM3u8RealUrl"].asBool();
+		}
+		if (root["bilibiliDanmujiServer"].isString()) {
+			config.bilibiliDanmujiServer = root["bilibiliDanmujiServer"].asString();
+		}
+		if (root["maxliveroom"].isNumeric()) {
+			config.maxliveroom = root["maxliveroom"].asInt();
+		}
+
 		if (!config.danmakuServer.empty()) {
 			config.danmakuUrl = config.danmakuServer + "/subtitle?font=" + HostUrlEncode(config.danmakuFont) + "&font_size=" + config.danmakuFontSize + "&alpha=" + config.danmakuOpacity + "&display_area=" + config.danmakuDisplayArea + "&duration_marquee=" + config.danmakuStayTime + "&duration_still=" + config.danmakuStayTime + "&cid=";
 			config.subtitleUrl = config.danmakuServer + "/subtitle?url=";
 		}
-
 	} else {
 		HostMessageBox("配置文件存在问题", "[BilibiliPotplayer] 配置文件错误", 0, 1);
 	}
@@ -761,6 +786,7 @@ string getCodec(int codecid) {
 }
 
 string GetM3u8RealURL(string url) {
+	status = 7;
 	uint tickCount = HostGetTickCount();
 	string resp = post(url, "", "", false);
 	HostIncTimeOut(HostGetTickCount() - tickCount);
@@ -775,11 +801,13 @@ string GetM3u8RealURL(string url) {
 				string m3u8 = lines[i + 1].Trim();
 
 				if (m3u8.find("http://") == 0 || m3u8.find("https://") == 0) {
+					status = 5;
 					return m3u8;
 				}
 			}
 		}
 	}
+	status = 5;
 	return url;
 }
 
@@ -851,7 +879,7 @@ bool isP2PCDN(const string&in url) {
 }
 
 string getFixedURL(JsonValue&in data) {
-	string base_url = ( data["base_url"].isString() ) ? data["base_url"].asString() : data["baseUrl"].asString();
+	string base_url = data["url"].isString() ? data["url"].asString() : (data["base_url"].isString() ? data["base_url"].asString() : data["baseUrl"].asString());
 
 	if (!ConfigData.blockP2PCDN) {
 		return base_url;
@@ -957,6 +985,144 @@ string getVideoQuality(JsonValue support_formats, int quality) {
 	return "未知";
 }
 
+void AppendBangumiQualityList(const string epid, const string path, string& url, array<dictionary>& QualityList) {
+	status = 5;
+
+	string res;
+	string referer;
+	JsonReader Reader;
+	JsonValue Root;
+
+	string html = post(path);
+	string prefix = "const playurlSSRData =";
+	array<string> lines = html.split("\n");
+
+	for (uint i = 0; i < lines.length(); i++) {
+		string line = lines[i].Trim();
+		if (line.find(prefix) == 0) {
+			res = line.substr(prefix.length()).Trim();
+			break;
+		}
+	}
+
+	if (res.empty()) return;
+	if (!Reader.parse(res, Root) || !Root.isObject()) return;
+	if (!Root["data"].isObject())	return;
+	if (!Root["data"]["result"].isObject()) return;
+	
+	string play_video_type = Root["data"]["result"]["play_video_type"].asString();
+	if (play_video_type != "whole") {
+		if (play_video_type == "preview") {
+			HostMessageBox("应版权方要求，本片需购买，当前为试看片段", "试看片段", 0, 0);
+		}
+	}
+
+	if (!Root["data"]["result"]["video_info"].isObject()) return;
+
+	JsonValue support_formats = Root["data"]["result"]["video_info"]["support_formats"];
+	JsonValue dash = Root["data"]["result"]["video_info"]["dash"];
+
+
+	if (dash.isObject()) {
+		JsonValue videos = dash["video"];
+		if (!videos.isArray()) return;
+		videos = SortVideos(videos);
+		
+		int itag = 0;
+		for (int i = 0; i < videos.size(); i++) {
+			JsonValue video = videos[i];
+
+			int qn = video["id"].asInt();
+			int codecid = video["codecid"].asInt();
+
+			url = getFixedURL(video);
+			string width = formatInt(video["width"].asInt());
+			string height = formatInt(video["height"].asInt());
+			int bitrateVal = video["bandwidth"].asInt();
+			string bitrate = HostFormatBitrate(bitrateVal) + "bps";
+			int fps = parseInt(video["frame_rate"].asString());
+			bool isHDR = (qn == 125 || qn == 126 || qn == 129);
+			string mime_type = video["mime_type"].asString().MakeLower();
+			string format = mime_type.substr(mime_type.findLast("/") + 1) + ", " + getCodec(codecid) + ", " + bitrate;
+			string quality = getVideoQuality(support_formats, qn);
+			itag = getVideoItag(qn, codecid);
+			if (itag <= 0 || HostExistITag(itag)) {
+				itag = HostGetITag(video["height"].asInt(), 0, true, false);
+				if (itag <= 0) itag = HostGetITag(video["height"].asInt(), 0, true, true);
+			}
+			while (HostExistITag(itag)) itag++;
+			HostSetITag(itag);
+			referer = path;
+
+			QualityListItem item;
+
+			item.url = url;
+			item.bitrateVal = bitrateVal;
+			item.bitrate = bitrate;
+			item.resolution = width + "x" + height;
+			item.fps = fps;
+			item.isHDR = isHDR;
+			item.format = format;
+			item.quality = quality;
+			item.qualityDetail = quality;
+			item.itag = itag;
+			item.audioIsDefault = false;
+			item.va = "v";
+			item.referer = referer;
+			if (i == videos.size() - 1) item.videoIsDefault = true;
+				
+			if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
+		}
+
+		JsonValue audios;
+		JsonValue audio;
+		if (dash["audio"].isArray()) {
+			audios = dash["audio"];
+			for (int i = 0; i < audios.size(); i++) {
+				audio = audios[i];
+				AppendAudioQualityList(audio, referer, QualityList);
+			}
+		}
+		if (dash["dolby"]["audio"].isArray()) {
+			audios = dash["dolby"]["audio"];
+			for (int i = 0; i < audios.size(); i++) {
+				audio = audios[i];
+				AppendAudioQualityList(audio, referer, QualityList);
+			}
+		}
+		if (dash["flac"].isObject()) {
+			audio = dash["flac"]["audio"];
+			AppendAudioQualityList(audio, referer, QualityList);
+		}
+	
+	} else if (Root["data"]["result"]["video_info"]["durls"].isArray()) {
+		JsonValue durls = Root["data"]["result"]["video_info"]["durls"];
+		int itag;
+		for (uint i = 0; i < durls.size(); i++) {
+			JsonValue durl = durls[i];
+			int qn = durl["quality"].asInt();
+
+			url = getFixedURL(durl["durl"][0]);
+			string quality = getVideoQuality(support_formats, qn);
+			int itag = getUniItag();
+			referer = path;
+
+			QualityListItem item;
+
+			item.url = url;
+			item.quality = quality;
+			item.qualityDetail = quality;
+			item.itag = itag;
+			item.va = "v";
+			item.referer = referer;
+
+			if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
+		}
+	}
+
+	log("url", url);
+}
+
 void AppendVideoQualityList(string bvid, string aid, string cid, string& url, array<dictionary>& QualityList) {
 	status = 5;
 
@@ -1053,9 +1219,6 @@ void AppendVideoQualityList(string bvid, string aid, string cid, string& url, ar
 		}
 	}
 	
-	// for (uint i = 0; i < QualityList.length(); i++) {
-	//     log("QualityList[" + i + "] = " + string(QualityList[i]["quality"]) + " | " + int(QualityList[i]["itag"]) + " | " + string(QualityList[i]["url"]));
-	// }
 	log("url", url);
 }
 
@@ -1691,10 +1854,10 @@ array<dictionary> BangumiEpisodes(string id, string type) {
 
 	for (int j = 0; j < episodes.size(); j++) {
 		JsonValue episode = episodes[j];
-		if (episode["badge_type"].asInt() == 1) continue;
+		if (!ConfigData.showTrailer && episode["badge_type"].asInt() == 1) continue;
 
 		dictionary video;
-		video["title"] = episode["show_title"].asString();
+		video["title"] = episode["share_copy"].asString() + "\n" + episode["show_title"].asString();
 		video["duration"] = episode["duration"].asString();
 		video["thumbnail"] = episode["cover"].asString();
 		if (!author.isEmpty()) video["author"] = author;
@@ -1827,7 +1990,7 @@ array<dictionary> RelatedVideos(const string&in path) {
 			}
 
 			JsonValue view = Root["data"]["View"];
-			
+		
 			dictionary video;
 			video["title"] = view["title"].asString();
 			video["duration"] = view["duration"].asInt() * 1000;
@@ -2043,12 +2206,7 @@ string Bangumi(const string&in path, dictionary& MetaData, array<dictionary>& Qu
 			cid = episode["cid"].asString();
 
 			if (@MetaData !is null) {
-				string title;
-				if (!ssid.isEmpty()) {
-					title = episode["share_copy"].asString();
-				} else {
-					title = episode["show_title"].asString();
-				}
+				string title = episode["share_copy"].asString() + "\n" + episode["show_title"].asString();
 				
 				MetaData["title"] = title;
 				MetaData["vid"] = bvid;
@@ -2118,8 +2276,7 @@ string Bangumi(const string&in path, dictionary& MetaData, array<dictionary>& Qu
 		}
 	}
 
-	AppendVideoQualityList(bvid, aid, cid, url, QualityList);
-	// AppendBangumiQualityList(epid, url, QualityList);
+	AppendBangumiQualityList(epid, path, url, QualityList);
 	
 	return url;
 }
@@ -2229,24 +2386,36 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 	JsonValue data = Root["data"]["room_info"];
 	string room_id = data["room_id"].asInt();
 
+	string title = data["title"].asString();
+	string area_title = data["parent_area_name"].asString().isEmpty() ? data["area_name"].asString() : data["area_name"].asString().isEmpty() ? data["parent_area_name"].asString() : data["parent_area_name"].asString() + " (" + data["area_name"].asString() + ")";
+	if (!area_title.isEmpty()) title = area_title + "\n\n" + title;
+
 	if (@MetaData !is null) {
 		MetaData["vid"] = id;
-		MetaData["title"] = data["title"].asString();
+		MetaData["title"] = title;
 		MetaData["thumbnail"] = data["cover"].asString();
 		MetaData["author"] = Root["data"]["anchor_info"]["base_info"]["uname"].asString();
 		MetaData["content"] = data["description"].asString();
 		MetaData["webUrl"] = makeWebUrl(path);
 		MetaData["viewCount"] = Root["data"]["watched_show"]["num"].asString();
 		MetaData["likeCount"] = Root["data"]["like_info_v3"]["total_likes"].asString();
-		MetaData["fileExt"] = "mp4";
 
 		if (!ConfigData.bilibiliDanmujiServer.isEmpty()) {
 			string chatUrl = getChatUrl(room_id, ConfigData.bilibiliDanmujiServer);
 			if (!chatUrl.isEmpty()) MetaData["chatUrl"] = chatUrl;
-			log('chatUrl', chatUrl);
+		}
+
+		if (data["live_status"].asInt() == 1) {
+			MetaData["fileExt"] = "mp4";
+		} else {
+			MetaData["fileExt"] = "png";
+			HostMessageBox(Root["data"]["anchor_info"]["base_info"]["uname"].asString() + " 当前未开播", "未开播", 0, 0);
+			url = "https://i1.hdslb.com/bfs/static/blive/blfe-live-room/static/img/player-bg.866a348..png";
+
+			return url;
 		}
 	}
-	
+
 	status = 5;
 	
 	array<int> accept_qns;
@@ -2415,9 +2584,7 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 						if (urlExists) continue;
 
 						if (isP2PCDN(url_info_url)) continue;
-						status = 7;
 						if (ConfigData.parseM3u8RealUrl) url_info_url = GetM3u8RealURL(url_info_url);
-						status = 5;
 						url = url_info_url;
 
 						JsonValue video_color_info = codec["video_color_info"];	
@@ -2463,10 +2630,6 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 	}
 
 	log("url", url);
-	// log("Quality items", QualityList.length());
-	// for (uint i = 0; i < QualityList.length(); i++) {
-	//     log("QualityList[" + i + "] = " + string(QualityList[i]["quality"]) + " | " + int(QualityList[i]["itag"]) + " | " + string(QualityList[i]["url"]));
-	// }
 	return url;
 }
 
@@ -2792,13 +2955,14 @@ array<dictionary> spaceAudio(string path) {
 	return audios;
 }
 
-array<dictionary> followingLive(uint page) {
+array<dictionary> followingLive() {
 	array<dictionary> videos;
 	JsonReader Reader;
 	JsonValue Root;
-
+	int page = 1;
+	
 	while (true) {
-		string url = "/xlive/web-ucenter/user/following?page=" + page;
+		string url = "/xlive/web-ucenter/user/following?page=" + page + "&page_size=10";
 		string res = apiPost(url, "", "https://api.live.bilibili.com", false);
 
 		if (!Reader.parse(res, Root) || !Root.isObject() || Root["code"].asInt() != 0)
@@ -2849,49 +3013,85 @@ array<dictionary> followingLive(uint page) {
 	return videos;
 }
 
-array<dictionary> liveCategory(string path, uint page, string cateid, string parentAreaId, uint liveRoomCount) {
+array<dictionary> liveCategory(string path) {
 	JsonReader Reader;
 	JsonValue Root;
 	
 	string renderData = HostRegExpParse(post(path), "window\\._render_data_\\s*=\\s*(\\{\"access_id\":\"[^\"]+\"\\})");
 	if (!Reader.parse(renderData, Root) || !Root.isObject()) return array<dictionary>();
+	string w_webid = Root["access_id"].asString();
 
-	return liveCategory(page, cateid, parentAreaId, liveRoomCount, Root["access_id"].asString());
+	int parentAreaId = parseInt(HostRegExpParse(path, "parentAreaId=([0-9]+)"));
+	int areaId = parseInt(HostRegExpParse(path, "areaId=([0-9]+)"));
+
+	if (path.find("lol") >= 0) {
+		return liveCategory(86, 2, w_webid);
+	}
+	if (path.find("pubg") >= 0) {
+		return liveCategory(80, 2, w_webid);
+	}
+	if (path.find("cf") >= 0) {
+		return liveCategory(88, 2, w_webid);
+	}
+	if (path.find("hpjy") >= 0) {
+		return liveCategory(256, 3, w_webid);
+	}
+
+	return liveCategory(areaId, parentAreaId, w_webid);
 }
 
-array<dictionary> liveCategory(uint page, string cateid, string parentAreaId, uint liveRoomCount, string w_webid) {
+array<dictionary> liveCategory(int cateid, int parentAreaId, string w_webid) {
 	array<dictionary> videos;
 	JsonReader Reader;
 	JsonValue Root;
-	string params = "platform=web&parent_area_id=" + parentAreaId + "&area_id=" + cateid + "&page=" + page + "&w_webid=" + w_webid;
-	string url = "https://api.live.bilibili.com/xlive/web-interface/v1/second/getList?" + encWbi(params);
-	string res = post(url);
-	if (Reader.parse(res, Root) && Root.isObject()) {
-		if (Root["code"].asInt() == 0) {
-			JsonValue list = Root["data"]["list"];
-			if (list.isArray()) {
-				for (int i = 0; i < list.size(); i++) {
-					JsonValue item = list[i];
-					dictionary video;
-					video["title"] = item["title"].asString();
-					video["url"] = "https://live.bilibili.com/" + item["roomid"].asInt();
-					video["thumbnail"] = item["face"].asString();
-					video["author"] = item["uname"].asString();
-					videos.insertLast(video);
-					liveRoomCount += 1;
-					if (liveRoomCount >= ConfigData.maxliveroom) {
-						return videos;
-					}
+	int page = 1;
+
+	while (videos.size() < ConfigData.maxliveroom) {
+		string params = "platform=web&parent_area_id=" + parentAreaId + "&area_id=" + cateid + "&page=" + page + "&w_webid=" + w_webid;
+		string url = "https://api.live.bilibili.com/xlive/web-interface/v1/second/getList?" + encWbi(params);
+		string res = post(url);
+		if (!Reader.parse(res, Root) || !Root.isObject()) return videos;		
+		if (Root["code"].asInt() != 0) return videos;
+
+		JsonValue list = Root["data"]["list"];
+		if (!list.isArray()) return videos;
+
+		for (int i = 0; i < list.size(); i++) {
+			JsonValue item = list[i];
+			string title;
+			string area_title;
+			string pendant_title;
+
+			area_title = item["parent_name"].asString().isEmpty() ? item["area_name"].asString() : item["area_name"].asString().isEmpty() ? item["parent_name"].asString() : item["parent_name"].asString() + " (" + item["area_name"].asString() + ")";
+
+			if (item["pendant_info"].isObject()) {
+				array<string> pendant_infos;
+				array<string> keys = item["pendant_info"].getKeys();
+
+				for (int j = 0; j < keys.size(); j++) {
+					pendant_infos.insertLast(item["pendant_info"][keys[j]]["content"].asString().isEmpty() ? item["pendant_info"][keys[j]]["name"].asString() : item["pendant_info"][keys[j]]["content"].asString());
 				}
-				if (Root["data"]["has_more"].asBool()) {
-					array<dictionary> nextVideos = liveCategory(page + 1, cateid, parentAreaId, liveRoomCount, w_webid);
-					for (uint i = 0; i < nextVideos.size(); i++) {
-						videos.insertLast(nextVideos[i]);
-					}
-				}
+
+				pendant_title = join(pendant_infos, " | ");
 			}
+
+			array<string> titles;
+			if (!area_title.isEmpty()) titles.insertLast(area_title);
+			titles.insertLast(item["title"].asString());
+			if (!pendant_title.isEmpty())titles.insertLast(pendant_title);
+
+			dictionary video;
+			video["title"] = join(titles, "\n\n");
+			video["url"] = "https://live.bilibili.com/" + item["roomid"].asInt();
+			video["thumbnail"] = ConfigData.useSystemCover ? item["system_cover"].asString() : item["cover"].asString() ;
+			video["author"] = item["uname"].asString();
+			videos.insertLast(video);
+
 		}
+		
+		if (Root["data"]["has_more"].asInt() != 1) return videos;
 	}
+
 	return videos;
 }
 
@@ -3441,12 +3641,12 @@ bool PlayitemCheck(const string&in path) {
 		return true;
 	}
 	
-	log("PlayitemCheck", "false");
+	// log("PlayitemCheck", "false");
 	return false;
 }
 
 bool PlaylistCheck(const string&in path) {
-	log("PlaylistCheck - path", path);
+	// log("PlaylistCheck - path", path);
 	status = 2;
 	if (path.find("bilibili.com") < 0) {
 		return false;
@@ -3531,7 +3731,7 @@ bool PlaylistCheck(const string&in path) {
 		return true;
 	}
 
-	log("PlaylistCheck", "false");
+	// log("PlaylistCheck", "false");
 	return false;
 }
 
@@ -3546,7 +3746,6 @@ array<dictionary> PlaylistParse(const string&in url) {
 		return webDynamic(path);
 	}
 	if (path.find("search.bilibili.com") >= 0) {
-		log('path.find("search.bilibili.com") >= 0');
 		return Search(path);
 	}
 	if (path.find("space.bilibili.com") >= 0) {
@@ -3567,23 +3766,11 @@ array<dictionary> PlaylistParse(const string&in url) {
 		}
 	}
 	if (path.find("link.bilibili.com") >= 0 && path.find("/user-center/follow") >= 0) {
-		return followingLive(1);
+		return followingLive();
 	}
 	if (path.find("live.bilibili.com") >= 0) {
 		if (path.find("areaId") >= 0) {
-			return liveCategory(path, 1, HostRegExpParse(path, "areaId=([0-9]+)"), HostRegExpParse(path, "parentAreaId=([0-9]+)"), 0);
-		}
-		if (path.find("lol") >= 0) {
-			return liveCategory(path, 1, "86", "2", 0);
-		}
-		if (path.find("pubg") >= 0) {
-			return liveCategory(path, 1, "80", "2", 0);
-		}
-		if (path.find("cf") >= 0) {
-			return liveCategory(path, 1, "88", "2", 0);
-		}
-		if (path.find("hpjy") >= 0) {
-			return liveCategory(path, 1, "256", "3", 0);
+			return liveCategory(path);
 		}
 	}
 
