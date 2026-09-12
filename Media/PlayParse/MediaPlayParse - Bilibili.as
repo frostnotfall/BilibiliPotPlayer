@@ -92,7 +92,7 @@ string GetTitle() {
 }
 
 string GetVersion() {
-	return "2.6.19";
+	return "2.6.20";
 }
 
 string GetDesc() {
@@ -123,8 +123,7 @@ string GetWebAccountUrl() {
 string GetWebAccountDomain() {
 	string domains = "";
 	for (uint i = 0; i < BilibiliDomains.length(); i++) {
-		if (i > 0)
-			domains += ";";
+		if (i > 0) domains += ";";
 		domains += BilibiliDomains[i];
 	}
 	return domains;
@@ -155,6 +154,9 @@ string GetStatus() {
 	case 7:
 		info = "解析真实M3U8地址";
 		break;
+	case 8:
+		info = "获取 Bilibili_Danmuji 地址";
+		break;
 	default:
 		info = "请等待";
 	}
@@ -168,31 +170,31 @@ string GetBroadcastListUrl() {
 }
 
 string GetBroadcastListScript(){
-	log('GetBroadcastListUrl()');
+	log('GetBroadcastListScript()');
 	return "";
 }
 
 void OnFinalize() {
 	log("OnFinalize()");
-	if (!ConfigData.bilibiliDanmujiServer.isEmpty() && ConfigData.usingDanmuji) {
-		string unixTime = formatInt(DatetimeToUnixTime(FormatDateTime(datetime())));
-		post(ConfigData.bilibiliDanmujiServer + "/disconnectRoom?_=" + unixTime);
+	if (!ConfigData.GetDanmujiServer().isEmpty() && ConfigData.GetDanmujiStatus()) {
+		string unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
+		post(ConfigData.GetDanmujiServer() + "/disconnectRoom?_=" + unixTime);
 	}
 }
 
 void PlayitemCancel() {
 	log("PlayitemCancel()");
-	if (!ConfigData.bilibiliDanmujiServer.isEmpty() && ConfigData.usingDanmuji) {
-		string unixTime = formatInt(DatetimeToUnixTime(FormatDateTime(datetime())));
-		post(ConfigData.bilibiliDanmujiServer + "/disconnectRoom?_=" + unixTime);
+	if (!ConfigData.GetDanmujiServer().isEmpty() && ConfigData.GetDanmujiStatus()) {
+		string unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
+		post(ConfigData.GetDanmujiServer() + "/disconnectRoom?_=" + unixTime);
 	}
 }
 
 void PlaylistCancel() {
 	log("PlaylistCancel()");
-	if (!ConfigData.bilibiliDanmujiServer.isEmpty() && ConfigData.usingDanmuji) {
-		string unixTime = formatInt(DatetimeToUnixTime(FormatDateTime(datetime())));
-		post(ConfigData.bilibiliDanmujiServer + "/disconnectRoom?_=" + unixTime);
+	if (!ConfigData.GetDanmujiServer().isEmpty() && ConfigData.GetDanmujiStatus()) {
+		string unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
+		post(ConfigData.GetDanmujiServer() + "/disconnectRoom?_=" + unixTime);
 	}
 }
 
@@ -257,7 +259,9 @@ class QualityListItem {
 
 class Config {
 	string fullConfig;
+
 	int uid = 0;
+
 	bool danmakuEnable = true;
 	string danmakuServer;
 	string danmakuFont;
@@ -265,6 +269,7 @@ class Config {
 	float danmakuOpacity = 0.8;
 	float danmakuDisplayArea = 0.8;
 	float danmakuStayTime = 15.0;
+
 	bool showRecommendedVideos = true;
 	bool showTrailer = true;
 
@@ -282,8 +287,7 @@ class Config {
 	bool parseM3u8RealUrl = false;
 	bool parseM3u8RealUrlFastMode = false;
 	array<string> m3u8RedirectDomains;
-	string bilibiliDanmujiServer;
-	int maxliveroom = 20;
+	int maxliveroom = 40;
 	bool useSystemCover = false;
 	
 	bool disableAVC = false;
@@ -292,143 +296,167 @@ class Config {
 
 	string danmakuUrl;
 	string subtitleUrl;
-	bool usingDanmuji = false;
+	
+	string DANMUJI_STATUS = "BilibiliPotPlayer.DanmujiStatus()";
+	string DANMUJI_SERVER = "BilibiliPotPlayer.DanmujiServer()";
+
+	void SetDanmujiStatus(bool value) {
+		HostSaveInteger(DANMUJI_STATUS, value ? 1 : 0);
+	}
+	bool GetDanmujiStatus() {
+		return HostLoadInteger(DANMUJI_STATUS) != 0;
+	}
+	void SetDanmujiServer(const string&in server) {
+		HostSaveString(DANMUJI_SERVER, server);
+	}
+	string GetDanmujiServer() {
+		return HostLoadString(DANMUJI_SERVER);
+	}
 }
 
 Config ReadConfigFile(string file) {
 	Config config;
+
 	uintptr fp = HostFileOpen(file);
 	config.fullConfig = HostFileRead(fp, HostFileLength(fp));
+	HostFileClose(fp);
+	
 	JsonReader reader;
 	JsonValue root;
-	if (reader.parse(config.fullConfig, root) && root.isObject()) {
-		if (root["danmaku"].isObject()) {
-			JsonValue danmaku = root["danmaku"];
-			if (danmaku["enable"].isBool()) {
-				config.danmakuEnable = danmaku["enable"].asBool();
-			}
-			if (danmaku["server"].isString() && !danmaku["server"].asString().empty()) {
-				config.danmakuServer = danmaku["server"].asString();
-			}
-			if (danmaku["font"].isString()) {
-				config.danmakuFont = danmaku["font"].asString();
-			}
-			if (danmaku["fontSize"].isNumeric()) {
-				config.danmakuFontSize = danmaku["fontSize"].asFloat();
-			}
-			if (danmaku["opacity"].isNumeric()) {
-				config.danmakuOpacity = danmaku["opacity"].asFloat();
-			}
-			if (danmaku["displayArea"].isNumeric()) {
-				config.danmakuDisplayArea = danmaku["displayArea"].asFloat();
-			}
-			if (danmaku["stayTime"].isNumeric()) {
-				config.danmakuStayTime = danmaku["stayTime"].asFloat();
-			}
-		}
-		if (root["showRecommendedVideos"].isBool()) {
-			config.showRecommendedVideos = root["showRecommendedVideos"].asBool();
-		}
-		if (root["showTrailer"].isBool()) {
-			config.showTrailer = root["showTrailer"].asBool();
-		}
-		if (root["blockP2PCDN"].isBool()) {
-			config.blockP2PCDN = root["blockP2PCDN"].asBool();
-		}
-		if (root["cacheValidTime"].isNumeric()) {
-			config.cacheValidTime = root["cacheValidTime"].asInt();
-		}
-		if (root["enableSponsorBlock"].isBool()) {
-			config.enableSponsorBlock = root["enableSponsorBlock"].asBool();
-		}
-		if (root["sponsorBlockMirror"].isString()) {
-			config.sponsorBlockMirror = root["sponsorBlockMirror"].asString();
-		}
-		if (root["videoNums"].isObject()) {
-			JsonValue videoNums = root["videoNums"];
-			if (videoNums["webDynamicVideoNums"].isNumeric()) {
-				config.webDynamicVideoNums = videoNums["webDynamicVideoNums"].asInt();
-			}
-			if (videoNums["recommendVideoNums"].isNumeric()) {
-				config.recommendVideoNums = videoNums["recommendVideoNums"].asInt();
-			}
-			if (videoNums["historyVideoNums"].isNumeric()) {
-				config.historyVideoNums = videoNums["historyVideoNums"].asInt();
-			}
-			if (videoNums["popularAllPages"].isNumeric()) {
-				config.popularAllPages = videoNums["popularAllPages"].asInt();
-			}
-			if (videoNums["spaceDynamicVideoNums"].isNumeric()) {
-				config.spaceDynamicVideoNums = videoNums["spaceDynamicVideoNums"].asInt();
-			}
-		}
-		if (root["live"].isObject()) {
-			JsonValue live = root["live"];
-			if (live["parseM3u8RealUrl"].isObject()) {
-				JsonValue parseM3u8RealUrl = live["parseM3u8RealUrl"];
-				if (parseM3u8RealUrl["enable"].isBool()) {
-					config.parseM3u8RealUrl = parseM3u8RealUrl["enable"].asBool();
-					if ( config.parseM3u8RealUrl && parseM3u8RealUrl["fastMode"].isBool() && parseM3u8RealUrl["fastMode"].asBool() && parseM3u8RealUrl["m3u8RedirectDomains"].size() > 0 ) {
-						config.parseM3u8RealUrlFastMode = true;
-						for (uint i = 0; i < parseM3u8RealUrl["m3u8RedirectDomains"].size(); i++) {
-							config.m3u8RedirectDomains.insertLast(parseM3u8RealUrl["m3u8RedirectDomains"][i].asString());
-						}
-					}
-				}
-				// 兼容性配置
-				if (live["parseM3u8RealUrl"].isBool()) {
-					config.parseM3u8RealUrl = live["parseM3u8RealUrl"].asBool();
-				}
-			}
-			if (live["bilibiliDanmujiServer"].isString()) {
-				config.bilibiliDanmujiServer = live["bilibiliDanmujiServer"].asString();
-			}
-			if (live["maxliveroom"].isNumeric()) {
-				config.maxliveroom = live["maxliveroom"].asInt();
-			}
-			if (live["useSystemCover"].isBool()) {
-				config.useSystemCover = live["useSystemCover"].asBool();
-			}
-		}
-		if (root["disableAVC"].isBool()) {
-			config.disableAVC = root["disableAVC"].asBool();
-		}
-		if (root["preferHDR"].isBool()) {
-			config.preferHDR = root["preferHDR"].asBool();
-		}
-		if (root["debug"].isBool()) {
-			config.debug = root["debug"].asBool();
-		}
-
-		// 兼容性配置
-		if (root["parseM3u8RealUrl"].isBool()) {
-			config.parseM3u8RealUrl = root["parseM3u8RealUrl"].asBool();
-		}
-		if (root["bilibiliDanmujiServer"].isString()) {
-			config.bilibiliDanmujiServer = root["bilibiliDanmujiServer"].asString();
-		}
-		if (root["maxliveroom"].isNumeric()) {
-			config.maxliveroom = root["maxliveroom"].asInt();
-		}
-
-		if (!config.danmakuServer.empty()) {
-			config.danmakuUrl = config.danmakuServer + "/subtitle?font=" + HostUrlEncode(config.danmakuFont) + "&font_size=" + config.danmakuFontSize + "&alpha=" + config.danmakuOpacity + "&display_area=" + config.danmakuDisplayArea + "&duration_marquee=" + config.danmakuStayTime + "&duration_still=" + config.danmakuStayTime + "&cid=";
-			config.subtitleUrl = config.danmakuServer + "/subtitle?url=";
-		}
-	} else {
-		HostMessageBox("配置文件存在问题", "[BilibiliPotplayer] 配置文件错误", 0, 1);
+	if (!reader.parse(config.fullConfig, root) || !root.isObject()) {
+		HostMessageBox("配置文件存在问题", "[BilibiliPotPlayer] 配置文件错误", 0, 1);
 	}
 
-	HostFileClose(fp);
+	if (root["danmaku"].isObject()) {
+		JsonValue danmaku = root["danmaku"];
+		if (danmaku["enable"].isBool()) {
+			config.danmakuEnable = danmaku["enable"].asBool();
+		}
+		if (danmaku["server"].isString() && !danmaku["server"].asString().empty()) {
+			config.danmakuServer = danmaku["server"].asString();
+		}
+		if (danmaku["font"].isString()) {
+			config.danmakuFont = danmaku["font"].asString();
+		}
+		if (danmaku["fontSize"].isNumeric()) {
+			config.danmakuFontSize = danmaku["fontSize"].asFloat();
+		}
+		if (danmaku["opacity"].isNumeric()) {
+			config.danmakuOpacity = danmaku["opacity"].asFloat();
+		}
+		if (danmaku["displayArea"].isNumeric()) {
+			config.danmakuDisplayArea = danmaku["displayArea"].asFloat();
+		}
+		if (danmaku["stayTime"].isNumeric()) {
+			config.danmakuStayTime = danmaku["stayTime"].asFloat();
+		}
+	}
+
+	if (root["showRecommendedVideos"].isBool()) {
+		config.showRecommendedVideos = root["showRecommendedVideos"].asBool();
+	}
+	if (root["showTrailer"].isBool()) {
+		config.showTrailer = root["showTrailer"].asBool();
+	}
+	if (root["blockP2PCDN"].isBool()) {
+		config.blockP2PCDN = root["blockP2PCDN"].asBool();
+	}
+	if (root["cacheValidTime"].isNumeric()) {
+		config.cacheValidTime = root["cacheValidTime"].asInt();
+	}
+	if (root["enableSponsorBlock"].isBool()) {
+		config.enableSponsorBlock = root["enableSponsorBlock"].asBool();
+	}
+	if (root["sponsorBlockMirror"].isString()) {
+		config.sponsorBlockMirror = root["sponsorBlockMirror"].asString();
+	}
+
+	if (root["videoNums"].isObject()) {
+		JsonValue videoNums = root["videoNums"];
+		if (videoNums["webDynamicVideoNums"].isNumeric()) {
+			config.webDynamicVideoNums = videoNums["webDynamicVideoNums"].asInt();
+		}
+		if (videoNums["recommendVideoNums"].isNumeric()) {
+			config.recommendVideoNums = videoNums["recommendVideoNums"].asInt();
+		}
+		if (videoNums["historyVideoNums"].isNumeric()) {
+			config.historyVideoNums = videoNums["historyVideoNums"].asInt();
+		}
+		if (videoNums["popularAllPages"].isNumeric()) {
+			config.popularAllPages = videoNums["popularAllPages"].asInt();
+		}
+		if (videoNums["spaceDynamicVideoNums"].isNumeric()) {
+			config.spaceDynamicVideoNums = videoNums["spaceDynamicVideoNums"].asInt();
+		}
+	}
+
+	if (root["live"].isObject()) {
+		JsonValue live = root["live"];
+		if (live["parseM3u8RealUrl"].isObject()) {
+			JsonValue parseM3u8RealUrl = live["parseM3u8RealUrl"];
+			if (parseM3u8RealUrl["enable"].isBool()) {
+				config.parseM3u8RealUrl = parseM3u8RealUrl["enable"].asBool();
+				if ( config.parseM3u8RealUrl && parseM3u8RealUrl["fastMode"].isBool() && parseM3u8RealUrl["fastMode"].asBool() && parseM3u8RealUrl["m3u8RedirectDomains"].size() > 0 ) {
+					config.parseM3u8RealUrlFastMode = true;
+					for (uint i = 0; i < parseM3u8RealUrl["m3u8RedirectDomains"].size(); i++) {
+						config.m3u8RedirectDomains.insertLast(parseM3u8RealUrl["m3u8RedirectDomains"][i].asString());
+					}
+				}
+			}
+			// 兼容性配置
+			if (live["parseM3u8RealUrl"].isBool()) {
+				config.parseM3u8RealUrl = live["parseM3u8RealUrl"].asBool();
+			}
+		}
+		if (live["bilibiliDanmujiServer"].isString()) {
+			config.SetDanmujiServer(live["bilibiliDanmujiServer"].asString());
+			
+			if (config.GetDanmujiStatus()) {
+				string unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
+				post(config.GetDanmujiServer() + "/disconnectRoom?_=" + unixTime);
+				config.SetDanmujiStatus(false);
+			}
+		}
+		if (live["maxliveroom"].isNumeric()) {
+			config.maxliveroom = live["maxliveroom"].asInt();
+		}
+		if (live["useSystemCover"].isBool()) {
+			config.useSystemCover = live["useSystemCover"].asBool();
+		}
+	}
+
+	if (root["disableAVC"].isBool()) {
+		config.disableAVC = root["disableAVC"].asBool();
+	}
+	if (root["preferHDR"].isBool()) {
+		config.preferHDR = root["preferHDR"].asBool();
+	}
+	if (root["debug"].isBool()) {
+		config.debug = root["debug"].asBool();
+	}
+
+	// 兼容性配置
+	if (root["parseM3u8RealUrl"].isBool()) {
+		config.parseM3u8RealUrl = root["parseM3u8RealUrl"].asBool();
+	}
+	if (root["bilibiliDanmujiServer"].isString()) {
+		config.GetDanmujiServer() = root["bilibiliDanmujiServer"].asString();
+	}
+	if (root["maxliveroom"].isNumeric()) {
+		config.maxliveroom = root["maxliveroom"].asInt();
+	}
+
+	if (!config.danmakuServer.empty()) {
+		config.danmakuUrl = config.danmakuServer + "/subtitle?font=" + HostUrlEncode(config.danmakuFont) + "&font_size=" + config.danmakuFontSize + "&alpha=" + config.danmakuOpacity + "&display_area=" + config.danmakuDisplayArea + "&duration_marquee=" + config.danmakuStayTime + "&duration_still=" + config.danmakuStayTime + "&cid=";
+		config.subtitleUrl = config.danmakuServer + "/subtitle?url=";
+	}
 
 	return config;
 }
 
 void log(string item) {
-	if (!ConfigData.debug) {
-		return;
-	}
-	HostPrintUTF8(item);
+	if (!ConfigData.debug) return;
+	HostPrintUTF8("[" + formatFloat(HostGetTickCount() / 1000.0, "", 3, 3) + "] - " + item);
 }
 
 void log(string item, string info) {
@@ -448,7 +476,7 @@ string FormatDateTime(datetime&in dt) {
 		   formatInt(dt.get_second());
 }
 
-int64 DatetimeToUnixTime(const string&in s) {
+int64 DateTimeToUnixTime(const string&in s) {
 	int year = parseInt(s.substr(0, 4));
 	int month = parseInt(s.substr(5, 2));
 	int day = parseInt(s.substr(8, 2));
@@ -472,26 +500,34 @@ int64 DatetimeToUnixTime(const string&in s) {
 }
 
 string UnixTimeToDateTime(int64 t) {
-	int64 d = t / 86400;
-	int s = int(t % 86400);
-	int y = 1970, m = 1, md;
-	while (true) {
-		int dy = ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0) ? 366 : 365;
-		if (d < dy) break;
-		d -= dy;
-		y++;
-	}
-	bool leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
-	while (true) {
-		md = m == 2 ? (leap ? 29 : 28) : (m == 4 || m == 6 || m == 9 || m == 11 ? 30 : 31);
-		if (d < md) break;
-		d -= md;
-		m++;
-	}
-	int h = s / 3600;
-	int min = s % 3600 / 60;
-	s %= 60;
-	return formatInt(y) + "-" + formatInt(m + 100).substr(1) + "-" + formatInt(int(d) + 101).substr(1) + " " + formatInt(h + 100).substr(1) + ":" + formatInt(min + 100).substr(1) + ":" + formatInt(s + 100).substr(1);
+    t += 8 * 3600; // UTC -> UTC+8
+
+    int64 d = t / 86400;
+    int s = int(t % 86400);
+
+    int y = 1970, m = 1, md;
+
+    while (true) {
+        int dy = ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0) ? 366 : 365;
+        if (d < dy) break;
+        d -= dy;
+        y++;
+    }
+
+    bool leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+
+    while (true) {
+        md = m == 2 ? (leap ? 29 : 28) : (m == 4 || m == 6 || m == 9 || m == 11 ? 30 : 31);
+        if (d < md) break;
+        d -= md;
+        m++;
+    }
+
+    int h = s / 3600;
+    int min = s % 3600 / 60;
+    s %= 60;
+
+    return formatInt(y) + "-" + formatInt(m + 100).substr(1) + "-" + formatInt(int(d) + 101).substr(1) + " " + formatInt(h + 100).substr(1) + ":" + formatInt(min + 100).substr(1) + ":" + formatInt(s + 100).substr(1);
 }
 
 string getMixinKey() {
@@ -534,7 +570,7 @@ string encWbi(string params, bool useWts = true) {
 			newParams += "&";
 	}
 
-	if (useWts) newParams += ("&wts=" + formatInt(DatetimeToUnixTime(FormatDateTime(datetime()))));
+	if (useWts) newParams += ("&wts=" + formatInt(DateTimeToUnixTime(FormatDateTime(datetime()))));
 
 	return (newParams + "&w_rid=" + HostHashMD5(newParams + MixinKey));
 }
@@ -544,22 +580,41 @@ string makeWebUrl(string path) {
 	if (strs.length() <= 1) {
 		return path;
 	}
+
 	string url = strs[0];
 	string p = parse(path, "p");
-	if (p.empty() || p == "1") {
+	string t = parse(path, "t");
+
+	string query = "";
+
+	if (!t.empty()) {
+		query += "t=" + t;
+	}
+
+	if (!p.empty() && p != "0" && p != "1") {
+		if (!query.empty()) {
+			query += "&";
+		}
+		query += "p=" + p;
+	}
+
+	if (query.empty()) {
 		return url;
 	}
-	return url + "?p=" + p;
+
+	return url + "?" + query;
 }
 
 string post(string url, string data = "", string headers = "", bool debug = true) {
-	uint tickCount = HostGetTickCount();
-
 	if (headers.empty()) headers = "User-Agent: " + UserAgent + "\r\n" + "Referer: " + Referer + "\r\n";
-	if (debug) log("request url", url);
-	string res =  HostUrlGetString(url, "", headers, data);
 
-	HostIncTimeOut(HostGetTickCount() - tickCount);
+	uint start = HostGetTickCount();
+	string res =  HostUrlGetString(url, "", headers, data);
+	uint end = HostGetTickCount();
+	HostIncTimeOut(end - start);
+
+	if (debug) log("Request time: " + formatFloat((end - start) / 1000.0, "", 3, 3) + "s" + ", url: " + url);
+
 	return res;
 }
 
@@ -577,9 +632,12 @@ string apiPost(string api, string data, string host, bool useCache = true) {
 
 string apiPost(string api, string data, string host, string headers, bool useCache = true) {
 	ResponseCacheItem item;
+	bool debug = true;
 	string key;
+	string cacheStatus = "";
 
 	if (useCache) {
+		debug = false;
 		if (!data.empty()) {
 			key = HostRegExpRemove(HostRegExpRemove(api, "&w_rid=[^&]*"), "&wts=[^&]*") + "?" + data;
 		} else {
@@ -591,14 +649,21 @@ string apiPost(string api, string data, string host, string headers, bool useCac
 				log("Cache Hit, url", host + api);
 				return item.response;
 			} else {
-				log("Cache expire");
+				cacheStatus = "Cache expire";
 			}
 		} else {
-			log("Cache not Hit");
+			cacheStatus = "Cache not Hit";
 		}
 	}
 
-	string resp = post(host + api, data, headers);
+	uint start = HostGetTickCount();
+	string resp = post(host + api, data, headers, debug);
+	uint end = HostGetTickCount();
+
+	if (!cacheStatus.empty()) {
+		log(cacheStatus + ", request time: " + formatFloat((end - start) / 1000.0, "", 3, 3) +"s, url: " + host + api);
+	}
+
 	if (resp.empty()) {
 		HostMessageBox("未获取到响应数据，请等待一段时间后重试一下\n\nurl: " + host + api, "请求失败");
 		return "";
@@ -820,15 +885,20 @@ string GetM3u8RealURL(string url) {
 		}
 	}
 
-	uint tickCount = HostGetTickCount();
 	string resp = post(url, "", "", false);
-	HostIncTimeOut(HostGetTickCount() - tickCount);
-
 	array<string> lines = resp.split("\n");
 
 	for (uint j = 0; j + 1 < lines.size(); j++) {
 		string line = lines[j].Trim();
 		if (line.find("#EXT-X-STREAM-INF:") != 0) continue;
+		bool found = false;
+		for (uint k = 0; k < ConfigData.m3u8RedirectDomains.size(); k++) {
+			if (lines[j + 1].Trim().find(ConfigData.m3u8RedirectDomains[k]) >= 0) {
+				found = true;
+				break;
+			}
+		}
+		if (!found) log("!-------------------found redirect m3u8, origin url", url);
 		status = 5;
 		return lines[j + 1].Trim();
 	}
@@ -1131,19 +1201,28 @@ void AppendBangumiQualityList(const string epid, const string path, string& url,
 			int qn = durl["quality"].asInt();
 			string quality = getVideoQuality(support_formats, qn);
 			int itag = getUniItag();
-			referer = path;
+			referer = referer;
 
 			QualityListItem item;
-
 			item.url = url;
 			item.quality = quality;
 			item.qualityDetail = quality;
 			item.itag = itag;
 			item.va = "v";
 			item.referer = referer;
-
 			if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
 		}
+	} else if (Root["data"]["result"]["video_info"]["durl"].isArray()) {
+		JsonValue durl = Root["data"]["result"]["video_info"]["durl"][0];
+		url = getFixedURL(durl);
+		int itag = getUniItag();
+
+		QualityListItem item;
+		item.url = url;
+		item.itag = itag;
+		item.va = "v";
+		item.referer = referer;
+		if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
 	}
 
 	log("url", url);
@@ -1164,6 +1243,7 @@ void AppendVideoQualityList(string bvid, string aid, string cid, string& url, ar
 	if (reader.parse(res, root) && root.isObject()) {
 		if (root["code"].asInt() == 0) {
 			JsonValue data = root["data"];
+			JsonValue support_formats = data["support_formats"];
 			referer = "https://www.bilibili.com/video/" + bvid;
 
 			if (data["dash"].isObject()) {
@@ -1235,6 +1315,26 @@ void AppendVideoQualityList(string bvid, string aid, string cid, string& url, ar
 					audio = data["dash"]["flac"]["audio"];
 					AppendAudioQualityList(audio, referer, QualityList);
 				}
+			} else if (data["durls"].isArray()) {
+				JsonValue durls = data["durls"];
+				int itag;
+				for (uint i = 0; i < durls.size(); i++) {
+					JsonValue durl = durls[i];
+					url = getFixedURL(durl["durl"][0]);
+					int qn = durl["quality"].asInt();
+					string quality = getVideoQuality(support_formats, qn);
+					int itag = getUniItag();
+					referer = referer;
+
+					QualityListItem item;
+					item.url = url;
+					item.quality = quality;
+					item.qualityDetail = quality;
+					item.itag = itag;
+					item.va = "v";
+					item.referer = referer;
+					if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
+				}
 			} else if (data["durl"].isArray()) {
 				JsonValue durl = data["durl"][0];
 				url = getFixedURL(durl);
@@ -1247,9 +1347,6 @@ void AppendVideoQualityList(string bvid, string aid, string cid, string& url, ar
 				item.referer = referer;
 				if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
 			}
-		} else {
-			log("Video playurl response code != 0", root["code"].asInt());
-			log("Video playurl response message", root["message"].asString());
 		}
 	}
 	
@@ -1288,7 +1385,7 @@ void AppendAudioQualityList(JsonValue audio, string referer, array<dictionary>& 
 
 	string codec = audio["codecs"].asString().MakeLower();
 	string mime_type = audio["mime_type"].asString().MakeLower();
-	string format = mime_type.substr(mime_type.findLast("/") + 1) + ", " + codec.substr(0, codec.find(".")) + ", " + bitrate;
+	string format = mime_type.substr(mime_type.findLast("/") + 1) + ", " + (codec.find(".") >= 0 ? codec.substr(0, codec.find(".")) : codec) + ", " + bitrate;
 
 	item.url = url;
 	item.bitrateVal = bitrateVal;
@@ -1814,26 +1911,24 @@ JsonValue SortVideos(JsonValue& videos) {
 }
 
 string getChatUrl(const string room_id, string server) {
+	status = 8;
+
 	string chatUrl;
 	string unixTime;
 	uint tickCount;
 	JsonReader Reader;
 	JsonValue Root;
 	
-	if (ConfigData.usingDanmuji) {
+	if (ConfigData.GetDanmujiStatus()) {
+		unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
 		tickCount = HostGetTickCount();
-		
-		unixTime = formatInt(DatetimeToUnixTime(FormatDateTime(datetime())));
-		post(server + "/disconnectRoom?_=" + unixTime);
-		
+		post(server + "/disconnectRoom?_=" + unixTime);	
 		HostIncTimeOut(HostGetTickCount() - tickCount);
 	}
 
+	unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
 	tickCount = HostGetTickCount();
-
-	unixTime = formatInt(DatetimeToUnixTime(FormatDateTime(datetime())));
 	string res = post(server + "/connectRoom?roomid=" + room_id + "&_=" + unixTime);
-
 	HostIncTimeOut(HostGetTickCount() - tickCount);
 
 	if (!Reader.parse(res, Root) || !Root.isObject()) {
@@ -1843,13 +1938,12 @@ string getChatUrl(const string room_id, string server) {
 
 	if (Root["code"].asString() != "200") {
 		log("getChatUrl - connectRoom failed, code: " + Root["code"].asString() + ", msg: " + Root["msg"].asString());
-		
 		return chatUrl;
 	}
 
 	string host = HostRegExpParse(server, "^https?://([^/]+)");
 	chatUrl = server + "/danmu_widget?sub=ws://" + host + "/danmu/sub";
-	ConfigData.usingDanmuji = true;
+	ConfigData.SetDanmujiStatus(true);
 	
 	return chatUrl;
 }
@@ -1889,8 +1983,7 @@ array<dictionary> BangumiEpisodes(string id, string type) {
 	for (int j = 0; j < episodes.size(); j++) {
 		JsonValue episode = episodes[j];
 		if (!ConfigData.showTrailer && episode["badge_type"].asInt() == 1) continue;
-
-		string title = (episode["badge"].isString() ?  "【" + episode["badge"].asString() + "】" : "") + episode["share_copy"].asString() + "\n" + episode["show_title"].asString();
+		string title = ((episode["badge"].isString() && !episode["badge"].asString().empty()) ?  "【" + episode["badge"].asString() + "】\n" : "") + episode["share_copy"].asString() + "\n" + episode["show_title"].asString();
 
 		dictionary video;
 		video["title"] = title;
@@ -1941,6 +2034,7 @@ array<dictionary> UGCSeason(const string&in path) {
 
 		// 单/多分组合集
 		bool multiSection = (sections.size() > 1) ? true : false;
+
 		for (int i = 0; i < sections.size(); i++) {
 			JsonValue section = sections[i];
 			if (!section.isObject()) continue;
@@ -1949,7 +2043,6 @@ array<dictionary> UGCSeason(const string&in path) {
 			if (multiSection) sectionTitle = "【" + section["title"].asString() + "】";
 
 			JsonValue episodes = section["episodes"];
-
 			if (!episodes.isArray())  continue;
 
 			for (int j = 0; j < episodes.size(); j++) {
@@ -1959,56 +2052,61 @@ array<dictionary> UGCSeason(const string&in path) {
 				string episodeTitle = episode["arc"]["title"].asString();
 
 				JsonValue pages = episode["pages"];
-				if (! pages.isArray()) continue;
+				if (!pages.isArray()) continue;
 				
 				// 单/多P视频
 				bool multiPages = (pages.size() > 1) ? true : false;
+
 				for (int k = 0; k < pages.size(); k++) {
 					JsonValue page = pages[k];
-					dictionary video;
+					if (!page.isObject()) continue;
+					
 					string finalTitle;
 
 					if (multiPages) {
 						if (sectionTitle.isEmpty()) {
-							finalTitle = episodeTitle + "\n\n" + page["part"].asString();
+							finalTitle = episodeTitle + "\n" + page["part"].asString();
 						} else {
-							finalTitle = sectionTitle + "\n\n" + episodeTitle + "\n\n" + page["part"].asString();
+							finalTitle = sectionTitle + "\n" + episodeTitle + "\n" + page["part"].asString();
 						}
 					} else {
 						if (sectionTitle.isEmpty()) {
 							finalTitle = episodeTitle;
 						} else {
-							finalTitle = sectionTitle + "\n\n" + episodeTitle;
+							finalTitle = sectionTitle + "\n" + episodeTitle;
 						}
 					}
 
+					bool isCurrent = ((episode["bvid"].asString() == bvid || episode["aid"].asString() == aid) && page["page"].asString() == p) ? true : false;
+					
+					dictionary video;
 					video["title"] = finalTitle;
 					video["duration"] = page["duration"].asInt() * 1000;
 					video["thumbnail"] = episode["arc"]["pic"].asString();
 					video["author"] = episode["arc"]["author"]["name"].asString();
-					video["url"] = "https://www.bilibili.com/video/" + episode["bvid"].asString() + "?p=" + page["page"].asString();
+					video["url"] = isCurrent ? makeWebUrl(path) : makeWebUrl("https://www.bilibili.com/video/" + episode["bvid"].asString() + "?p=" + page["page"].asString());
 					video["viewCount"] = episode["arc"]["stat"]["view"].asString();
 					video["likeCount"] = episode["arc"]["stat"]["like"].asString();
 					video["dislikeCount"] = episode["arc"]["stat"]["dislike"].asString();
 					video["date"] = UnixTimeToDateTime(episode["arc"]["pubdate"].asInt64());
-					if ((episode["bvid"].asString() == bvid || episode["aid"].asString() == aid) && page["page"].asString() == p) video["current"] = "1";
+					if (isCurrent) video["current"] = "1";
 					video["referer"] = path;
 					videos.insertLast(video);
 				}
 			}
 		}
-	} if (Root["data"]["View"]["pages"].isArray()) {
+	} else if (Root["data"]["View"]["pages"].isArray()) {
 		JsonValue pages = Root["data"]["View"]["pages"];
 		
 		for (int i = 0; i < pages.size(); i++) {
 			JsonValue page = pages[i];
 
 			dictionary video;
-			video["title"] = Root["data"]["View"]["title"].asString() + "\n\n" + page["part"].asString();
+			video["title"] = Root["data"]["View"]["title"].asString() + "\n" + page["part"].asString();
 			video["duration"] = page["duration"].asInt() * 1000;
 			video["thumbnail"] = page["first_frame"].asString();
 			video["author"] = Root["data"]["View"]["owner"]["name"].asString();
-			video["url"] = "https://www.bilibili.com/video/" + Root["data"]["View"]["bvid"].asString() + "?p=" + page["page"].asString();
+			video["url"] = makeWebUrl("https://www.bilibili.com/video/" + Root["data"]["View"]["bvid"].asString() + "?p=" + page["page"].asString());
 			video["date"] = UnixTimeToDateTime(page["ctime"].asInt64());
 			if (parse(path, "p", "1") == page["page"].asString()) video["current"] = "1";
 			video["referer"] = path;
@@ -2051,14 +2149,14 @@ array<dictionary> RelatedVideos(const string&in path) {
 			video["duration"] = view["duration"].asInt() * 1000;
 			video["thumbnail"] = view["pic"].asString();
 			video["author"] = view["owner"]["name"].asString();
-			video["url"] = "https://www.bilibili.com/video/" + view["bvid"].asString();
+			video["url"] = makeWebUrl(path);
 			if (!view["desc"].asString().empty() && view["desc"].asString() != "-") video["content"] = view["desc"].asString();
 			video["viewCount"] = view["stat"]["view"].asString();
 			video["likeCount"] = view["stat"]["like"].asString();
 			video["dislikeCount"] = view["stat"]["dislike"].asString();
 			video["date"] = UnixTimeToDateTime(view["pubdate"].asInt64());
 			video["current"] = "1";
-			video["referer"] = "https://www.bilibili.com/video/" + view["bvid"].asString();
+			video["referer"] = makeWebUrl(path);
 			videos.insertLast(video);
 
 			if (!ConfigData.showRecommendedVideos) return videos;
@@ -2079,7 +2177,7 @@ array<dictionary> RelatedVideos(const string&in path) {
 						video["likeCount"] = item["stat"]["like"].asString();
 						video["dislikeCount"] = item["stat"]["dislike"].asString();
 						video["date"] = UnixTimeToDateTime(item["pubdate"].asInt64());
-						video["referer"] = "https://www.bilibili.com/video/" + view["bvid"].asString();
+						video["referer"] = makeWebUrl(path);
 						videos.insertLast(video);
 					} else {
 						log("item is not exists.");
@@ -2260,14 +2358,14 @@ string Bangumi(const string&in path, dictionary& MetaData, array<dictionary>& Qu
 			bvid = episode["bvid"].asString();
 			cid = episode["cid"].asString();
 			
-			string title = (episode["badge"].isString() ?  "【" + episode["badge"].asString() + "】" : "") + episode["share_copy"].asString() + "\n" + episode["show_title"].asString();
+			string title = ((episode["badge"].isString() && !episode["badge"].asString().empty()) ?  "【" + episode["badge"].asString() + "】\n" : "") + episode["share_copy"].asString() + "\n" + episode["show_title"].asString();
 
 			if (@MetaData !is null) {
 				MetaData["title"] = title;
 				MetaData["vid"] = bvid;
 				MetaData["duration"] = episode["duration"].asString();
 				MetaData["thumbnail"] = episode["cover"].asString();
-				MetaData["webUrl"] = episode["link"].asString();
+				MetaData["webUrl"] = makeWebUrl(path);
 				MetaData["date"] = UnixTimeToDateTime(episode["pub_time"].asInt64());
 				MetaData["fileExt"] = "mp4";
 
@@ -2387,19 +2485,31 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 		}
 
 		if (view["pages"].size() > 1) {
-			title = view["title"].asString() + "\n\n" + page["part"].asString();
+			title = view["title"].asString() + "\n" + page["part"].asString();
 		}
+	}
+
+	string author;
+	array<string> staff;
+	if (view["staff"].isArray() && view["staff"].size() > 0) {
+		for (uint i = 0; i < view["staff"].size(); i++) {
+			staff.insertLast(view["staff"][i]["name"].asString());
+		}
+		author = join(staff, ", ");
+	} else {
+		author = view["owner"]["name"].asString();
 	}
 
 	bool is_upower_exclusive = view["is_upower_exclusive"].asBool();
 	bool is_upower_preview = view["is_upower_preview"].asBool();
+	if (is_upower_exclusive) title = "【充电专属】\n" + title;
 
-	if (@MetaData !is null) {		
-		MetaData["vid"] = join({bvid, cid}, "|");
+	if (@MetaData !is null) {
+		MetaData["vid"] = cid;
 		MetaData["title"] = title;
 		MetaData["duration"] = formatInt(view["duration"].asInt() * 1000);
 		MetaData["thumbnail"] = view["pic"].asString();
-		MetaData["author"] = view["owner"]["name"].asString();
+		MetaData["author"] = author;
 		MetaData["content"] = view["desc"].asString();
 		MetaData["webUrl"] = makeWebUrl(path);
 		MetaData["viewCount"] = view["stat"]["view"].asString();
@@ -2456,7 +2566,7 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 
 	string title = data["title"].asString();
 	string area_title = data["parent_area_name"].asString().isEmpty() ? data["area_name"].asString() : data["area_name"].asString().isEmpty() ? data["parent_area_name"].asString() : data["parent_area_name"].asString() + " (" + data["area_name"].asString() + ")";
-	if (!area_title.isEmpty()) title = area_title + "\n\n" + title;
+	if (!area_title.isEmpty()) title = area_title + "\n" + title;
 
 	if (@MetaData !is null) {
 		MetaData["vid"] = id;
@@ -2468,8 +2578,8 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 		MetaData["viewCount"] = Root["data"]["watched_show"]["num"].asString();
 		MetaData["likeCount"] = Root["data"]["like_info_v3"]["total_likes"].asString();
 
-		if (!ConfigData.bilibiliDanmujiServer.isEmpty()) {
-			string chatUrl = getChatUrl(room_id, ConfigData.bilibiliDanmujiServer);
+		if (!ConfigData.GetDanmujiServer().isEmpty()) {
+			string chatUrl = getChatUrl(room_id, ConfigData.GetDanmujiServer());
 			if (!chatUrl.isEmpty()) MetaData["chatUrl"] = chatUrl;
 		}
 
@@ -2757,7 +2867,7 @@ array<dictionary> watchlater() {
 							video["title"] = item["title"].asString() + " | " + item["page"]["part"].asString();
 						}
 						video["duration"] = item["duration"].asInt() * 1000;
-						video["url"] = "https://www.bilibili.com/video/" + item["bvid"].asString() + "?p=" + p;
+						video["url"] = makeWebUrl("https://www.bilibili.com/video/" + item["bvid"].asString() + "?p=" + p);
 						video["thumbnail"] = item["pic"].asString();
 						video["author"] = item["owner"]["name"].asString();
 						video["date"] = UnixTimeToDateTime(item["pubdate"].asInt64());
@@ -2768,7 +2878,7 @@ array<dictionary> watchlater() {
 		}
 	}
 	if (videos.size() == 0) {
-		HostMessageBox("你的 [稍后再看] 列表是空的，刷点别的视频吧。", "[稍后再看] 为空", 2,0);
+		HostMessageBox("[稍后再看] 列表是空的，刷点别的视频吧。", "[稍后再看] 为空", 2,0);
 	}
 	return videos;
 }
@@ -2827,7 +2937,7 @@ array<dictionary> History() {
 					}
 
 					video["duration"] = item["duration"].asInt() * 1000;
-					video["url"] = "https://www.bilibili.com/video/" + item["history"]["bvid"].asString() + "?p=" + p;
+					video["url"] = makeWebUrl("https://www.bilibili.com/video/" + item["history"]["bvid"].asString() + "?p=" + p);
 					video["date"] = UnixTimeToDateTime(item["view_at"].asInt64());
 				}
 
@@ -3030,7 +3140,7 @@ array<dictionary> followingLive() {
 	int page = 1;
 	
 	while (true) {
-		string url = "/xlive/web-ucenter/user/following?page=" + page + "&page_size=10";
+		string url = "/xlive/web-ucenter/user/following?page=" + page + "&page_size=10&hit_ab=true";
 		string res = apiPost(url, "", "https://api.live.bilibili.com", false);
 
 		if (!Reader.parse(res, Root) || !Root.isObject() || Root["code"].asInt() != 0)
@@ -3047,22 +3157,19 @@ array<dictionary> followingLive() {
 		for (int i = 0; i < list.size(); i++) {
 			JsonValue item = list[i];
 
-			// 接口优先返回正在开播的用户，后面均为未开播
 			if (item["live_status"].asInt() == 0) {
 				hasOffline = true;
 				break;
 			}
 
 			dictionary video;
-			video["title"] = item["title"].asString();
+			video["title"] = item["area_name_v2"].asString() + "\n" + item["title"].asString();
 			video["url"] = "https://live.bilibili.com/" + item["roomid"].asString();
-			video["thumbnail"] = item["face"].asString();
+			video["thumbnail"] = item["room_cover"].asString();
 			video["author"] = item["uname"].asString();
-
 			videos.insertLast(video);
 		}
 
-		// 当前页已经出现未开播用户，后续页面无需请求
 		if (hasOffline)
 			break;
 
@@ -3075,7 +3182,7 @@ array<dictionary> followingLive() {
 	}
 
 	if (videos.size() == 0) {
-		HostMessageBox("[我关注的直播] 列表是空的，刷点别的视频吧。", "[关注的直播] 为空", 2, 0);
+		HostMessageBox("[我关注的直播] 列表是空的，刷点别的视频吧。", "[我关注的直播] 为空", 2, 0);
 	}
 
 	return videos;
@@ -3096,6 +3203,7 @@ array<dictionary> liveCategory(string path, int areaId = 0, int parentAreaId = 0
 }
 
 array<dictionary> liveCategory(int areaId, int parentAreaId, string w_webid) {
+	log("============================== liveCategory ==============================");
 	array<dictionary> videos;
 	JsonReader Reader;
 	JsonValue Root;
@@ -3126,7 +3234,6 @@ array<dictionary> liveCategory(int areaId, int parentAreaId, string w_webid) {
 				for (int j = 0; j < keys.size(); j++) {
 					pendant_infos.insertLast(item["pendant_info"][keys[j]]["content"].asString().isEmpty() ? item["pendant_info"][keys[j]]["name"].asString() : item["pendant_info"][keys[j]]["content"].asString());
 				}
-
 				pendant_title = join(pendant_infos, " | ");
 			}
 
@@ -3136,14 +3243,13 @@ array<dictionary> liveCategory(int areaId, int parentAreaId, string w_webid) {
 			if (!pendant_title.isEmpty())titles.insertLast(pendant_title);
 
 			dictionary video;
-			video["title"] = join(titles, "\n\n");
+			video["title"] = join(titles, "\n");
 			video["url"] = "https://live.bilibili.com/" + item["roomid"].asInt();
 			video["thumbnail"] = ConfigData.useSystemCover ? item["system_cover"].asString() : item["cover"].asString() ;
 			video["author"] = item["uname"].asString();
 			videos.insertLast(video);
-
 		}
-		
+		page++;
 		if (Root["data"]["has_more"].asInt() != 1) return videos;
 	}
 
@@ -3505,17 +3611,18 @@ array<dictionary> webDynamic(string path) {
 						if (!major.isObject()) continue;
 
 						string author = list[j]["modules"]["module_author"]["name"].asString();
-						string date = UnixTimeToDateTime(parseInt(list[j]["modules"]["module_author"]["pub_ts"].asString()));
+						// string date = UnixTimeToDateTime(parseInt(list[j]["modules"]["module_author"]["pub_ts"].asString()));
+						string date = list[j]["modules"]["module_author"]["pub_time"].asString();
 
 						JsonValue archive = major["archive"];
 						if (archive.isObject()) {
 							if (archive["bvid"].isString() && !archive["bvid"].asString().empty()) {
 								string bvid = archive["bvid"].asString();
 								string title = archive["title"].asString();
-								string badge_text = archive["badge"]["text"].asString();
+								string badge_text = "【" + archive["badge"]["text"].asString() + "】";
 
 								dictionary video;
-								video["title"] = badge_text + " | " + archive["title"].asString();
+								video["title"] = badge_text + "\n" + archive["title"].asString();
 								video["duration"] = parseTime(archive["duration_text"].asString());
 								video["url"] = "https://www.bilibili.com/video/" + bvid;
 								video["thumbnail"] = archive["cover"].asString();
@@ -3531,13 +3638,32 @@ array<dictionary> webDynamic(string path) {
 							JsonValue content;
 							if (Reader.parse(content_str, content) && content.isObject()) {
 								if (content["live_play_info"]["live_status"].asInt() == 1) {
+									string parent_area_name = content["live_play_info"]["parent_area_name"].asString();
+									string area_name = content["live_play_info"]["area_name"].asString();
+
 									dictionary live;
-									live["title"] = "直播 | " + content["live_play_info"]["title"].asString();
+									live["title"] = "【直播】" + "\n" + parent_area_name + " (" + area_name + ") " + "\n" + content["live_play_info"]["title"].asString();
 									live["url"] = "https://live.bilibili.com/" + content["live_play_info"]["room_id"].asString();
 									live["thumbnail"] = content["live_play_info"]["cover"].asString();
 									live["author"] = author;
+									live["date"] = UnixTimeToDateTime(content["live_play_info"]["live_start_time"].asInt64());
 									videos.insertLast(live);
 								}
+							}
+							continue;
+						}
+						JsonValue pgc = major["pgc"];
+						if (pgc.isObject()) {
+							if (pgc["epid"].isString() && !pgc["epid"].asString().empty()) {
+								string title = pgc["title"].asString();
+								string badge_text = "【" + pgc["badge"]["text"].asString() + "】";
+								dictionary pgc_video;
+								pgc_video["title"] = badge_text + "\n" + pgc["title"].asString();
+								pgc_video["url"] = pgc["jump_url"].asString();
+								pgc_video["thumbnail"] = pgc["cover"].asString();
+								pgc_video["author"] = author;
+								pgc_video["date"] = list[j]["modules"]["module_author"]["pub_time"].asString();
+								videos.insertLast(pgc_video);
 							}
 							continue;
 						}
