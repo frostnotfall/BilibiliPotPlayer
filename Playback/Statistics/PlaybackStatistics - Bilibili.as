@@ -32,7 +32,7 @@ string GetDesc() {
 }
 
 void log(string item) {
-	HostPrintUTF8("[" + formatFloat(HostGetTickCount() / 1000.0, "", 3, 3) + "] - " + item);
+	HostPrintUTF8("[" + formatFloat(HostGetTickCount() / 1000.0, "", 3, 3) + "] - " + "PlaybackStatistics - Bilibili - " + item);
 }
 
 void log(string item, string info) {
@@ -121,7 +121,7 @@ void PlaybackResume(const string &in path) {
 }
 
 void PlaybackComplete(const string &in path) {
-	log("PlaybackComplete()", path);
+	// log("PlaybackComplete()", path);
 
 	string id = HostRegExpParse(path, "live.bilibili.com/([0-9]+)");
 	if (id.empty()) return;
@@ -129,11 +129,12 @@ void PlaybackComplete(const string &in path) {
 	if (!GetDanmujiServer().isEmpty() && GetDanmujiStatus()) {
 		string unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
 		post(GetDanmujiServer() + "/disconnectRoom?_=" + unixTime);
+		SetDanmujiStatus(false);
 	}
 }
 
 void PlaybackClose(const string &in path) {
-	log("PlaybackClose()", path);
+	// log("PlaybackClose()", path);
 
 	string id = HostRegExpParse(path, "live.bilibili.com/([0-9]+)");
 	if (id.empty()) return;
@@ -141,5 +142,6 @@ void PlaybackClose(const string &in path) {
 	if (!GetDanmujiServer().isEmpty() && GetDanmujiStatus()) {
 		string unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
 		post(GetDanmujiServer() + "/disconnectRoom?_=" + unixTime);
+		SetDanmujiStatus(false);
 	}
 }
