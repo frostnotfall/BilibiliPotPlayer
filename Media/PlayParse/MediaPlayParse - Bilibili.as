@@ -72,7 +72,7 @@ void OnInitialize() {
 }
 
 string GetTitle() {
-	string title = "BiliBili";
+	string title = "BiliBili @" + GetVersion();
 	if (!HostFileExist(HostGetScriptFolder() + ConfigFileName)) {
 		return title + "（配置文件不存在）";
 	}
@@ -96,7 +96,18 @@ string GetVersion() {
 }
 
 string GetDesc() {
-	return "https://www.bilibili.com";
+	const string GitHub_Link = "https://github.com/frostnotfall/BilibiliPotPlayer";
+	const string GitHub_OriginalLink = "https://sponsor.ajay.app/";
+	string info =
+		"<a href=\"" + GitHub_Link + "\">BilibiliPotPlayer</a> 版本: " + GetVersion() + ""
+		"\r\n"
+		"教程: "
+		"<a href=\"https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E5%AE%89%E8%A3%85%E5%8F%8A%E5%9F%BA%E6%9C%AC%E4%BD%BF%E7%94%A8%E6%95%99%E7%A8%8B\">安装及基本使用教程</a>, "
+		"<a href=\"https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E8%BF%9B%E9%98%B6%E6%95%99%E7%A8%8B\">进阶教程</a>\r\n"
+		"\r\n"
+		"基于原项目<a href=\"" + GitHub_OriginalLink + "\">BilibiliPotPlayer</a>\r\n"
+		" ";
+	return info;
 }
 
 string GetConfigFile() {
@@ -1918,18 +1929,19 @@ string getChatUrl(const string room_id, string server) {
 	uint tickCount;
 	JsonReader Reader;
 	JsonValue Root;
-	
-	if (ConfigData.GetDanmujiStatus()) {
-		unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
-		tickCount = HostGetTickCount();
-		post(server + "/disconnectRoom?_=" + unixTime);	
-		HostIncTimeOut(HostGetTickCount() - tickCount);
+
+	tickCount = HostGetTickCount();
+	while (ConfigData.GetDanmujiStatus()) {
+		if (HostGetTickCount() - tickCount > 5000) {
+			post(server + "/disconnectRoom?_=" + unixTime);	
+			ConfigData.SetDanmujiStatus(false);
+			break;
+		}
+		HostSleep(100);
 	}
 
 	unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
-	tickCount = HostGetTickCount();
 	string res = post(server + "/connectRoom?roomid=" + room_id + "&_=" + unixTime);
-	HostIncTimeOut(HostGetTickCount() - tickCount);
 
 	if (!Reader.parse(res, Root) || !Root.isObject()) {
 		log('getChatUrl - connectRoom failed', '!Reader.parse(res, Root) || !Root.isObject()');
