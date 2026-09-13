@@ -81,7 +81,11 @@ string GetTitle() {
 	uintptr fp = HostFileOpen(HostGetScriptFolder() + ConfigFileName);
 	config.fullConfig = HostFileRead(fp, HostFileLength(fp));
 	HostFileClose(fp);
-	
+
+	if (config.fullConfig.length() >= 3 && config.fullConfig[0] == 0xEF && config.fullConfig[1] == 0xBB && config.fullConfig[2] == 0xBF) {
+		config.fullConfig = config.fullConfig.substr(3);
+	}
+
 	JsonReader reader;
 	JsonValue root;
 	if (!reader.parse(config.fullConfig, root) || !root.isObject()) {
@@ -119,7 +123,11 @@ void ApplyConfigFile() {
 	uintptr fp = HostFileOpen(HostGetScriptFolder() + ConfigFileName);
 	config.fullConfig = HostFileRead(fp, HostFileLength(fp));
 	HostFileClose(fp);
-	
+
+	if (config.fullConfig.length() >= 3 && config.fullConfig[0] == 0xEF && config.fullConfig[1] == 0xBB && config.fullConfig[2] == 0xBF) {
+		config.fullConfig = config.fullConfig.substr(3);
+	}
+
 	JsonReader reader;
 	JsonValue root;
 	if (!reader.parse(config.fullConfig, root) || !root.isObject()) {
@@ -190,6 +198,7 @@ void OnFinalize() {
 	if (!ConfigData.GetDanmujiServer().isEmpty() && ConfigData.GetDanmujiStatus()) {
 		string unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
 		post(ConfigData.GetDanmujiServer() + "/disconnectRoom?_=" + unixTime);
+		ConfigData.SetDanmujiStatus(true);
 	}
 }
 
@@ -198,6 +207,7 @@ void PlayitemCancel() {
 	if (!ConfigData.GetDanmujiServer().isEmpty() && ConfigData.GetDanmujiStatus()) {
 		string unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
 		post(ConfigData.GetDanmujiServer() + "/disconnectRoom?_=" + unixTime);
+		ConfigData.SetDanmujiStatus(true);
 	}
 }
 
@@ -206,6 +216,7 @@ void PlaylistCancel() {
 	if (!ConfigData.GetDanmujiServer().isEmpty() && ConfigData.GetDanmujiStatus()) {
 		string unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
 		post(ConfigData.GetDanmujiServer() + "/disconnectRoom?_=" + unixTime);
+		ConfigData.SetDanmujiStatus(true);
 	}
 }
 
@@ -331,7 +342,11 @@ Config ReadConfigFile(string file) {
 	uintptr fp = HostFileOpen(file);
 	config.fullConfig = HostFileRead(fp, HostFileLength(fp));
 	HostFileClose(fp);
-	
+
+	if (config.fullConfig.length() >= 3 && config.fullConfig[0] == 0xEF && config.fullConfig[1] == 0xBB && config.fullConfig[2] == 0xBF) {
+		config.fullConfig = config.fullConfig.substr(3);
+	}
+
 	JsonReader reader;
 	JsonValue root;
 	if (!reader.parse(config.fullConfig, root) || !root.isObject()) {
@@ -1021,6 +1036,8 @@ string getFixedURL(JsonValue&in data) {
 			}
 		}
 	}
+
+	log("getFixedURL: all backup URLs are P2P CDN, returning base URL");
 	return base_url;
 }
 
@@ -2430,7 +2447,7 @@ string Bangumi(const string&in path, dictionary& MetaData, array<dictionary>& Qu
 				array<string> author;
 				if (Root["data"]["related_up"].isArray()) {
 					for (int i = 0; i < Root["data"]["related_up"].size(); i++) {
-						author.insertLast(Root["data"]["related_up"][i]["uname"].asString());
+						author.insertLast("@" + Root["data"]["related_up"][i]["uname"].asString());
 					}
 				}
 				MetaData["author"] = join(author, ",");
@@ -2505,11 +2522,11 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 	array<string> staff;
 	if (view["staff"].isArray() && view["staff"].size() > 0) {
 		for (uint i = 0; i < view["staff"].size(); i++) {
-			staff.insertLast(view["staff"][i]["name"].asString());
+			staff.insertLast("@" + view["staff"][i]["name"].asString());
 		}
 		author = join(staff, ", ");
 	} else {
-		author = view["owner"]["name"].asString();
+		author = "@" + view["owner"]["name"].asString();
 	}
 
 	bool is_upower_exclusive = view["is_upower_exclusive"].asBool();
@@ -2584,7 +2601,7 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 		MetaData["vid"] = id;
 		MetaData["title"] = title;
 		MetaData["thumbnail"] = data["cover"].asString();
-		MetaData["author"] = Root["data"]["anchor_info"]["base_info"]["uname"].asString();
+		MetaData["author"] = "@" + Root["data"]["anchor_info"]["base_info"]["uname"].asString();
 		MetaData["content"] = data["description"].asString();
 		MetaData["webUrl"] = makeWebUrl(path);
 		MetaData["viewCount"] = Root["data"]["watched_show"]["num"].asString();
@@ -3669,6 +3686,7 @@ array<dictionary> webDynamic(string path) {
 							if (pgc["epid"].isString() && !pgc["epid"].asString().empty()) {
 								string title = pgc["title"].asString();
 								string badge_text = "【" + pgc["badge"]["text"].asString() + "】";
+
 								dictionary pgc_video;
 								pgc_video["title"] = badge_text + "\n" + pgc["title"].asString();
 								pgc_video["url"] = pgc["jump_url"].asString();
