@@ -86,7 +86,7 @@
 
 一些问题的解决办法，[wiki](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E4%B8%80%E4%BA%9B%E5%8F%AF%E8%83%BD%E7%9A%84%E9%97%AE%E9%A2%98%E5%8F%8A%E9%83%A8%E5%88%86%E8%A7%A3%E5%86%B3%E5%8A%9E%E6%B3%95)
 
-## 安装插件
+## 安装
 
 参考 [安装及基本使用教程](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E5%AE%89%E8%A3%85%E5%8F%8A%E5%9F%BA%E6%9C%AC%E4%BD%BF%E7%94%A8%E6%95%99%E7%A8%8B)，[进阶教程](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E8%BF%9B%E9%98%B6%E6%95%99%E7%A8%8B)。
 
