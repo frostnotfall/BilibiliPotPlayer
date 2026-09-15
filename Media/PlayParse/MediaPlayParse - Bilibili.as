@@ -96,7 +96,7 @@ string GetTitle() {
 }
 
 string GetVersion() {
-	return "2.6.22";
+	return "2.6.23";
 }
 
 string GetDesc() {
@@ -195,29 +195,14 @@ string GetBroadcastListScript(){
 
 void OnFinalize() {
 	log("OnFinalize()");
-	if (!ConfigData.GetDanmujiServer().isEmpty() && ConfigData.GetDanmujiStatus()) {
-		string unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
-		post(ConfigData.GetDanmujiServer() + "/disconnectRoom?_=" + unixTime);
-		ConfigData.SetDanmujiStatus(true);
-	}
 }
 
 void PlayitemCancel() {
 	log("PlayitemCancel()");
-	if (!ConfigData.GetDanmujiServer().isEmpty() && ConfigData.GetDanmujiStatus()) {
-		string unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
-		post(ConfigData.GetDanmujiServer() + "/disconnectRoom?_=" + unixTime);
-		ConfigData.SetDanmujiStatus(true);
-	}
 }
 
 void PlaylistCancel() {
 	log("PlaylistCancel()");
-	if (!ConfigData.GetDanmujiServer().isEmpty() && ConfigData.GetDanmujiStatus()) {
-		string unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
-		post(ConfigData.GetDanmujiServer() + "/disconnectRoom?_=" + unixTime);
-		ConfigData.SetDanmujiStatus(true);
-	}
 }
 
 class VideoIsUGCorPGC {
@@ -335,7 +320,6 @@ class Config {
 	string DANMUJI_SERVER = "BilibiliPotPlayer.DanmujiServer()";
 
 	void SetDanmujiStatus(bool value) {
-		log("SetDanmujiStatus: " + (value ? "true" : "false"));
 		HostSaveInteger(DANMUJI_STATUS, value ? 1 : 0);
 	}
 	bool GetDanmujiStatus() {
@@ -436,8 +420,10 @@ Config ReadConfigFile(string file) {
 			JsonValue parseM3u8RealUrl = live["parseM3u8RealUrl"];
 			if (parseM3u8RealUrl["enable"].isBool()) {
 				config.parseM3u8RealUrl = parseM3u8RealUrl["enable"].asBool();
-				if ( config.parseM3u8RealUrl && parseM3u8RealUrl["fastMode"].isBool() && parseM3u8RealUrl["fastMode"].asBool() && parseM3u8RealUrl["m3u8RedirectDomains"].size() > 0 ) {
-					config.parseM3u8RealUrlFastMode = true;
+				if ( parseM3u8RealUrl["fastMode"].isBool() ) {
+					config.parseM3u8RealUrlFastMode = parseM3u8RealUrl["fastMode"].asBool();
+				}
+				if ( config.parseM3u8RealUrl && parseM3u8RealUrl["m3u8RedirectDomains"].size() > 0 ) {
 					for (uint i = 0; i < parseM3u8RealUrl["m3u8RedirectDomains"].size(); i++) {
 						config.m3u8RedirectDomains.insertLast(parseM3u8RealUrl["m3u8RedirectDomains"][i].asString());
 					}
@@ -972,7 +958,7 @@ string getCodec(int codecid) {
 string GetM3u8RealURL(string url) {
 	status = 7;
 
-	if (!ConfigData.m3u8RedirectDomains.isEmpty()) {
+	if ( ConfigData.parseM3u8RealUrlFastMode && !ConfigData.m3u8RedirectDomains.isEmpty()) {
 		bool matched = false;
 
 		for (uint j = 0; j < ConfigData.m3u8RedirectDomains.size(); j++) {
@@ -1231,7 +1217,7 @@ string getBestUrl(array<dictionary>& QualityList, int best_qn = -1) {
 			int codecid = int(QualityItem["codecid"]);
 			if (codecid == targetCodecid) {
 				QualityList[j]["itag"] = 702;
-				log("Found suitable URL for best quality number: ", QualityItem);
+				// log("Found suitable URL for best quality number", QualityItem);
 				return string(QualityItem["url"]);
 			}
 		}
@@ -1242,9 +1228,9 @@ string getBestUrl(array<dictionary>& QualityList, int best_qn = -1) {
 }
 
 string AppendBangumiQualityList(const string epid, const string path, array<dictionary>& QualityList) {
-	string url;
 	status = 5;
 
+	string url;
 	string res;
 	JsonReader Reader;
 	JsonValue Root;
@@ -1400,6 +1386,7 @@ string AppendBangumiQualityList(const string epid, const string path, array<dict
 
 string AppendVideoQualityList(string bvid, string aid, string cid, array<dictionary>& QualityList) {
 	status = 5;
+
 	string url;
 	int qn = 127;
 	string params;
@@ -2086,45 +2073,6 @@ JsonValue SortVideos(JsonValue& videos) {
 	return sortedVideos;
 }
 
-string getChatUrl(const string room_id, string server) {
-	status = 8;
-
-	string chatUrl;
-	string unixTime;
-	uint tickCount;
-	JsonReader Reader;
-	JsonValue Root;
-
-	tickCount = HostGetTickCount();
-	while (ConfigData.GetDanmujiStatus()) {
-		if (HostGetTickCount() - tickCount > 5000) {
-			post(server + "/disconnectRoom?_=" + unixTime);	
-			ConfigData.SetDanmujiStatus(false);
-			break;
-		}
-		HostSleep(100);
-	}
-
-	unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
-	string res = post(server + "/connectRoom?roomid=" + room_id + "&_=" + unixTime);
-
-	if (!Reader.parse(res, Root) || !Root.isObject()) {
-		log('getChatUrl - connectRoom failed', '!Reader.parse(res, Root) || !Root.isObject()');
-		return chatUrl;
-	}
-
-	if (Root["code"].asString() != "200") {
-		log("getChatUrl - connectRoom failed, code: " + Root["code"].asString() + ", msg: " + Root["msg"].asString());
-		return chatUrl;
-	}
-
-	string host = HostRegExpParse(server, "^https?://([^/]+)");
-	chatUrl = server + "/danmu_widget?sub=ws://" + host + "/danmu/sub";
-	ConfigData.SetDanmujiStatus(true);
-	
-	return chatUrl;
-}
-
 array<dictionary> BangumiEpisodes(string id, string type) {
 	log("============================BangumiEpisodes============================");
 	array<dictionary> videos;
@@ -2690,6 +2638,8 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 		author = "@" + view["owner"]["name"].asString();
 	}
 
+	bool is360 = view["rights"]["is360"].asInt() != 0;
+
 	bool is_upower_exclusive = view["is_upower_exclusive"].asBool();
 	bool is_upower_preview = view["is_upower_preview"].asBool();
 	if (is_upower_exclusive) title = "【充电专属】\n" + title;
@@ -2706,6 +2656,7 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 		MetaData["likeCount"] = view["stat"]["like"].asString();
 		MetaData["dislikeCount"] = view["stat"]["dislike"].asString();
 		MetaData["date"] = UnixTimeToDateTime(view["pubdate"].asInt64());
+		MetaData["is360"] = is360;
 		MetaData["fileExt"] = "mp4";
 
 		if (ConfigData.enableSponsorBlock) {
@@ -2770,8 +2721,9 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 		MetaData["likeCount"] = Root["data"]["like_info_v3"]["total_likes"].asString();
 
 		if (!ConfigData.GetDanmujiServer().isEmpty()) {
-			string chatUrl = getChatUrl(room_id, ConfigData.GetDanmujiServer());
-			if (!chatUrl.isEmpty()) MetaData["chatUrl"] = chatUrl;
+			string host = HostRegExpParse(ConfigData.GetDanmujiServer(), "^https?://([^/]+)");
+			string chatUrl = ConfigData.GetDanmujiServer() + "/danmu_widget?sub=ws://" + host + "/danmu/sub";
+			MetaData["chatUrl"] = chatUrl;
 		}
 
 		if (data["live_status"].asInt() == 1) {
