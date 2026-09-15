@@ -88,6 +88,7 @@ int64 DateTimeToUnixTime(const string&in s) {
 void SetDanmujiStatus(bool value) {
 	HostSaveInteger(DANMUJI_STATUS, value ? 1 : 0);
 }
+
 bool GetDanmujiStatus() {
 	return HostLoadInteger(DANMUJI_STATUS) != 0;
 }
@@ -102,6 +103,52 @@ string GetDanmujiServer() {
 
 void PlaybackOpen(const string &in path) {
 	// log("PlaybackOpen()", path);
+
+	if (GetDanmujiServer().isEmpty()) return;
+	if (path.find("/live-bvc/") < 0) return;
+
+	int id = parseInt(HostGetPlayingFileName());
+	if (id <= 0) return;
+	log("PlaybackOpen() - detect live. id: " + id);
+
+	string unixTime;
+	int tickCount = HostGetTickCount();
+	while (GetDanmujiStatus()) {
+		if (HostGetTickCount() - tickCount > 5000) {
+			unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
+			post(GetDanmujiServer() + "/disconnectRoom?_=" + unixTime);
+			break;
+		}
+		HostSleep(100);
+	}
+
+	unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
+	string res = post(GetDanmujiServer() + "/connectRoom?roomid=" + id + "&_=" + unixTime);
+
+	string message;
+	JsonReader Reader;
+	JsonValue Root;
+
+	if (res.isEmpty()) {
+		log("connectRoom failed, empty response");
+		message = "弹幕姬建立房间连接失败, 服务未返回任何响应\n服务是否启动?";
+	} else if (!Reader.parse(res, Root) || !Root.isObject()) {
+		log('connectRoom failed', '!Reader.parse(res, Root) || !Root.isObject()');
+		message = "弹幕姬建立房间连接失败, 无法解析服务器响应\n服务是否存在问题?";
+	} else if (Root["code"].asString() != "200") {
+		log("connectRoom failed, code: " + Root["code"].asString() + ", msg: " + Root["msg"].asString());
+		message = "弹幕姬建立房间连接失败, 错误码: " + Root["code"].asString() + ", 错误信息: " + Root["msg"].asString() + "\n服务是否存在问题?";
+	} else if (!Root["result"].asBool()) {
+		log("connectRoom failed, result: false");
+		message = "弹幕姬建立房间连接失败, 返回结果为 false, 可能 room_id 不对";
+	}
+
+	if (!message.empty()) {
+		HostMessageBox(message, "弹幕姬连接失败", 1, 0);
+		SetDanmujiStatus(false);
+	} else{
+		SetDanmujiStatus(true);
+	}
 }
 
 void PlaybackStart(const string &in path, int) {
@@ -125,6 +172,7 @@ void PlaybackComplete(const string &in path) {
 
 	string id = HostRegExpParse(path, "live.bilibili.com/([0-9]+)");
 	if (id.empty()) return;
+	log("PlaybackComplete() - detect live. id: " + id);
 
 	if (!GetDanmujiServer().isEmpty() && GetDanmujiStatus()) {
 		string unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
@@ -138,6 +186,7 @@ void PlaybackClose(const string &in path) {
 
 	string id = HostRegExpParse(path, "live.bilibili.com/([0-9]+)");
 	if (id.empty()) return;
+	log("PlaybackClose() - detect live. id: " + id);
 
 	if (!GetDanmujiServer().isEmpty() && GetDanmujiStatus()) {
 		string unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
