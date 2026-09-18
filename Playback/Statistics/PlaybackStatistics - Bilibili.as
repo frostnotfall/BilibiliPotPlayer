@@ -15,7 +15,6 @@
 const string DANMUJI_STATUS = "BilibiliPotPlayer.DanmujiStatus()";
 const string DANMUJI_SERVER = "BilibiliPotPlayer.DanmujiServer()";
 
-
 void OnInitialize() {
 	// HostOpenConsole();
 }
@@ -93,13 +92,87 @@ bool GetDanmujiStatus() {
 	return HostLoadInteger(DANMUJI_STATUS) != 0;
 }
 
-void SetDanmujiServer(const string&in server) {
-	HostSaveString(DANMUJI_SERVER, server);
-}
 string GetDanmujiServer() {
 	return HostLoadString(DANMUJI_SERVER);
 }
 
+string GetIds() {
+	return HostLoadString("BilibiliPotPlayer.Ids()");
+}
+
+string GetBiliJct() {
+	return HostLoadString("BilibiliPotPlayer.BiliJct()");
+}
+
+
+void vodHeartBeat() {
+	string ids = GetIds();
+
+	if (ids.isEmpty()) return;
+
+	JsonReader reader;
+	JsonValue root;
+
+	if ( !reader.parse(ids, root) || !root.isObject() ) return;
+
+	int64 aid = root["aid"].asInt64();
+	string bvid = root["bvid"].asString();
+	int64 cid = root["cid"].asInt64();
+	int64 epid = root["epid"].asInt64();
+	int64 ssid = root["ssid"].asInt64();
+	int64 mid = root["mid"].asInt64();
+
+	string unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
+
+	array<string> postDataArray;
+	postDataArray.insertLast("start_ts=" + unixTime);
+	if (aid != 0) postDataArray.insertLast("aid=" + formatInt(aid));
+	if (bvid != "") postDataArray.insertLast("bvid=" + bvid);
+	if (cid != 0) postDataArray.insertLast("cid=" + formatInt(cid));
+	if (epid != 0) postDataArray.insertLast("epid=" + formatInt(epid));
+	if (ssid != 0) postDataArray.insertLast("ssid=" + formatInt(ssid));
+	if (mid != 0) postDataArray.insertLast("mid=" + formatInt(mid));
+
+	string postData = join(postDataArray, "&");
+
+	string headers =
+		"Content-Type: application/x-www-form-urlencoded\r\n"
+		"Referer: https://www.bilibili.com/video/" + bvid + "/\r\n"
+		"Origin: https://www.bilibili.com\r\n";
+
+	post("https://api.bilibili.com/x/click-interface/web/heartbeat?" + "w_start_ts=" + unixTime + "&w_mid=" + formatInt(mid) + "&w_aid=" + formatInt(aid),
+		postData,
+		headers
+	);
+}
+
+void liveHeartBeat() {
+	string biliJct = GetBiliJct();
+	if (biliJct.isEmpty()) return;
+
+	int id = parseInt(HostGetPlayingFileName());
+	if (id <= 0) return;
+	
+	string url = 'https://api.live.bilibili.com/xlive/web-room/v1/index/roomEntryAction?csrf=' + biliJct;
+	string postData = '{"room_id": ' + formatInt(id) + ',"platform":"pc"}';
+	
+	string headers =
+		"Content-Type: application/json\r\n"
+		"Referer: https://live.bilibili.com/" + formatInt(id) + "\r\n"
+		"Origin: https://live.bilibili.com\r\n";
+
+	string res = post(url, postData, headers);
+	JsonReader Reader;
+	JsonValue Root;
+	if (!Reader.parse(res, Root) || !Root.isObject()) {
+		log("Failed to parse live heartbeat response: " + res);
+	}
+
+	if (Root["code"].asInt() != 0) {
+		HostMessageBox("直播心跳上报有误，可能需要更新 bili_jct, code: " + Root["code"].asInt() + ", message: " + Root["message"].asString(), "直播心跳上报有误", 2, 0);
+	}
+
+}
 
 void PlaybackOpen(const string &in path) {
 	// log("PlaybackOpen()", path);
@@ -109,7 +182,6 @@ void PlaybackOpen(const string &in path) {
 
 	int id = parseInt(HostGetPlayingFileName());
 	if (id <= 0) return;
-	log("PlaybackOpen() - detect live. id: " + id);
 
 	string unixTime;
 	int tickCount = HostGetTickCount();
@@ -140,7 +212,7 @@ void PlaybackOpen(const string &in path) {
 		message = "弹幕姬建立房间连接失败, 错误码: " + Root["code"].asString() + ", 错误信息: " + Root["msg"].asString() + "\n服务是否存在问题?";
 	} else if (!Root["result"].asBool()) {
 		log("connectRoom failed, result: false");
-		message = "弹幕姬建立房间连接失败, 返回结果为 false, 可能 room_id 不对";
+		message = "弹幕姬建立房间连接失败, 返回结果为 false, 重新打开试试";
 	}
 
 	if (!message.empty()) {
@@ -153,6 +225,16 @@ void PlaybackOpen(const string &in path) {
 
 void PlaybackStart(const string &in path, int) {
 	// log("PlaybackStart()", path);
+
+	if ( path.find("/upgcxcode/") >= 0) {
+		log("PlaybackStart() - vodHeartBeat()");
+		vodHeartBeat();
+	}
+
+	if ( path.find("/live-bvc/") >= 0) {
+		log("PlaybackStart() - liveHeartBeat()");
+		liveHeartBeat();
+	}
 }
 
 void PlaybackTime(const string &in path, int, int) {
@@ -172,9 +254,8 @@ void PlaybackComplete(const string &in path) {
 
 	string id = HostRegExpParse(path, "live.bilibili.com/([0-9]+)");
 	if (id.empty()) return;
-	log("PlaybackComplete() - detect live. id: " + id);
 
-	if (!GetDanmujiServer().isEmpty() && GetDanmujiStatus()) {
+	if (!GetDanmujiServer().isEmpty()) {
 		string unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
 		post(GetDanmujiServer() + "/disconnectRoom?_=" + unixTime);
 		SetDanmujiStatus(false);
@@ -186,9 +267,8 @@ void PlaybackClose(const string &in path) {
 
 	string id = HostRegExpParse(path, "live.bilibili.com/([0-9]+)");
 	if (id.empty()) return;
-	log("PlaybackClose() - detect live. id: " + id);
 
-	if (!GetDanmujiServer().isEmpty() && GetDanmujiStatus()) {
+	if (!GetDanmujiServer().isEmpty()) {
 		string unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
 		post(GetDanmujiServer() + "/disconnectRoom?_=" + unixTime);
 		SetDanmujiStatus(false);
