@@ -15,63 +15,79 @@
         "stayTime": 15.0
     },
 
-    // 播放单个视频时是否显示推荐的视频
-    "showRecommendedVideos": true,
+    // 播放单个视频/直播时是否显示推荐的视频/直播。默认：false。
+    "showRecommendedVideos": false,
 
-    // 是否显示番剧/电影预告片。
+    // 是否显示番剧/电影预告片。默认：false。
     "showTrailer": false,
 
-    // 是否屏蔽 P2P CDN
+    // 是否屏蔽 P2P CDN。默认：true。
     "blockP2PCDN": true,
 
-    // 设定请求缓存的时间，单位(s)
+    // 设定请求缓存的时间，单位(s)。默认：300。
     "cacheValidTime": 300,
 
-    // 启用空降助手，其域名 ipv6 地址波动较大，如遇到 potplayer 超时问题先禁用
+    // 启用空降助手，默认：false。其域名 ipv6 地址波动较大，如遇到potplayer 超时问题先禁用。
     "enableSponsorBlock": false,
     // 空降助手镜像地址
     "sponsorBlockMirror": "",
 
+    // 心跳上报。默认：false。用于同步bilibili历史记录。目前只支持点播，直播需要指定 bili_jct。 
+    "heartBeat" : false,
+
     // 各类页面的视频生成数量。数字越大视频越多，但会增加加载时间，极端情况会因超时而加载失败，以及触发风控，需谨慎设置。
     "videoNums": {
-        // “我的动态”页数，默认 50。从 “我的动态” 页面(每次查询20个)过滤出视频，最终数量可能会大于设置的值。
+        // “我的动态”页数，默认 50。从 “我的动态” 页面(每次查询20个)过滤出视频，视频数量取决于实际情况。
         "webDynamicVideoNums": 50,
-        // "首页推荐"视频数量，默认 30。从 “推荐” 页面获取的视频数量，最终数量可能会大于设置的值。
+        // "首页推荐"视频数量，默认 30。从 “推荐” 页面获取的视频数量，最终数量可能会大于设置的值。提醒:点击播放列表名字可刷新，无需设定太多数量。
         "recommendVideoNums": 30,
+        // "直播首页" 推荐的直播间页数，默认 1。（每页推荐返回11个房间）。提醒:点击播放列表名字可刷新，无需设定太多数量。
+        "liveRecommendPage": 1,
         // "历史记录"视频数量，默认 30。从 “历史记录” 页面获取的视频数量，最终数量可能会大于设置的值。
         "historyVideoNums": 30,
         // “综合热门” 页数，默认 1。（每页查询50个）。
         "popularAllPages": 1,
         // 个人“空间动态” 视频数量，默认 30。从 个人“空间动态” 页面获取的视频数量，最终数量可能会大于设置的值。
-        "spaceDynamicVideoNums": 30
+        "spaceDynamicVideoNums": 30,
+        // 直播分区页面查询的最大房间数，默认 40，每页返回20个房间。
+        "maxliveroom": 100
     },
 
     // 直播
     "live": {
-        // 解析真实 M3U8 地址。不开启，当出现 M3U8 redirect 时，potplayer 会将该播放流名称覆盖为 HLS；若开启，则会尝试解析真实的 M3U8 地址，但会造成额外的请求延迟。当出现 "解析真实M3U8地址" 时间过长时，可以尝试关闭此项。
+        // 解析真实 M3U8 地址。当出现 M3U8 redirect 时，potplayer 会将该播放流名称覆盖为 HLS；若开启，则会尝试解析真实的 M3U8 地址，但会造成额外的请求延迟。当出现 "解析真实M3U8地址" 时间过长时，可以尝试关闭此项。
         "parseM3u8RealUrl": {
-            "enable": true,
-            // 快速模式，只对 m3u8RedirectDomain 列表中的域名解析真实 M3U8 地址, 若遇到不在 M3U8 redirect 的域名时，会失效。
-            "fastMode": true,
+            // 默认：false。
+            "enable": false,
+            // 快速模式。默认：false。只对 m3u8RedirectDomain 列表中的域名解析真实 M3U8 地址, 若遇到不在 M3U8 redirect 的域名时，会失效。
+            "fastMode": false,
             "m3u8RedirectDomains": ["gotcha204b.bilivideo.com"]
         },
-        // BBilibili_Danmuji 地址。，若存在，观看直播时 potplayer 播放列表侧会出现 Bilibili_Danmuji 窗口，不再需要登录网页收发弹幕。注：需自己部署 Bilibili_Danmuji 服务。
-        "bilibiliDanmujiServer": "",
-        // 直播分区页面查询的最大房间数。
-        "maxliveroom": 50,
-        // 直播 缩略图 使用关键帧截图，仅适用于打开直播分区页面的情况。
-        "useSystemCover": true
+        // 直播聊天窗口配置，观看直播时 potplayer 播放列表侧会出现聊天窗口。
+        "liveChatUrl": {
+            // 使用 Bilibili_Danmuji 服务，默认：false。需自己部署 Bilibili_Danmuji 服务。useBilibiliDanmuji 优先级高于 useWebPage。
+            "useBilibiliDanmuji": false,
+            // BBilibili_Danmuji 地址。
+            "bilibiliDanmujiServer": ""
+        },
+        // 直播缩略图使用关键帧截图(如果存在)。默认：false。
+        "useKeyframe": false
     },
 
-    // 废弃，经测试对画质选择无影响。
-    // 默认：false。可根据个人需求使用。推荐设为 true，以免影响默认画质选择。
+    // 禁用 AVC 编码（仅当存在其他编码时生效）。默认：false。仅当存在其他编码时生效。可根据个人需求使用。推荐设为 true，以免影响默认画质选择。
     "disableAVC": false,
 
     // 以下配置项帮助默认选择最优画质。
-    // 默认编码选择优先级。默认: ["hevc", "av1", "avc"]。考虑到硬解支持的广泛性，默认优先 hevc。如果你的设备中支持 av1 硬解，可将 av1 提升优先级。
+    // 默认编码选择优先级。默认: ["hevc", "av1", "avc"]。考虑到硬解支持的广泛性，默认优先 hevc。如果你的设备支持 av1 硬解，可将 av1 提升优先级。
     "defaultCodec": ["hevc", "av1", "avc"],
     // HDR优先。默认：false。跟随官方设定，“8K超高清” 优先级高于 “HDR/杜比视界”。设为 true：“杜比视界/HDR真彩色” 优先级高于“8K超高清”。
-    "preferHDR": true,
+    "preferHDR": false,
+
+    // Bilibili CSRF Token，用于直播心跳上报。
+    // 获取方式：
+    // 1. 下载 yt-dlp 2. 关闭 Potplayer 3. 注意 Potplayer 安装路径 4. 随便指定一个视频url
+    // .\yt-dlp.exe --skip-download --cookies-from-browser "chrome:D:\Program Files\DAUM\PotPlayer\WebView2\EBWebView" --cookies potplayer-cookies.txt "https://www.bilibili.com/video/BVxxxx"
+    "bili_jct": "",
 
     "debug": false
 }

@@ -1,8 +1,10 @@
 # BilibiliPotPlayer
 
-适用于 PotPlayer 的 Bilibili 插件。如果配合[油猴脚本](#油猴脚本)，可以直接在网页打开 PotPlayer 进行播放
+适用于 PotPlayer 的 Bilibili 插件。如果配合[油猴脚本](#油猴脚本)，可以直接在网页打开 PotPlayer 进行播放。
 
 本项目基于 [chen310/BilibiliPotPlayer](https://github.com/chen310/BilibiliPotPlayer) 及其上游版本 [juening2000/BilibiliPotPlayer](https://github.com/juening2000/BilibiliPotPlayer) 进行维护，并针对个人使用需求持续进行功能改进、Bug 修复和测试。
+
+本项目根据个人使用需求进行了进一步的功能调整与兼容性修复，主要用于搭配 [vs-mlrt](https://github.com/AmusementClub/vs-mlrt) 的学习与测试。
 
 如果上游项目恢复持续更新，本项目将优先向上游提交相关改进，并根据上游项目的维护情况决定是否继续维护本项目。
 
@@ -31,6 +33,7 @@
 - 支持屏蔽 P2PCDN。
 - 优化风控策略。
 - 动态生成画质选项，与官方保持一致。
+- 增加心跳上报功能，用于历史记录同步。
 
 ### 📺 直播
 
@@ -39,6 +42,7 @@
 - 增加 解析真实 M3U8 开关。规避画质选项 potplayer 自动覆盖成 HLS 的问题。详见配置项注释。
 - 支持收发弹幕（依赖自建 [Bilibili_Danmuji](https://github.com/BanqiJane/Bilibili_Danmuji) 服务, [Bilibili_Danmuji接入教程](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E8%BF%9B%E9%98%B6%E6%95%99%E7%A8%8B#%E6%8E%A5%E5%85%A5-bilibili_danmuji-%E6%9C%8D%E5%8A%A1)）。
 - 遇到未开播的情况，弹出对话框提醒。
+- 从单个直播间打开时，播放列表增加推荐的直播间。
 
 ### ▶️ 点播
 
@@ -65,7 +69,8 @@
   - 增加分区信息。
   - 支持荣誉称号显示。
 - "稍后再看" 无内容时，弹出对话框提醒。
-- 直播 支持缩略图使用关键帧截图。
+- 直播缩略图支持使用关键帧截图。
+- 增加 `直播首页推荐` 支持。
 
 ## 打开链接
 - "Potplayer - 打开链接"，类别重新整理命名。
