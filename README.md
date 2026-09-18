@@ -23,7 +23,7 @@
 
 > 如果你不希望手动获取 Cookie，这是本项目与上游版本最明显的区别。
 
-**注意**：由于登录机制的改变，从上游项目迁移过来的同学， 旧的 Cookie、Header、Referer 一定要删除。参考 [wiki](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/一些可能的问题及部分解决办法#播放视频时一直转圈右下角画质选项不断跳动)。
+**_注意：由于登录机制的改变，从上游项目迁移过来的同学， 旧的 Cookie、Header、Referer 一定要删除。参考 [wiki](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/一些可能的问题及部分解决办法#播放视频时一直转圈右下角画质选项不断跳动)。_**
 
 ## 其它改进
 
