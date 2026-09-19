@@ -6,9 +6,9 @@
 
 > 本项目基于 [chen310/BilibiliPotPlayer](https://github.com/chen310/BilibiliPotPlayer) 及其上游版本 [juening2000/BilibiliPotPlayer](https://github.com/juening2000/BilibiliPotPlayer) 进行维护，并针对个人使用需求持续进行功能改进、Bug 修复和测试。
 >
-> 本项目主要用于搭配 [vs-mlrt](https://github.com/AmusementClub/vs-mlrt) 的学习与测试。
->
 > 如果上游项目恢复持续更新，本项目将优先向上游提交相关改进，并根据上游项目的维护情况决定是否继续维护本项目。
+>
+> 本项目是个人用于搭配 [vs-mlrt](https://github.com/AmusementClub/vs-mlrt) 的学习与测试维护的项目，但与 [vs-mlrt](https://github.com/AmusementClub/vs-mlrt) 无关。
 
 
 ## ✨ 主要改进
