@@ -61,7 +61,7 @@
             "enable": false,
             // 快速模式。默认：false。只对 m3u8RedirectDomain 列表中的域名解析真实 M3U8 地址, 若遇到不在 M3U8 redirect 的域名时，会失效。
             "fastMode": false,
-            "m3u8RedirectDomains": ["gotcha204b.bilivideo.com"]
+            "m3u8RedirectDomains": ["gotcha204.bilivideo.com", "gotcha204b.bilivideo.com"]
         },
         // 直播聊天窗口配置，观看直播时 potplayer 播放列表侧会出现聊天窗口。
         "liveChatUrl": {
