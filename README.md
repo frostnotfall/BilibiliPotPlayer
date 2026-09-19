@@ -1,12 +1,14 @@
 # BilibiliPotPlayer
 
-适用于 PotPlayer 的 Bilibili 插件。如果配合[油猴脚本](#油猴脚本)，可以直接在网页打开 PotPlayer 进行播放。
+适用于 PotPlayer 的 Bilibili 插件，可直接解析并播放 Bilibili 视频、番剧、影视、直播等内容。
 
-本项目基于 [chen310/BilibiliPotPlayer](https://github.com/chen310/BilibiliPotPlayer) 及其上游版本 [juening2000/BilibiliPotPlayer](https://github.com/juening2000/BilibiliPotPlayer) 进行维护，并针对个人使用需求持续进行功能改进、Bug 修复和测试。
+配合 [BilibiliPotPlayer-改](https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-%E6%94%B9) 油猴脚本，可直接从 Bilibili 网页调用 PotPlayer 播放，并支持精准空降等功能。
 
-本项目根据个人使用需求进行了进一步的功能调整与兼容性修复，主要用于搭配 [vs-mlrt](https://github.com/AmusementClub/vs-mlrt) 的学习与测试。
-
-如果上游项目恢复持续更新，本项目将优先向上游提交相关改进，并根据上游项目的维护情况决定是否继续维护本项目。
+> 本项目基于 [chen310/BilibiliPotPlayer](https://github.com/chen310/BilibiliPotPlayer) 及其上游版本 [juening2000/BilibiliPotPlayer](https://github.com/juening2000/BilibiliPotPlayer) 进行维护，并针对个人使用需求持续进行功能改进、Bug 修复和测试。
+>
+> 本项目主要用于搭配 [vs-mlrt](https://github.com/AmusementClub/vs-mlrt) 的学习与测试。
+>
+> 如果上游项目恢复持续更新，本项目将优先向上游提交相关改进，并根据上游项目的维护情况决定是否继续维护本项目。
 
 
 ## ✨ 主要改进
@@ -23,7 +25,7 @@
 
 > 如果你不希望手动获取 Cookie，这是本项目与上游版本最明显的区别。
 
-**_注意：由于登录机制的改变，从上游项目迁移过来的同学， 旧的 Cookie、Header、Referer 一定要删除。参考 [wiki](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/一些可能的问题及部分解决办法#播放视频时一直转圈右下角画质选项不断跳动)。_**
+**_注意：由于登录机制的改变，从上游项目迁移过来的同学， 旧的 Cookie、Header、Referer 一定要删除。参考 [wiki](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/常见问题与故障排查#播放视频时一直转圈右下角画质选项不断跳动)。_**
 
 ## 其它改进
 
@@ -84,34 +86,35 @@
   - 排行榜适配B站新分区。
 
 
-## wiki
+## 📚 文档
 
-一些问题的解决办法，[wiki](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E4%B8%80%E4%BA%9B%E5%8F%AF%E8%83%BD%E7%9A%84%E9%97%AE%E9%A2%98%E5%8F%8A%E9%83%A8%E5%88%86%E8%A7%A3%E5%86%B3%E5%8A%9E%E6%B3%95)
+第一次使用建议按以下顺序阅读：
 
-## 安装
+1. [安装与快速开始](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E5%AE%89%E8%A3%85%E4%B8%8E%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B)
+2. [使用指南](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97)
 
-参考 [安装及基本使用教程](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E5%AE%89%E8%A3%85%E5%8F%8A%E5%9F%BA%E6%9C%AC%E4%BD%BF%E7%94%A8%E6%95%99%E7%A8%8B)，[进阶教程](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E8%BF%9B%E9%98%B6%E6%95%99%E7%A8%8B)。
+其他文档：
 
-## 油猴脚本
+- [Bilibili_Danmuji 弹幕接入](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/Bilibili_Danmuji-%E5%BC%B9%E5%B9%95%E6%8E%A5%E5%85%A5)
+- [常见问题与故障排查](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E5%B8%B8%E8%A7%81%E9%97%AE%E9%A2%98%E4%B8%8E%E6%95%85%E9%9A%9C%E6%8E%92%E6%9F%A5)
+- [PotPlayer AngelScript 开发参考](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/PotPlayer-AngelScript-%E5%BC%80%E5%8F%91%E5%8F%82%E8%80%83)
 
-由于从 PotPlayer 内部实现精准空降存在一定难度<sup>[1](#关于精准空降)</sup>，因此目前采用外部油猴脚本的方式实现其功能。
+## 🐒 油猴脚本
 
-目前修改版脚本 [BilibiliPotPlayer-改](https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-改) 支持：
+由于从 PotPlayer 内部实现精准空降存在一定限制，目前通过外部油猴脚本补充网页侧功能。
 
-* **精准空降**：将网页端指定的播放时间传递给 PotPlayer，实现精准跳转。
+修改版脚本 [BilibiliPotPlayer-改](https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-%E6%94%B9) 支持：
 
-* **打开 PotPlayer 时自动暂停网页端视频**：启动 PotPlayer 播放后，自动暂停 Bilibili 网页端正在播放的视频，避免音视频重复播放。
+- **精准空降**：将网页端当前播放时间传递给 PotPlayer。
+- **打开 PotPlayer 后自动暂停网页视频**：避免网页与 PotPlayer 同时播放。
 
-### 油猴脚本声明
+该脚本基于原版 BilibiliPotPlayer 油猴脚本修改，并保留原作者及原项目相关信息。
 
-修改版脚本 [BilibiliPotPlayer-改](https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-改) 基于[原版油猴脚本](https://greasyfork.org/zh-CN/scripts/461800-bilibilipotplayer)，并保留原作者及原项目相关信息。如原作者对本脚本的发布或再分发存在异议，并要求停止发布，本人将配合下架本脚本。
+## 致谢
 
-# 声明
-- 致敬原作者：[chen310/BilibiliPotPlayer](https://github.com/chen310/BilibiliPotPlayer) 
-- 致敬上游作者：[juening2000/BilibiliPotPlayer](https://github.com/juening2000/BilibiliPotPlayer)
-- 在上游项目的基础上，本项目根据个人使用需求进行了进一步的功能调整与兼容性修复，主要用于搭配 [vs-mlrt](https://github.com/AmusementClub/vs-mlrt) 的学习与测试。
-
-# THANKS
+- [chen310/BilibiliPotPlayer](https://github.com/chen310/BilibiliPotPlayer)
+- [juening2000/BilibiliPotPlayer](https://github.com/juening2000/BilibiliPotPlayer)
 - [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)
 - [Make-Bilibili-Great-Than-Ever-Before](https://github.com/SukkaW/Make-Bilibili-Great-Than-Ever-Before)
 - [hgcat-360/PotPlayer-Extension_yt-dlp](https://github.com/hgcat-360/PotPlayer-Extension_yt-dlp)
+
