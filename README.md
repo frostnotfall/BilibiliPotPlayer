@@ -44,7 +44,7 @@
 - 默认使用低延迟的 HLS/fMP4 流，无法提供时回退至 HLS/TS。
 - 支持直播备用地址。
 - 增加 解析真实 M3U8 开关。规避画质选项 potplayer 自动覆盖成 HLS 的问题。详见配置项注释。
-- 支持收发弹幕（依赖自建 [Bilibili_Danmuji](https://github.com/BanqiJane/Bilibili_Danmuji) 服务, [Bilibili_Danmuji接入教程](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E8%BF%9B%E9%98%B6%E6%95%99%E7%A8%8B#%E6%8E%A5%E5%85%A5-bilibili_danmuji-%E6%9C%8D%E5%8A%A1)）。
+- 支持收发弹幕（依赖自建 [Bilibili_Danmuji](https://github.com/BanqiJane/Bilibili_Danmuji) 服务, [Bilibili_Danmuji接入教程](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/Bilibili_Danmuji-弹幕接入)。
 - 遇到未开播的情况，弹出对话框提醒。
 - 从单个直播间打开时，播放列表增加推荐的直播间。
 
