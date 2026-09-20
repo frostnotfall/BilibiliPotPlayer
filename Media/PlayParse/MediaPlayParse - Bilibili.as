@@ -93,18 +93,18 @@ string GetTitle() {
 }
 
 string GetVersion() {
-	return "2.6.24";
+	return "2.6.25";
 }
 
 string GetDesc() {
 	const string GitHub_Link = "https://github.com/frostnotfall/BilibiliPotPlayer";
-	const string GitHub_OriginalLink = "https://sponsor.ajay.app/";
+	const string GitHub_OriginalLink = "https://github.com/chen310/BilibiliPotPlayer";
 	string info =
 		"<a href=\"" + GitHub_Link + "\">BilibiliPotPlayer</a> 版本: " + GetVersion() + ""
 		"\r\n"
 		"教程: "
-		"<a href=\"https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E5%AE%89%E8%A3%85%E5%8F%8A%E5%9F%BA%E6%9C%AC%E4%BD%BF%E7%94%A8%E6%95%99%E7%A8%8B\">安装及基本使用教程</a>, "
-		"<a href=\"https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E8%BF%9B%E9%98%B6%E6%95%99%E7%A8%8B\">进阶教程</a>\r\n"
+		"<a href=\"https://github.com/frostnotfall/BilibiliPotPlayer/wiki/安装与快速开始\">安装与快速开始</a>, "
+		"<a href=\"https://github.com/frostnotfall/BilibiliPotPlayer/wiki/使用指南\">使用指南</a>\r\n"
 		"\r\n"
 		"基于原项目<a href=\"" + GitHub_OriginalLink + "\">BilibiliPotPlayer</a>\r\n"
 		" ";
@@ -319,8 +319,8 @@ class Config {
 	dictionary codecNameToCodeId = { {"avc",  7}, {"hevc", 12}, {"av1",  13} };
 	array<int> videoIdOrder = { 6, 16, 32, 64, 74, 80, 100, 112, 116, 120, 125, 126, 127, 129 };
 
-	string vodCommentFile = HostGetScriptFolder() + "VodComment.js";
-	string liveChatFile = HostGetScriptFolder() + "LiveChat.js";
+	string vodCommentFile = HostGetScriptFolder() + "ChatScriptVod.js";
+	string liveChatFile = HostGetScriptFolder() + "ChatScriptLive.js";
 
 	string DANMUJI_STATUS = "BilibiliPotPlayer.DanmujiStatus()";
 	string DANMUJI_SERVER = "BilibiliPotPlayer.DanmujiServer()";
@@ -339,7 +339,7 @@ class Config {
 	}
 
 	void SetIds(const int64&in aid, const string&in bvid, const int64&in cid, const int64&in epid, const int64&in ssid, const int64&in mid) {
-		string ids = "{\"aid\": " + formatInt(aid) + ",\"bvid\": \"" + bvid + "\",\"cid\": " + formatInt(cid) + ",\"epid\": " + formatInt(epid) + ",\"ssid\": " + formatInt(ssid) + ",\"mid\": " + formatInt(mid) + "}";
+		string ids = '{"aid": ' + formatInt(aid) + ',"bvid": "' + bvid + '","cid": ' + formatInt(cid) + ',"epid": ' + formatInt(epid) + ',"ssid": ' + formatInt(ssid) + ',"mid": ' + formatInt(mid) + '}';
 		HostSaveString("BilibiliPotPlayer.Ids()", ids);
 	}
 
@@ -3111,7 +3111,7 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 						JsonValue video_color_info = codec["video_color_info"];	
 						int width = codec["media_info"]["width"].asInt();
 						int height = codec["media_info"]["height"].asInt();
-						int bitrateVal = parseInt(HostRegExpParse(url_info_url, "(?:[?&]origin_bitrate=)(\\d+)(?:&|$)"));
+						int bitrateVal = parseInt(parse(url_info_url, "origin_bitrate"));
 						string bitrate = HostFormatBitrate(bitrateVal * 1000.0) + "bps";
 						bool isHDR = (codec["hdr_type"].asInt() == 1);
 						string format = codec_name + ", " + bitrate;
