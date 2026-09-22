@@ -174,9 +174,9 @@ class DanmujiManager {
 
 			Danmuji.SetWorking(true);
 
-			HostSleep(500);
+			HostSleep(1000);
 			if (Danmuji.IsConnected()) Danmuji.Disconnect();
-			HostSleep(500);
+			HostSleep(1000);
 			Danmuji.Connect(Root["id"].asInt());
 
 			Danmuji.SetWorking(false);
