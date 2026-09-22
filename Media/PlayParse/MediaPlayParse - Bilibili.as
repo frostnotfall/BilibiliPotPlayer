@@ -55,6 +55,8 @@ const array<string> knownP2pCdnDomainPattern = {
 };
 
 void OnInitialize() {
+	CheckUpdate();
+
 	for (uint i = 0; i < BilibiliDomains.length(); i++) {
 		HostSetUrlUserAgentHTTP(BilibiliDomains[i], UserAgent);
 		HostSetUrlRefererHTTP(BilibiliDomains[i], Referer);
@@ -88,12 +90,12 @@ string GetTitle() {
 	if (!reader.parse(config.fullConfig, root) || !root.isObject()) {
 		return title + "（配置文件格式错误）";
 	}
-	
+
 	return title;
 }
 
 string GetVersion() {
-	return "2.6.25";
+	return "2.6.26";
 }
 
 string GetDesc() {
@@ -182,7 +184,7 @@ string GetStatus() {
 
 string GetBroadcastListUrl() {
 	log('GetBroadcastListUrl()');
-	return "https://www.bilibili.com/;https://live.bilibili.com/";
+	return "https://live.bilibili.com/";
 }
 
 string GetBroadcastListScript(){
@@ -270,7 +272,7 @@ class Config {
 
 	int mid;
 	int uid = 0;
-	
+
 	bool danmakuEnable = true;
 	string danmakuServer;
 	string danmakuFont;
@@ -288,7 +290,7 @@ class Config {
 	bool enableSponsorBlock = false;
 	string sponsorBlockMirror;
 	bool heartBeat = false;
-	
+
 	int webDynamicVideoNums = 50;
 	int recommendVideoNums = 30;
 	int liveRecommendPage = 1;
@@ -304,48 +306,21 @@ class Config {
 	bool useBilibiliDanmuji = false;
 	string bilibiliDanmujiServer;
 	bool useKeyframe = false;
-	
+
 	bool disableAVC = false;
 	array<string> defaultCodec = {"hevc", "av1", "avc"};
 	bool preferHDR = false;
-
-	string biliJct;
 
 	bool debug = false;
 
 	string danmakuUrl;
 	string subtitleUrl;
-	
+
 	dictionary codecNameToCodeId = { {"avc",  7}, {"hevc", 12}, {"av1",  13} };
 	array<int> videoIdOrder = { 6, 16, 32, 64, 74, 80, 100, 112, 116, 120, 125, 126, 127, 129 };
 
-	string vodCommentFile = HostGetScriptFolder() + "ChatScriptVod.js";
-	string liveChatFile = HostGetScriptFolder() + "ChatScriptLive.js";
-
-	string DANMUJI_STATUS = "BilibiliPotPlayer.DanmujiStatus()";
-	string DANMUJI_SERVER = "BilibiliPotPlayer.DanmujiServer()";
-
-	void SetDanmujiStatus(bool value) {
-		HostSaveInteger(DANMUJI_STATUS, value ? 1 : 0);
-	}
-	bool GetDanmujiStatus() {
-		return HostLoadInteger(DANMUJI_STATUS) != 0;
-	}
-	void SetDanmujiServer(const string&in server) {
-		HostSaveString(DANMUJI_SERVER, server);
-	}
-	string GetDanmujiServer() {
-		return HostLoadString(DANMUJI_SERVER);
-	}
-
-	void SetIds(const int64&in aid, const string&in bvid, const int64&in cid, const int64&in epid, const int64&in ssid, const int64&in mid) {
-		string ids = '{"aid": ' + formatInt(aid) + ',"bvid": "' + bvid + '","cid": ' + formatInt(cid) + ',"epid": ' + formatInt(epid) + ',"ssid": ' + formatInt(ssid) + ',"mid": ' + formatInt(mid) + '}';
-		HostSaveString("BilibiliPotPlayer.Ids()", ids);
-	}
-
-	void SetBiliJct(const string&in bili_jct) {
-		HostSaveString("BilibiliPotPlayer.BiliJct()", bili_jct);
-	}
+	string ChatScriptVod = HostGetScriptFolder() + "Bilibili - ChatScriptVod.js";
+	string ChatScriptLive = HostGetScriptFolder() + "Bilibili - ChatScriptLive.js";
 }
 
 Config ReadConfigFile(string file) {
@@ -399,7 +374,7 @@ Config ReadConfigFile(string file) {
 	if (root["enableVodChatUrl"].isBool()) {
 		config.enableVodChatUrl = root["enableVodChatUrl"].asBool();
 	}
-	
+
 	if (root["blockP2PCDN"].isBool()) {
 		config.blockP2PCDN = root["blockP2PCDN"].asBool();
 	}
@@ -470,14 +445,9 @@ Config ReadConfigFile(string file) {
 			if (liveChatUrl["useBilibiliDanmuji"].isBool()) {
 				config.useBilibiliDanmuji = liveChatUrl["useBilibiliDanmuji"].asBool();
 			}
-			if (config.useBilibiliDanmuji && liveChatUrl["bilibiliDanmujiServer"].isString()) {
-				config.SetDanmujiServer(liveChatUrl["bilibiliDanmujiServer"].asString());
-				
-				if (config.GetDanmujiStatus()) {
-					string unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
-					post(config.GetDanmujiServer() + "/disconnectRoom?_=" + unixTime);
-					config.SetDanmujiStatus(false);
-				}
+			if (config.useBilibiliDanmuji && liveChatUrl["bilibiliDanmujiServer"].isString() && !liveChatUrl["bilibiliDanmujiServer"].asString().isEmpty()) {
+				config.bilibiliDanmujiServer = liveChatUrl["bilibiliDanmujiServer"].asString();
+				HostSaveString("BilibiliPotPlayer.DanmujiServer()", config.bilibiliDanmujiServer);
 			}
 		}
 		if (live["useKeyframe"].isBool()) {
@@ -502,7 +472,7 @@ Config ReadConfigFile(string file) {
 	}
 
 	if (root["bili_jct"].isString() && !root["bili_jct"].asString().empty()) {
-		config.biliJct = root["bili_jct"].asString();
+		HostSaveString("BilibiliPotPlayer.BiliJct()", root["bili_jct"].asString());
 	}
 
 	if (root["debug"].isBool()) {
@@ -652,6 +622,68 @@ string UnixTimeToDateTime(int64 t) {
     return formatInt(y) + "-" + formatInt(m + 100).substr(1) + "-" + formatInt(int(d) + 101).substr(1) + " " + formatInt(h + 100).substr(1) + ":" + formatInt(min + 100).substr(1) + ":" + formatInt(s + 100).substr(1);
 }
 
+void CheckUpdate() {
+    HostCreateThread(function(any@ param) {
+        const string api = "https://api.github.com/repos/frostnotfall/BilibiliPotPlayer/releases/latest";
+        const string headers = "Accept: application/vnd.github+json\r\nUser-Agent: BilibiliPotPlayer\r\n";
+
+        array<string> mirrors = {
+            "https://cors.isteed.cc",
+            "https://dockerproxy.link",
+            "https://dockerproxy.net",
+            "https://gh-proxy.com",
+            "https://gh.ddlc.top",
+            "https://gh.xmly.dev",
+            "https://ghfast.top",
+            "https://ghproxy.net",
+            "https://mirror.houlang.cloud"
+        };
+
+        string latestVersion;
+
+        for (int i = -1; i < int(mirrors.length()); i++) {
+            string url = i < 0 ? api : mirrors[i] + "/" + api;
+            string response = post(url, "", headers, false);
+            if (response.empty()) continue;
+
+            JsonReader reader;
+            JsonValue root;
+            if (reader.parse(response, root) && root.isObject() && root["tag_name"].isString()) {
+                latestVersion = root["tag_name"].asString();
+                if (!latestVersion.empty()) break;
+            }
+        }
+
+        if (latestVersion.empty()) return;
+
+        string currentVersion = GetVersion();
+
+        if (latestVersion.length() > 0 && (latestVersion[0] == 118 || latestVersion[0] == 86))
+            latestVersion = latestVersion.substr(1);
+        if (currentVersion.length() > 0 && (currentVersion[0] == 118 || currentVersion[0] == 86))
+            currentVersion = currentVersion.substr(1);
+
+        array<string> latest = latestVersion.split(".");
+        array<string> current = currentVersion.split(".");
+        uint count = latest.length() > current.length() ? latest.length() : current.length();
+
+        for (uint i = 0; i < count; i++) {
+            int a = i < latest.length() ? parseInt(latest[i]) : 0;
+            int b = i < current.length() ? parseInt(current[i]) : 0;
+
+            if (a < b) return;
+            if (a > b) {
+                HostMessageBox("发现新版本：" + latestVersion + "\n当前版本：" + currentVersion + "\n\n是否打开项目 Releases 页面？", "BilibiliPotPlayer", 2, 4,
+                    function(int result) {
+                        if (result == 1) HostExecuteProgram("explorer.exe", "https://github.com/frostnotfall/BilibiliPotPlayer/releases");
+                    }
+                );
+                return;
+            }
+        }
+    }, 0);
+}
+
 string getMixinKey() {
 	JsonReader Reader;
 	JsonValue Root;
@@ -678,6 +710,11 @@ string getMixinKey() {
 		return key;
 	}
 	return key.substr(0, 32);
+}
+
+void SetIds(const int64&in aid, const string&in bvid, const int64&in cid, const int64&in epid, const int64&in ssid, const int64&in mid) {
+	string ids = '{"aid": ' + formatInt(aid) + ',"bvid": "' + bvid + '","cid": ' + formatInt(cid) + ',"epid": ' + formatInt(epid) + ',"ssid": ' + formatInt(ssid) + ',"mid": ' + formatInt(mid) + '}';
+	HostSaveString("BilibiliPotPlayer.Ids()", ids);
 }
 
 string encWbi(string params, bool useWts = true) {
@@ -1288,7 +1325,7 @@ string AppendBangumiQualityList(const string epid, const string path, array<dict
 	if (!Reader.parse(res, Root) || !Root.isObject()) return url;
 	if (!Root["data"].isObject())	return url;
 	if (!Root["data"]["result"].isObject()) return url;
-	
+
 	string play_video_type = Root["data"]["result"]["play_video_type"].asString();
 	if (play_video_type != "whole") {
 		if (play_video_type == "preview") {
@@ -1306,7 +1343,7 @@ string AppendBangumiQualityList(const string epid, const string path, array<dict
 		JsonValue videos = dash["video"];
 		if (!videos.isArray()) return url;
 		videos = SortVideos(videos);
-		
+
 		int itag = 0;
 		for (int i = 0; i < videos.size(); i++) {
 			JsonValue video = videos[i];
@@ -1350,7 +1387,7 @@ string AppendBangumiQualityList(const string epid, const string path, array<dict
 			item.va = "v";
 			item.referer = referer;
 			if (i == videos.size() - 1) item.videoIsDefault = true;
-				
+
 			if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
 		}
 
@@ -1374,7 +1411,7 @@ string AppendBangumiQualityList(const string epid, const string path, array<dict
 			audio = dash["flac"]["audio"];
 			AppendAudioQualityList(audio, referer, QualityList);
 		}
-	
+
 	} else if (Root["data"]["result"]["video_info"]["durls"].isArray()) {
 		JsonValue durls = Root["data"]["result"]["video_info"]["durls"];
 		int itag;
@@ -1468,7 +1505,7 @@ string AppendVideoQualityList(string bvid, string aid, string cid, array<diction
 					}
 					while (HostExistITag(itag)) itag++;
 					HostSetITag(itag);
-	
+
 					QualityListItem item;
 
 					item.url = url;
@@ -1487,7 +1524,7 @@ string AppendVideoQualityList(string bvid, string aid, string cid, array<diction
 					item.va = "v";
 					item.referer = referer;
 					if (i == videos.size() - 1) item.videoIsDefault = true;
-						
+
 					if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
 				}
 
@@ -1566,7 +1603,7 @@ void AppendAudioQualityList(JsonValue audio, string referer, array<dictionary>& 
 	int audioid = audio["id"].asInt();
 
 	string url = getFixedURL(audio);
-	
+
 	if (audioid == 30250) {
 		quality = "杜比全景声";
 	} else if (audioid == 30251) {
@@ -1578,7 +1615,7 @@ void AppendAudioQualityList(JsonValue audio, string referer, array<dictionary>& 
 
 	int bitrateVal = audio["bandwidth"].asInt();
 	string bitrate = HostFormatBitrate(bitrateVal) + "bps";
-	
+
 	itag = getAudioItag(audioid);
 	// if (itag <= 0 || HostExistITag(itag)) {
 	// 	itag = HostGetITag(0, int(bitrateVal / 1000.0), true, false);
@@ -2129,7 +2166,7 @@ array<dictionary> BangumiEpisodes(string id, string type) {
 		res = apiPost("/pgc/view/web/simple/season?season_id=" + id);
 		Reader.parse(res, Root);
 		author = "@" + Root["result"]["up_info"]["uname"].asString();
-		
+
 		res = apiPost("/pgc/view/web/ep/page?season_id=" + id);
 		Reader.parse(res, Root);
 		target_ep_id = Root["result"]["locator"]["target_ep_id"].asString();
@@ -2201,7 +2238,7 @@ array<dictionary> UGCSeason(const string&in path) {
 		for (int i = 0; i < sections.size(); i++) {
 			JsonValue section = sections[i];
 			if (!section.isObject()) continue;
-			
+
 			string sectionTitle;
 			if (multiSection) sectionTitle = "【" + section["title"].asString() + "】";
 
@@ -2216,14 +2253,14 @@ array<dictionary> UGCSeason(const string&in path) {
 
 				JsonValue pages = episode["pages"];
 				if (!pages.isArray()) continue;
-				
+
 				// 单/多P视频
 				bool multiPages = (pages.size() > 1) ? true : false;
 
 				for (int k = 0; k < pages.size(); k++) {
 					JsonValue page = pages[k];
 					if (!page.isObject()) continue;
-					
+
 					string finalTitle;
 
 					if (multiPages) {
@@ -2241,7 +2278,7 @@ array<dictionary> UGCSeason(const string&in path) {
 					}
 
 					bool isCurrent = ((episode["bvid"].asString() == bvid || episode["aid"].asString() == aid) && page["page"].asString() == p) ? true : false;
-					
+
 					dictionary video;
 
 					video["title"] = finalTitle;
@@ -2262,7 +2299,7 @@ array<dictionary> UGCSeason(const string&in path) {
 		}
 	} else if (Root["data"]["View"]["pages"].isArray()) {
 		JsonValue pages = Root["data"]["View"]["pages"];
-		
+
 		for (int i = 0; i < pages.size(); i++) {
 			JsonValue page = pages[i];
 
@@ -2310,7 +2347,7 @@ array<dictionary> RelatedVideos(const string&in path) {
 			}
 
 			JsonValue view = Root["data"]["View"];
-		
+
 			dictionary video;
 
 			video["title"] = view["title"].asString();
@@ -2598,7 +2635,7 @@ string Bangumi(const string&in path, dictionary& MetaData, array<dictionary>& Qu
 
 	string params = !epid.isEmpty() ? ("ep_id=" + epid) : ("season_id=" + ssid);
 	res = apiPost("/pgc/view/web/ep/page?" + encWbi(params));
-	
+
 	JsonReader Reader;
 	JsonValue Root;
 
@@ -2623,15 +2660,15 @@ string Bangumi(const string&in path, dictionary& MetaData, array<dictionary>& Qu
 			aid = episode["aid"].asString();
 			bvid = episode["bvid"].asString();
 			cid = episode["cid"].asString();
-			
+
 			string title = ((episode["badge"].isString() && !episode["badge"].asString().empty()) ?  "【" + episode["badge"].asString() + "】\n" : "") + episode["share_copy"].asString() + "\n" + episode["show_title"].asString();
 
 			string chatUrl;
 			string chatScript;
-			if (ConfigData.enableVodChatUrl) {
+			if (ConfigData.enableVodChatUrl && HostFileExist(ConfigData.ChatScriptVod)) {
 				chatUrl = makeWebUrl(path);
 
-				uintptr fp = HostFileOpen(ConfigData.vodCommentFile);
+				uintptr fp = HostFileOpen(ConfigData.ChatScriptVod);
 				string jsData = HostFileRead(fp, HostFileLength(fp));
 				HostFileClose(fp);
 
@@ -2713,7 +2750,7 @@ string Bangumi(const string&in path, dictionary& MetaData, array<dictionary>& Qu
 	url = AppendBangumiQualityList(epid, path, QualityList);
 	log("url", url);
 
-	if (ConfigData.heartBeat) ConfigData.SetIds(parseInt(aid), bvid, parseInt(cid), parseInt(epid), parseInt(ssid), ConfigData.mid);
+	if (ConfigData.heartBeat) SetIds(parseInt(aid), bvid, parseInt(cid), parseInt(epid), parseInt(ssid), ConfigData.mid);
 
 	return url;
 }
@@ -2752,7 +2789,7 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 
 	bvid = view["bvid"].asString();
 	aid = view["aid"].asString();
-	
+
 	title = view["title"].asString();
 	cid = view["cid"].asString();
 
@@ -2788,10 +2825,10 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 
 	string chatUrl;
 	string chatScript;
-	if (ConfigData.enableVodChatUrl) {
+	if (ConfigData.enableVodChatUrl && HostFileExist(ConfigData.ChatScriptVod)) {
 		chatUrl = makeWebUrl(path);
 
-		uintptr fp = HostFileOpen(ConfigData.vodCommentFile);
+		uintptr fp = HostFileOpen(ConfigData.ChatScriptVod);
 		string jsData = HostFileRead(fp, HostFileLength(fp));
 		HostFileClose(fp);
 
@@ -2826,7 +2863,7 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 			status = 4;
 		}
 		if (!chapter.empty()) MetaData["chapter"] = chapter;
-		
+
 		if (ConfigData.danmakuEnable) {
 			dictionary dic;
 			dic["name"] = "【弹幕】" + title;
@@ -2854,8 +2891,8 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 
 	url = AppendVideoQualityList(bvid, aid, cid, QualityList);
 	log("url", url);
-	
-	if (ConfigData.heartBeat) ConfigData.SetIds(parseInt(aid), bvid, parseInt(cid), 0, 0, ConfigData.mid);
+
+	if (ConfigData.heartBeat) SetIds(parseInt(aid), bvid, parseInt(cid), 0, 0, ConfigData.mid);
 
 	return url;
 }
@@ -2899,19 +2936,21 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 
 	string chatUrl;
 	string chatScript;
-	if ( ConfigData.useBilibiliDanmuji && !ConfigData.GetDanmujiServer().isEmpty() ) {
-		string host = HostRegExpParse(ConfigData.GetDanmujiServer(), "^https?://([^/]+)");
-		chatUrl = ConfigData.GetDanmujiServer() + "/danmu_widget?sub=ws://" + host + "/danmu/sub";
-	} else if ( ConfigData.liveChatUrlUseWebPage ) {
+	if (ConfigData.useBilibiliDanmuji && !ConfigData.bilibiliDanmujiServer.isEmpty()) {
+		string host = HostRegExpParse(ConfigData.bilibiliDanmujiServer, "^https?://([^/]+)");
+		chatUrl = ConfigData.bilibiliDanmujiServer + "/danmu_widget?sub=ws://" + host + "/danmu/sub";
+	} else if (ConfigData.liveChatUrlUseWebPage && HostFileExist(ConfigData.ChatScriptLive)) {
 		chatUrl = "https://live.bilibili.com/blanc/" + room_id;
-		
-		uintptr fp = HostFileOpen(ConfigData.liveChatFile);
+
+		uintptr fp = HostFileOpen(ConfigData.ChatScriptLive);
 		string jsData = HostFileRead(fp, HostFileLength(fp));
 		HostFileClose(fp);
 
 		if (jsData.length() >= 3 && jsData[0] == 0xEF && jsData[1] == 0xBB && jsData[2] == 0xBF) jsData = jsData.substr(3);
 		chatScript = jsData;
 	}
+
+	int special_type = data["special_type"].asInt();
 
 	if (@MetaData !is null) {
 		MetaData["vid"] = id;
@@ -2933,16 +2972,19 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 		url = "https://i1.hdslb.com/bfs/static/blive/blfe-live-room/static/img/player-bg.866a348..png";
 
 		return url;
+	} else if (special_type == 1) {
+		HostMessageBox("当前直播间为大航海专属", "大航海专属", 0, 0);
 	}
 
 	status = 5;
-	
+
 	array<int> accept_qns;
 	string default_format;
-	
-	int qn = 30000;
+	int qn = 25000;
 
-	res = apiPost("/xlive/web-room/v2/index/getRoomPlayInfo?room_id=" + room_id + "&qn=" + qn + "&codec=0,1,2&format=0,1,2&mask=0&no_playurl=0&platform=web&protocol=0,1&eotf=0,1,2", "", "https://api.live.bilibili.com");
+	string param = "room_id=" + room_id + "&protocol=0,1&format=0,1,2&codec=0,1,2&qn=" + qn + "&platform=web&ptype=8&dolby=5&panorama=1&eotf=0,1,2&req_reason=0&supported_drms=0";
+	res = apiPost("/xlive/web-room/v2/index/getRoomPlayInfo?" + encWbi(param), "", "https://api.live.bilibili.com");
+
 	if (!Reader.parse(res, Root) || !Root.isObject() || Root["code"].asInt() != 0) {
 		return url;
 	}
@@ -3029,7 +3071,8 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 	int itag = 0;
 	for (int i = 0; i < accept_qns.size(); i++) {
 		qn = accept_qns[i];
-		res = apiPost("/xlive/web-room/v2/index/getRoomPlayInfo?room_id=" + room_id + "&qn=" + accept_qns[i] + "&codec=0,1,2&format=0,1,2&mask=0&no_playurl=0&platform=web&protocol=0,1&eotf=0,1,2", "", "https://api.live.bilibili.com");
+		string param = "room_id=" + room_id + "&protocol=0,1&format=0,1,2&codec=0,1,2&qn=" + qn + "&platform=web&ptype=8&dolby=5&panorama=1&eotf=0,1,2&req_reason=0&supported_drms=0";
+		res = apiPost("/xlive/web-room/v2/index/getRoomPlayInfo?" + encWbi(param), "", "https://api.live.bilibili.com");
 
 		if (!Reader.parse(res, Root) || !Root.isObject() || Root["code"].asInt() != 0) {
 			return url;
@@ -3057,7 +3100,7 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 			if (streams[s]["protocol_name"].asString() != "http_hls") {
 				continue;
 			}
-		
+
 			JsonValue formats = streams[s]["format"];
 			if (!formats.isArray()) {
 				continue;
@@ -3160,9 +3203,6 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 	}
 
 	log("url", url);
-
-	if (ConfigData.heartBeat && !ConfigData.biliJct.isEmpty()) ConfigData.SetBiliJct(ConfigData.biliJct);
-
 	return url;
 }
 
@@ -3209,7 +3249,7 @@ array<dictionary> webDynamic(string path) {
 	if (type != "video") {
 		type = "all";
 	}
-	
+
 	while(videos.size() < ConfigData.webDynamicVideoNums) {		
 		string url = "/x/polymer/web-dynamic/v1/feed/all?timezone_offset=-480&type=" + type + "&offset=" + offset;
 		string res = apiPost(url, false);
@@ -3460,7 +3500,7 @@ array<dictionary> spaceDynamic(string path) {
 
 				string author = "@" + list[j]["modules"]["module_author"]["name"].asString();
 				string date = UnixTimeToDateTime(parseInt(list[j]["modules"]["module_author"]["pub_ts"].asString()));
-				
+
 				JsonValue archive = major["archive"];
 				if (archive.isObject()) {
 					if (archive["bvid"].isString() && !archive["bvid"].asString().empty()) {
@@ -3649,7 +3689,7 @@ array<dictionary> followingLive() {
 	JsonReader Reader;
 	JsonValue Root;
 	int page = 1;
-	
+
 	while (true) {
 		string url = "/xlive/web-ucenter/user/following?page=" + page + "&page_size=10&hit_ab=true";
 		string res = apiPost(url, "", "https://api.live.bilibili.com", false);
@@ -3695,7 +3735,7 @@ array<dictionary> followingLive() {
 	}
 
 	if (videos.size() == 0) {
-		HostMessageBox("[我关注的直播] 列表是空的，刷点别的视频吧。", "[我关注的直播] 为空", 2, 0);
+		HostMessageBox("[正在直播] 列表是空的，刷点别的视频吧。", "[正在直播] 为空", 2, 0);
 	}
 
 	return videos;
@@ -3704,7 +3744,7 @@ array<dictionary> followingLive() {
 array<dictionary> liveCategory(string path, int areaId = 0, int parentAreaId = 0) {
 	JsonReader Reader;
 	JsonValue Root;
-	
+
 	string renderData = HostRegExpParse(post(path), "window\\._render_data_\\s*=\\s*(\\{\"access_id\":\"[^\"]+\"\\})");
 	if (!Reader.parse(renderData, Root) || !Root.isObject()) return array<dictionary>();
 	string w_webid = Root["access_id"].asString();
@@ -4116,7 +4156,7 @@ array<dictionary> History() {
 				videos.insertLast(video);
 			}
 		}
-		
+
 		if (videos.size() >= ConfigData.historyVideoNums) break;
 	}
 
@@ -4131,12 +4171,12 @@ array<dictionary> LiveRecommend() {
 	int page = 1;
 
 	while (page <= ConfigData.liveRecommendPage) {
-		string res = apiPost("/xlive/web-interface/v1/index/feed?platform=web&from=index&page=" + page + "&size=12&fresh_type=0&web_location=444.7", "", "https://api.live.bilibili.com", false);
+		string res = apiPost("/xlive/web-interface/v1/index/getListV2?platform=web&page=" + page, "", "https://api.live.bilibili.com", false);
 
 		if (!Reader.parse(res, Root) || !Root.isObject()) return videos;		
 		if (Root["code"].asInt() != 0) return videos;
 		if (!Root["data"].isObject() || !Root["data"]["list"].isArray()) return videos;
-		
+
 		JsonValue list = Root["data"]["list"];
 		for (int i = 0; i < list.size(); i++) {
 			JsonValue item = list[i];
@@ -4148,7 +4188,7 @@ array<dictionary> LiveRecommend() {
 			string pendant_title;
 
 			area_title = item["area_v2_parent_name"].asString().isEmpty() ? item["area_v2_name"].asString() : (item["area_v2_name"].asString().isEmpty() ? item["area_v2_parent_name"].asString() : ( item["area_v2_parent_name"].asString() + " (" + item["area_v2_name"].asString() + ")"));
-			
+
 			if (item["pendant_Info"].isObject()) {
 				JsonValue pendant_info = item["pendant_Info"];
 				array<string> pendant_infos;
@@ -4180,7 +4220,7 @@ array<dictionary> LiveRecommend() {
 		}
 		page++;
 	}
-	
+
 	return videos;
 }
 
@@ -4193,7 +4233,7 @@ array<dictionary> Recommend() {
 	while (videos.size() < ConfigData.recommendVideoNums && page <= maxPage) {
 		string params = "web_location=1430650&y_num=3&fresh_type=4&feed_version=V8&fresh_idx_1h=" + page + "&fetch_row=" + (3 * page + 1) + "&fresh_idx=" + page + "&brush=" + page + "&device=win&homepage_ver=1&ps=" + ps + "&last_y_num=5";
 		string url = "/x/web-interface/wbi/index/top/feed/rcmd?" + encWbi(params);
-		
+
 		string res = apiPost(url, false);
 
 		JsonReader Reader;
@@ -4297,7 +4337,7 @@ bool PlayitemCheck(const string&in path) {
 	if (path.find("/video/av") >= 0) {
 		return true;
 	}
-	
+
 	// log("PlayitemCheck", "false");
 	return false;
 }
@@ -4359,7 +4399,7 @@ bool PlaylistCheck(const string&in path) {
 			return true;
 		}
 	}
-	
+
 	// path
 	if (path.find("www.bilibili.com/v/popular/all") >= 0) {
 		return true;
