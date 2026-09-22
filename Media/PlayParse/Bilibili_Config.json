@@ -18,8 +18,8 @@
     // 播放单个视频/直播时是否显示推荐的视频/直播。默认：false。
     "showRecommendedVideos": false,
 
-    // 是否显示番剧/电影预告片。默认：false。
-    "showTrailer": false,
+    // 是否显示番剧/电影预告片。默认：true。
+    "showTrailer": true,
 
     // 是否屏蔽 P2P CDN。默认：true。
     "blockP2PCDN": true,
@@ -27,12 +27,12 @@
     // 设定请求缓存的时间，单位(s)。默认：300。
     "cacheValidTime": 300,
 
-    // 启用空降助手，默认：false。其域名 ipv6 地址波动较大，如遇到potplayer 超时问题先禁用。
+    // 启用空降助手，默认：false。其域名 ipv6 地址波动较大，如遇到 potplayer 超时问题先禁用。
     "enableSponsorBlock": false,
     // 空降助手镜像地址
     "sponsorBlockMirror": "",
 
-    // 心跳上报。默认：false。用于同步bilibili历史记录。目前只支持点播，直播需要指定 bili_jct。 
+    // 心跳上报。默认：false。用于同步bilibili历史记录。目前默认只支持点播，直播需要指定 bili_jct。 
     "heartBeat" : false,
 
     // 各类页面的视频生成数量。数字越大视频越多，但会增加加载时间，极端情况会因超时而加载失败，以及触发风控，需谨慎设置。
@@ -41,7 +41,7 @@
         "webDynamicVideoNums": 50,
         // "首页推荐"视频数量，默认 30。从 “推荐” 页面获取的视频数量，最终数量可能会大于设置的值。提醒:点击播放列表名字可刷新，无需设定太多数量。
         "recommendVideoNums": 30,
-        // "直播首页" 推荐的直播间页数，默认 1。（每页推荐返回11个房间）。提醒:点击播放列表名字可刷新，无需设定太多数量。
+        // "直播首页" 推荐的直播间页数，默认 1。（每页推荐返回15个房间）。提醒:点击播放列表名字可刷新，无需设定太多数量。
         "liveRecommendPage": 1,
         // "历史记录"视频数量，默认 30。从 “历史记录” 页面获取的视频数量，最终数量可能会大于设置的值。
         "historyVideoNums": 30,

@@ -18,10 +18,6 @@
 // void PlaybackComplete(const string &in)
 // void PlaybackClose(const string &in)
 
-const string DANMUJI_STATUS = "BilibiliPotPlayer.DanmujiStatus()";
-const string DANMUJI_SERVER = "BilibiliPotPlayer.DanmujiServer()";
-const string DANMUJI_TARGET = "BilibiliPotPlayer.DanmujiTarget()";
-const string DANMUJI_WORKING = "BilibiliPotPlayer.DanmujiWorking()";
 
 void OnInitialize() {
 	// HostOpenConsole();
@@ -39,6 +35,7 @@ string GetDesc() {
 	return "https://www.bilibili.com";
 }
 
+
 void log(string item) {
 	HostPrintUTF8("[" + formatFloat(HostGetTickCount() / 1000.0, "", 3, 3) + "] - " + "PlaybackStatistics - Bilibili - " + item);
 }
@@ -55,6 +52,7 @@ string post(string url, string data = "", string headers = "", bool debug = true
 	uint start = HostGetTickCount();
 	string res = HostUrlGetString(url, "", headers, data);
 	uint end = HostGetTickCount();
+
 	HostIncTimeOut(end - start);
 	if (debug) log("Request time: " + formatFloat((end - start) / 1000.0, "", 3, 3) + "s" + ", url: " + url);
 
@@ -93,6 +91,10 @@ int64 DateTimeToUnixTime(const string&in s) {
 	return days * 86400 + hour * 3600 + minute * 60 + second;
 }
 
+string GetUnixTime() {
+	return formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
+}
+
 string GetIds() {
 	return HostLoadString("BilibiliPotPlayer.Ids()");
 }
@@ -102,81 +104,97 @@ string GetBiliJct() {
 }
 
 string GetDanmujiServer() {
-	return HostLoadString(DANMUJI_SERVER);
+	return HostLoadString("BilibiliPotPlayer.DanmujiServer()");
 }
 
-bool GetDanmujiStatus() {
-	return HostLoadInteger(DANMUJI_STATUS) != 0;
-}
+class DanmujiManager {
+	string server;
+	string WORKING_KEY = "BilibiliPotPlayer.DanmujiWorking()";
 
-void SetDanmujiStatus(bool value) {
-	HostSaveInteger(DANMUJI_STATUS, value ? 1 : 0);
-}
+	DanmujiManager(const string &in serverUrl) {
+		server = serverUrl;
+	}
 
-void StartDanmujiThread() {
-	if (HostLoadInteger(DANMUJI_WORKING) != 0) return;
-	HostSaveInteger(DANMUJI_WORKING, 1);
-	HostCreateThread(DanmujiThread, "");
-}
+	bool IsWorking() {
+		return HostLoadInteger(WORKING_KEY) != 0;
+	}
 
-void DanmujiThread(any@ param) {
-	while (true) {
-		int id = HostLoadInteger(DANMUJI_TARGET);
-		string server = GetDanmujiServer();
+	void SetWorking(bool working) {
+		HostSaveInteger(WORKING_KEY, working ? 1 : 0);
+	}
 
-		if (id <= 0) {
-			if (GetDanmujiStatus() && !server.isEmpty()) {
-				string unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
-				post(server + "/disconnectRoom?_=" + unixTime);
-				SetDanmujiStatus(false);
-			}
-		} else if (!server.isEmpty()) {
-			if (GetDanmujiStatus()) {
-				string unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
-				post(server + "/disconnectRoom?_=" + unixTime);
-				SetDanmujiStatus(false);
-			}
+	bool IsConnected() {
+		string res = post(server + "/connectCheck?_=" + GetUnixTime());
+		if (res.isEmpty()) return false;
+		JsonReader Reader;
+		JsonValue Root;
 
-			if (HostLoadInteger(DANMUJI_TARGET) == id) {
-				string unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
-				string res = post(server + "/connectRoom?roomid=" + id + "&_=" + unixTime);
+		return Reader.parse(res, Root) && Root.isObject() && Root["result"].asBool();
+	}
 
-				string message;
-				JsonReader Reader;
-				JsonValue Root;
+	void Disconnect() {
+		post(server + "/disconnectRoom?_=" + GetUnixTime());
+	}
 
-				if (res.isEmpty()) {
-					log("connectRoom failed, empty response");
-					message = "弹幕姬建立房间连接失败, 服务未返回任何响应\n服务是否启动?";
-				} else if (!Reader.parse(res, Root) || !Root.isObject()) {
-					log('connectRoom failed', '!Reader.parse(res, Root) || !Root.isObject()');
-					message = "弹幕姬建立房间连接失败, 无法解析服务器响应\n服务是否存在问题?";
-				} else if (Root["code"].asString() != "200") {
-					log("connectRoom failed, code: " + Root["code"].asString() + ", msg: " + Root["msg"].asString());
-					message = "弹幕姬建立房间连接失败, 错误码: " + Root["code"].asString() + ", 错误信息: " + Root["msg"].asString() + "\n服务是否存在问题?";
-				} else if (!Root["result"].asBool()) {
-					log("connectRoom failed, result: false");
-					message = "弹幕姬建立房间连接失败, 返回结果为 false, 重新打开试试";
-				}
+	void Connect(int id) {
+		string res = post(server + "/connectRoom?roomid=" + id + "&_=" + GetUnixTime());
+		JsonReader Reader;
+		JsonValue Root;
+		string message;
 
-				if (!message.empty()) {
-					HostMessageBox(message, "弹幕姬连接失败", 1, 0);
-					SetDanmujiStatus(false);
-				} else {
-					SetDanmujiStatus(true);
-				}
-			}
+		if (res.isEmpty()) {
+			log("connectRoom failed, empty response");
+			message = "弹幕姬建立房间连接失败, 服务未返回任何响应\n服务是否启动?";
+		} else if (!Reader.parse(res, Root) || !Root.isObject()) {
+			log("connectRoom failed", "!Reader.parse(res, Root) || !Root.isObject()");
+			message = "弹幕姬建立房间连接失败, 无法解析服务器响应\n服务是否存在问题?";
+		} else if (Root["code"].asString() != "200") {
+			log("connectRoom failed, code: " + Root["code"].asString() + ", msg: " + Root["msg"].asString());
+			message = "弹幕姬建立房间连接失败, 错误码: " + Root["code"].asString() + ", 错误信息: " + Root["msg"].asString() + "\n服务是否存在问题?";
+		} else if (!Root["result"].asBool()) {
+			log("connectRoom failed, result: false");
+			message = "弹幕姬建立房间连接失败, 返回结果为 false, 重新打开试试";
 		}
 
-		if (HostLoadInteger(DANMUJI_TARGET) != id) continue;
+		if (!message.empty()) HostMessageBox(message, "弹幕姬连接失败", 1, 0);
+	}
 
-		HostSaveInteger(DANMUJI_WORKING, 0);
-		HostSleep(1);
+	void Start(int id) {
+		string param = '{"server":"' + server + '","id":' + formatInt(id) + '}';
 
-		if (HostLoadInteger(DANMUJI_TARGET) == id) return;
-		if (HostLoadInteger(DANMUJI_WORKING) != 0) return;
+		HostCreateThread(function(any@ param) {
+			string data;
+			if (!param.retrieve(data)) return;
+			JsonReader Reader;
+			JsonValue Root;
+			if (!Reader.parse(data, Root) || !Root.isObject()) return;
 
-		HostSaveInteger(DANMUJI_WORKING, 1);
+			DanmujiManager Danmuji(Root["server"].asString());
+			while (Danmuji.IsWorking()) HostSleep(1);
+
+			Danmuji.SetWorking(true);
+
+			HostSleep(500);
+			if (Danmuji.IsConnected()) Danmuji.Disconnect();
+			HostSleep(500);
+			Danmuji.Connect(Root["id"].asInt());
+
+			Danmuji.SetWorking(false);
+		}, param);
+	}
+
+	void Stop() {
+		HostCreateThread(function(any@ param) {
+			string server;
+			if (!param.retrieve(server)) return;
+
+			DanmujiManager Danmuji(server);
+			while (Danmuji.IsWorking()) HostSleep(1);
+
+			Danmuji.SetWorking(true);
+			Danmuji.Disconnect();
+			Danmuji.SetWorking(false);
+		}, server);
 	}
 }
 
@@ -196,7 +214,7 @@ void vodHeartBeatThread(any@ param) {
 	int64 ssid = root["ssid"].asInt64();
 	int64 mid = root["mid"].asInt64();
 
-	string unixTime = formatInt(DateTimeToUnixTime(FormatDateTime(datetime())));
+	string unixTime = GetUnixTime();
 
 	array<string> postDataArray;
 	postDataArray.insertLast("start_ts=" + unixTime);
@@ -221,17 +239,14 @@ void vodHeartBeatThread(any@ param) {
 void liveHeartBeatThread(any@ param) {
 	string data;
 	if (!param.retrieve(data)) return;
-
 	JsonReader reader;
 	JsonValue root;
-
 	if (!reader.parse(data, root) || !root.isObject()) return;
 
 	string biliJct = root["biliJct"].asString();
 	int id = root["id"].asInt();
 
 	string url = "https://api.live.bilibili.com/xlive/web-room/v1/index/roomEntryAction?csrf=" + biliJct;
-
 	string postData = '{"room_id": ' + formatInt(id) + ',"platform":"pc"}';
 
 	string headers =
@@ -240,14 +255,9 @@ void liveHeartBeatThread(any@ param) {
 		"Origin: https://live.bilibili.com\r\n";
 
 	string res = post(url, postData, headers);
-
 	JsonReader Reader;
 	JsonValue Root;
-
-	if (!Reader.parse(res, Root) || !Root.isObject()) {
-		log("Failed to parse live heartbeat response: " + res);
-		return;
-	}
+	if (!Reader.parse(res, Root) || !Root.isObject()) return;
 
 	if (Root["code"].asInt() != 0) {
 		HostMessageBox("直播心跳上报有误，可能需要更新 bili_jct, code: " + formatInt(Root["code"].asInt()) + ", message: " + Root["message"].asString(), "直播心跳上报有误", 2, 0);
@@ -273,17 +283,19 @@ void liveHeartBeat() {
 	HostCreateThread(liveHeartBeatThread, param);
 }
 
+
 void PlaybackOpen(const string &in path) {
 	// log("PlaybackOpen()", path);
 
-	if (GetDanmujiServer().isEmpty()) return;
 	if (path.find("/live-bvc/") < 0) return;
 
 	int id = parseInt(HostGetPlayingFileName());
 	if (id <= 0) return;
 
-	HostSaveInteger(DANMUJI_TARGET, id);
-	StartDanmujiThread();
+	string server = GetDanmujiServer();
+	if (server.isEmpty()) return;
+
+	DanmujiManager(server).Start(id);
 }
 
 void PlaybackStart(const string &in path, int) {
@@ -311,12 +323,10 @@ void PlaybackComplete(const string &in path) {
 	int id = parseInt(HostRegExpParse(path, "live.bilibili.com/([0-9]+)"));
 	if (id <= 0) return;
 
-	if (GetDanmujiServer().isEmpty()) return;
+	string server = GetDanmujiServer();
+	if (server.isEmpty()) return;
 
-	if (HostLoadInteger(DANMUJI_TARGET) == id) {
-		HostSaveInteger(DANMUJI_TARGET, 0);
-		StartDanmujiThread();
-	}
+	DanmujiManager(server).Stop();
 }
 
 void PlaybackClose(const string &in path) {
@@ -325,10 +335,8 @@ void PlaybackClose(const string &in path) {
 	int id = parseInt(HostRegExpParse(path, "live.bilibili.com/([0-9]+)"));
 	if (id <= 0) return;
 
-	if (GetDanmujiServer().isEmpty()) return;
+	string server = GetDanmujiServer();
+	if (server.isEmpty()) return;
 
-	if (HostLoadInteger(DANMUJI_TARGET) == id) {
-		HostSaveInteger(DANMUJI_TARGET, 0);
-		StartDanmujiThread();
-	}
+	DanmujiManager(server).Stop();
 }
