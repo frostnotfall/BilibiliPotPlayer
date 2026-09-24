@@ -95,7 +95,7 @@ string GetTitle() {
 }
 
 string GetVersion() {
-	return "2.6.26";
+	return "2.6.27";
 }
 
 string GetDesc() {
@@ -299,6 +299,7 @@ class Config {
 	int spaceDynamicVideoNums = 30;
 	int maxliveroom = 40;
 
+	bool useHttpStream = false;
 	bool parseM3u8RealUrl = false;
 	bool parseM3u8RealUrlFastMode = false;
 	array<string> m3u8RedirectDomains;
@@ -418,6 +419,10 @@ Config ReadConfigFile(string file) {
 
 	if (root["live"].isObject()) {
 		JsonValue live = root["live"];
+
+		if (live["useHttpStream"].isBool()) {
+			config.useHttpStream = live["useHttpStream"].asBool();
+		}
 
 		if (live["parseM3u8RealUrl"].isObject()) {
 			JsonValue parseM3u8RealUrl = live["parseM3u8RealUrl"];
@@ -690,19 +695,23 @@ string getMixinKey() {
 	string key = "";
 	string res = apiPost("/x/web-interface/nav");
 	if (Reader.parse(res, Root) && Root.isObject()) {
-		if (Root["code"].isInt() && Root["code"].asInt() == 0) {
-			ConfigData.mid = Root["data"]["mid"].asInt64();
-			JsonValue wbi_img = Root["data"]["wbi_img"];
-			string img_url = wbi_img["img_url"].asString();
-			string sub_url = wbi_img["sub_url"].asString();
-			array<string> parts = img_url.split("/");
-			string img_value = parts[parts.length() - 1].split(".")[0];
-			parts = sub_url.split("/");
-			string sub_value = parts[parts.length() - 1].split(".")[0];
-			string ae = img_value + sub_value;
-			array<int> oe = { 46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52 };
-			for (uint i = 0; i < oe.length(); i++) {
-				key += ae.substr(oe[i], 1);
+		if (Root["code"].isInt()) {
+			if (Root["code"].asInt() == 0) {
+				ConfigData.mid = Root["data"]["mid"].asInt64();
+				JsonValue wbi_img = Root["data"]["wbi_img"];
+				string img_url = wbi_img["img_url"].asString();
+				string sub_url = wbi_img["sub_url"].asString();
+				array<string> parts = img_url.split("/");
+				string img_value = parts[parts.length() - 1].split(".")[0];
+				parts = sub_url.split("/");
+				string sub_value = parts[parts.length() - 1].split(".")[0];
+				string ae = img_value + sub_value;
+				array<int> oe = { 46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52 };
+				for (uint i = 0; i < oe.length(); i++) {
+					key += ae.substr(oe[i], 1);
+				}
+			} else {
+				HostMessageBox("error code: " + Root["code"].asInt() + "\n" + "error message: " + Root["message"].asString() + "\n\n", "BilibiliPotPlayer", 0, 0);
 			}
 		}
 	}
@@ -2867,13 +2876,7 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 		if (ConfigData.danmakuEnable) {
 			dictionary dic;
 			dic["name"] = "【弹幕】" + title;
-			// dic["langCode"] = "zh-CN";
-			// dic["langOriginal"] = "Chinese (Simplified)";
-			// dic["langTranslated"] = "简体中文"; 
-			// 两种数据来源
 			dic["url"] = ConfigData.danmakuUrl + cid;
-			// dic["fileContent"] = "";
-			// dic["kind"] = "asr";
 			subtitle.insertLast(dic);
 			if (!subtitle.empty()) MetaData["subtitle"] = subtitle;
 		}
@@ -2978,10 +2981,11 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 
 	status = 5;
 
+	string default_protocol = ConfigData.useHttpStream ? "http_stream" : "http_hls";
 	array<int> accept_qns;
 	string default_format;
 	int qn = 25000;
-
+	
 	string param = "room_id=" + room_id + "&protocol=0,1&format=0,1,2&codec=0,1,2&qn=" + qn + "&platform=web&ptype=8&dolby=5&panorama=1&eotf=0,1,2&req_reason=0&supported_drms=0";
 	res = apiPost("/xlive/web-room/v2/index/getRoomPlayInfo?" + encWbi(param), "", "https://api.live.bilibili.com");
 
@@ -3008,7 +3012,7 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 	}
 
 	for (int s = 0; s < streams.size(); s++) {
-		if (streams[s]["protocol_name"].asString() != "http_hls") {
+		if (streams[s]["protocol_name"].asString() != default_protocol) {
 			continue;
 		}
 
@@ -3017,19 +3021,33 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 			continue;
 		}
 
-		// 一些小主播不提供 fmp4，优先选择 fmp4，其次 ts
-		for (int a = 0; a < formats.size(); a++) {
-			string format_name_candidate = formats[a]["format_name"].asString();
-			if (format_name_candidate == "fmp4") {
-				default_format = "fmp4";
-				break;
+		if (ConfigData.useHttpStream) {
+			for (int a = 0; a < formats.size(); a++) {
+				if (formats[a]["format_name"].asString() == "flv") {
+					default_format = "flv";
+					break;
+				}
 			}
-			if (format_name_candidate == "ts" && default_format.empty()) {
-				default_format = "ts";
+		} else {
+			// 一些小主播不提供 fmp4，优先选择 fmp4，其次 ts
+			for (int a = 0; a < formats.size(); a++) {
+				string format_name_candidate = formats[a]["format_name"].asString();
+				if (format_name_candidate == "fmp4") {
+					default_format = "fmp4";
+					break;
+				}
+				if (format_name_candidate == "ts" && default_format.empty()) {
+					default_format = "ts";
+				}
 			}
 		}
+
 		if (default_format.empty()) {
-			log("formats(fmp4 and ts) is not exists.");
+			if (ConfigData.useHttpStream) {
+				log("formats(flv) is not exists.");
+			} else {
+				log("formats(fmp4 and ts) is not exists.");
+			}
 			continue;
 		}
 
@@ -3071,6 +3089,7 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 	int itag = 0;
 	for (int i = 0; i < accept_qns.size(); i++) {
 		qn = accept_qns[i];
+
 		string param = "room_id=" + room_id + "&protocol=0,1&format=0,1,2&codec=0,1,2&qn=" + qn + "&platform=web&ptype=8&dolby=5&panorama=1&eotf=0,1,2&req_reason=0&supported_drms=0";
 		res = apiPost("/xlive/web-room/v2/index/getRoomPlayInfo?" + encWbi(param), "", "https://api.live.bilibili.com");
 
@@ -3097,14 +3116,14 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 		}
 
 		for (int s = 0; s < streams.size(); s++) {
-			if (streams[s]["protocol_name"].asString() != "http_hls") {
+			if (streams[s]["protocol_name"].asString() != default_protocol) {
 				continue;
 			}
 
 			JsonValue formats = streams[s]["format"];
 			if (!formats.isArray()) {
 				continue;
-			}			
+			}
 
 			for (int f = 0; f < formats.size(); f++) {
 				if (formats[f]["format_name"].asString() != default_format) {
@@ -3132,47 +3151,83 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 					}
 
 					for (int j = 0; j < url_infos.size(); j++) {
-						string url_info_url = codec["url_info"][j]["host"].asString() + codec["base_url"].asString() + codec["url_info"][j]["extra"].asString();
+						string url_info_url = codec["url_info"][j]["host"].asString() +
+							codec["base_url"].asString() +
+							codec["url_info"][j]["extra"].asString();
 
 						bool urlExists = false;
 						if (@QualityList !is null) {
 							for (int k = 0; k < QualityList.size(); k++) {
 								string temp_url;
 								QualityList[k].get("url", temp_url);
+
 								if (temp_url == url_info_url) {
 									urlExists = true;
 									break;
 								}
 							}
 						}
-						if (urlExists) continue;
 
-						if (ConfigData.blockP2PCDN && isP2PCDN(url_info_url)) continue;
-						if (ConfigData.parseM3u8RealUrl) url_info_url = GetM3u8RealURL(url_info_url);
+						if (urlExists) {
+							continue;
+						}
+
+						if (ConfigData.blockP2PCDN && isP2PCDN(url_info_url)) {
+							continue;
+						}
+
+						if (!ConfigData.useHttpStream && ConfigData.parseM3u8RealUrl) {
+							url_info_url = GetM3u8RealURL(url_info_url);
+						}
+
 						url = url_info_url;
 
-						JsonValue video_color_info = codec["video_color_info"];	
+						JsonValue video_color_info = codec["video_color_info"];
+
 						int width = codec["media_info"]["width"].asInt();
 						int height = codec["media_info"]["height"].asInt();
+
 						int bitrateVal = parseInt(parse(url_info_url, "origin_bitrate"));
 						string bitrate = HostFormatBitrate(bitrateVal * 1000.0) + "bps";
+
 						bool isHDR = (codec["hdr_type"].asInt() == 1);
-						string format = codec_name + ", " + bitrate;
-						string quality = getLiveQuality(g_qn_desc, codec["current_qn"].asInt(), codec["hdr_type"].asInt(), video_color_info);
+
+						string format = default_format + ", " + codec_name + ", " + bitrate;
+
+						string quality = getLiveQuality(
+							g_qn_desc,
+							codec["current_qn"].asInt(),
+							codec["hdr_type"].asInt(),
+							video_color_info
+						);
+
 						string qualityDetail;
-						if (j == 0) qualityDetail = quality + " - 主 ";
+
+						if (j == 0) {
+							qualityDetail = quality + " - 主 ";
+						}
+
 						if (j > 0) {
 							string backup = " - 备 ";
+
 							if (j > 1) {
 								backup += j - 1;
 							}
+
 							qualityDetail = quality + backup;
 						}
 
-						if (itag <= 0 || HostExistITag(itag)) itag = HostGetITag(height, 0, true, true);
-						while (HostExistITag(itag)) itag++;
+						if (itag <= 0 || HostExistITag(itag)) {
+							itag = HostGetITag(height, 0, true, true);
+						}
+
+						while (HostExistITag(itag)) {
+							itag++;
+						}
+
 						HostSetITag(itag);
-						bool videoIsDefault = ( best_qn == codec["current_qn"].asInt() &&  i == codecs.size() - 1 && j == 0) ? true : false;
+
+						bool videoIsDefault = (best_qn == codec["current_qn"].asInt() && i == codecs.size() - 1 && j == 0) ? true : false;
 
 						QualityListItem item;
 
@@ -3190,7 +3245,9 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 						item.codecid = codecid;
 						item.va = "va";
 
-						if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
+						if (@QualityList !is null) {
+							QualityList.insertLast(item.toDictionary());
+						}
 					}
 				}
 			}
@@ -3199,7 +3256,10 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 
 	if (QualityList.size() > 1) {
 		string bestUrl = getBestUrl(QualityList, best_qn);
-		if (!bestUrl.isEmpty()) url = bestUrl;
+
+		if (!bestUrl.isEmpty()) {
+			url = bestUrl;
+		}
 	}
 
 	log("url", url);
