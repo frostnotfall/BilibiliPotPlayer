@@ -55,6 +55,11 @@
 
     // 直播
     "live": {
+        // 官方提供 http_stream(flv) 与 http_hls(ts/fmp4)。
+        // http_stream 延迟更低，但：1.pk时可能会断开; 2.存在官方可能降画质的情况。
+        // http_hls 可能会出现"no desc"标题。注：只有http_hls(fmp4) 可能会提供av1编码。
+        // 使用 http_stream (flv)。默认：false。
+        "useHttpStream": false,
         // 解析真实 M3U8 地址。当出现 M3U8 redirect 时，potplayer 会将该播放流名称覆盖为 HLS；若开启，则会尝试解析真实的 M3U8 地址，但会造成额外的请求延迟。当出现 "解析真实M3U8地址" 时间过长时，可以尝试关闭此项。
         "parseM3u8RealUrl": {
             // 默认：false。

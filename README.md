@@ -39,10 +39,12 @@
 - 动态生成画质选项，与官方保持一致。
 - 增加心跳上报功能，用于历史记录同步。
 - 支持新版本更新检测。
+- 首次打开时，账号异常弹出对话框。
 
 ### 📺 直播
 
-- 默认使用低延迟的 HLS/fMP4 流，无法提供时回退至 HLS/TS。
+- 默认使用 HLS/fMP4 流，无法提供时回退至 HLS/TS。
+- 支持 http_stream。
 - 支持直播备用地址。
 - 增加 解析真实 M3U8 开关。规避画质选项 potplayer 自动覆盖成 HLS 的问题。详见配置项注释。
 - 支持收发弹幕（依赖自建 [Bilibili_Danmuji](https://github.com/BanqiJane/Bilibili_Danmuji) 服务, [Bilibili_Danmuji接入教程](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/Bilibili_Danmuji-弹幕接入)。
