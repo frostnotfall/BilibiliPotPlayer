@@ -3388,9 +3388,9 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 			}
 
 			subtitle.insertLast(dic);
-
-			if (!subtitle.empty()) MetaData["subtitle"] = subtitle;
 		}
+		
+		if (!subtitle.empty()) MetaData["subtitle"] = subtitle;
 	}
 
 	if (is_upower_exclusive) {
