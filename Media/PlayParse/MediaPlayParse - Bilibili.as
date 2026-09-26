@@ -66,7 +66,7 @@ void OnInitialize() {
 		ConfigData = ReadConfigFile(configFile);
 		if (ConfigData.debug) HostOpenConsole();
 	} else {
-		HostMessageBox("配置文件不存在\n\n路径: " + configFile, "[BilibiliPotplayer] 配置文件不存在", 0, 0);
+		HostMessageBox("配置文件不存在\n\n路径: " + configFile, "BilibiliPotPlayer", 0, 0);
 	}
 }
 
@@ -95,7 +95,7 @@ string GetTitle() {
 }
 
 string GetVersion() {
-	return "2.6.27";
+	return "2.6.28";
 }
 
 string GetDesc() {
@@ -130,7 +130,7 @@ void ApplyConfigFile() {
 	JsonReader reader;
 	JsonValue root;
 	if (!reader.parse(config.fullConfig, root) || !root.isObject()) {
-		HostMessageBox("配置文件存在问题", "[BilibiliPotplayer] 配置文件错误", 0, 1);
+		HostMessageBox("配置文件存在问题", "BilibiliPotPlayer", 0, 1);
 	}
 }
 
@@ -173,7 +173,10 @@ string GetStatus() {
 		info = "解析真实M3U8地址";
 		break;
 	case 8:
-		info = "获取 Bilibili_Danmuji 地址";
+		info = "解析并生成字幕";
+		break;
+	case 9:
+		info = "解析并生成弹幕";
 		break;
 	default:
 		info = "请等待";
@@ -273,6 +276,8 @@ class Config {
 	int mid;
 	int uid = 0;
 
+	bool subtitleEnable = false;
+	string subtitleServer;
 	bool danmakuEnable = true;
 	string danmakuServer;
 	string danmakuFont;
@@ -338,9 +343,18 @@ Config ReadConfigFile(string file) {
 	JsonReader reader;
 	JsonValue root;
 	if (!reader.parse(config.fullConfig, root) || !root.isObject()) {
-		HostMessageBox("配置文件存在问题", "[BilibiliPotPlayer] 配置文件错误", 0, 1);
+		HostMessageBox("配置文件存在问题", "BilibiliPotPlayer", 0, 1);
 	}
 
+	if (root["subtitle"].isObject()) {
+		JsonValue subtitle = root["subtitle"];
+		if (subtitle["enable"].isBool()) {
+			config.subtitleEnable = subtitle["enable"].asBool();
+		}
+		if (subtitle["server"].isString() && !subtitle["server"].asString().empty()) {
+			config.subtitleServer = subtitle["server"].asString();
+		}
+	}
 	if (root["danmaku"].isObject()) {
 		JsonValue danmaku = root["danmaku"];
 		if (danmaku["enable"].isBool()) {
@@ -633,15 +647,16 @@ void CheckUpdate() {
         const string headers = "Accept: application/vnd.github+json\r\nUser-Agent: BilibiliPotPlayer\r\n";
 
         array<string> mirrors = {
-            "https://cors.isteed.cc",
-            "https://dockerproxy.link",
-            "https://dockerproxy.net",
-            "https://gh-proxy.com",
-            "https://gh.ddlc.top",
-            "https://gh.xmly.dev",
-            "https://ghfast.top",
-            "https://ghproxy.net",
-            "https://mirror.houlang.cloud"
+			"https://cors.isteed.cc",
+			"https://dockerproxy.link",
+			"https://dockerproxy.net",
+			"https://gh-proxy.com",
+			"https://gh.ddlc.top",
+			"https://gh.xmly.dev",
+			"https://ghfast.top",
+			"https://ghproxy.net",
+			"https://mirror.houlang.cloud",
+			"https://proxy.vvvv.ee"
         };
 
         string latestVersion;
@@ -689,6 +704,101 @@ void CheckUpdate() {
     }, 0);
 }
 
+void SetIds(const int64&in aid, const string&in bvid, const int64&in cid, const int64&in epid, const int64&in ssid, const int64&in mid) {
+	string ids = '{"aid": ' + formatInt(aid) + ',"bvid": "' + bvid + '","cid": ' + formatInt(cid) + ',"epid": ' + formatInt(epid) + ',"ssid": ' + formatInt(ssid) + ',"mid": ' + formatInt(mid) + '}';
+	HostSaveString("BilibiliPotPlayer.Ids()", ids);
+}
+
+string post(string url, string data = "", string headers = "", bool debug = true) {
+	if (headers.empty()) headers = "User-Agent: " + UserAgent + "\r\n" + "Referer: " + Referer + "\r\n";
+
+	uint start = HostGetTickCount();
+	string res =  HostUrlGetString(url, "", headers, data);
+	uint end = HostGetTickCount();
+	HostIncTimeOut(end - start);
+
+	if (debug) log("Request time: " + formatFloat((end - start) / 1000.0, "", 3, 3) + "s" + ", url: " + url);
+
+	return res;
+}
+
+string apiPost(string api, bool useCache = true, bool isProtobuf = false) {
+	return apiPost(api, "", Host, "", useCache, isProtobuf);
+}
+
+string apiPost(string api, string data, bool useCache = true, bool isProtobuf = false) {
+	return apiPost(api, data, Host, "", useCache, isProtobuf);
+}
+
+string apiPost(string api, string data, string host, bool useCache = true, bool isProtobuf = false) {
+	return apiPost(api, data, host, "", useCache, isProtobuf);
+}
+
+string apiPost(string api, string data, string host, string headers, bool useCache = true, bool isProtobuf = false) {
+	ResponseCacheItem item;
+	bool debug = true;
+	string key;
+	string cacheStatus = "";
+
+	if (useCache) {
+		debug = false;
+		key = HostRegExpRemove(HostRegExpRemove(api, "&w_rid=[^&]*"), "&wts=[^&]*");
+
+		if (!data.empty()) {
+			key += "?" + data;
+		}
+
+		key = (isProtobuf ? "protobuf:" : "json:") + host + key;
+
+		if (ResponseCache.get(key, item)) {
+			if (HostGetTickCount() - item.tick_count <= item.valid_time) {
+				log("Cache Hit, url", host + api);
+				return item.response;
+			} else {
+				cacheStatus = "Cache expire";
+			}
+		} else {
+			cacheStatus = "Cache not Hit";
+		}
+	}
+
+	uint start = HostGetTickCount();
+	string resp = post(host + api, data, headers, debug);
+	uint end = HostGetTickCount();
+
+	if (!cacheStatus.empty()) {
+		log(cacheStatus + ", request time: " + formatFloat((end - start) / 1000.0, "", 3, 3) + "s, url: " + host + api);
+	}
+
+	if (!isProtobuf) {
+		if (resp.empty()) {
+			HostMessageBox("未获取到响应数据，请等待一段时间后重试一下\n\nurl: " + host + api, "BilibiliPotPlayer");
+			return "";
+		}
+
+		JsonReader Reader;
+		JsonValue Root;
+		if (!Reader.parse(resp, Root) || !Root.isObject()) {
+			HostMessageBox("未能解析响应数据\nurl: " + host + api, "BilibiliPotPlayer");
+			return "";
+		}
+		if (Root["code"].asInt() != 0) {
+			log("error code: " + Root["code"].asInt() + ", error message: " + Root["message"].asString() + ", url:" + host + api);
+			HostMessageBox("error code: " + Root["code"].asInt() + "\nerror message: " + Root["message"].asString() + "\n\nurl:" + host + api, "BilibiliPotPlayer");
+			return "";
+		}
+	}
+
+	if (useCache) {
+		item.response = resp;
+		item.tick_count = HostGetTickCount();
+		item.valid_time = ConfigData.cacheValidTime * 1000;
+		ResponseCache[key] = item;
+	}
+
+	return resp;
+}
+
 string getMixinKey() {
 	JsonReader Reader;
 	JsonValue Root;
@@ -711,7 +821,7 @@ string getMixinKey() {
 					key += ae.substr(oe[i], 1);
 				}
 			} else {
-				HostMessageBox("error code: " + Root["code"].asInt() + "\n" + "error message: " + Root["message"].asString() + "\n\n", "BilibiliPotPlayer", 0, 0);
+				HostMessageBox("error code: " + Root["code"].asInt() + "\n" + "error message: " + Root["message"].asString(), "BilibiliPotPlayer", 0, 0);
 			}
 		}
 	}
@@ -719,11 +829,6 @@ string getMixinKey() {
 		return key;
 	}
 	return key.substr(0, 32);
-}
-
-void SetIds(const int64&in aid, const string&in bvid, const int64&in cid, const int64&in epid, const int64&in ssid, const int64&in mid) {
-	string ids = '{"aid": ' + formatInt(aid) + ',"bvid": "' + bvid + '","cid": ' + formatInt(cid) + ',"epid": ' + formatInt(epid) + ',"ssid": ' + formatInt(ssid) + ',"mid": ' + formatInt(mid) + '}';
-	HostSaveString("BilibiliPotPlayer.Ids()", ids);
 }
 
 string encWbi(string params, bool useWts = true) {
@@ -786,90 +891,6 @@ string makeWebUrl(string path) {
 	return url + "?" + query;
 }
 
-string post(string url, string data = "", string headers = "", bool debug = true) {
-	if (headers.empty()) headers = "User-Agent: " + UserAgent + "\r\n" + "Referer: " + Referer + "\r\n";
-
-	uint start = HostGetTickCount();
-	string res =  HostUrlGetString(url, "", headers, data);
-	uint end = HostGetTickCount();
-	HostIncTimeOut(end - start);
-
-	if (debug) log("Request time: " + formatFloat((end - start) / 1000.0, "", 3, 3) + "s" + ", url: " + url);
-
-	return res;
-}
-
-string apiPost(string api, bool useCache = true) {
-	return apiPost(api, "", Host, "", useCache);
-}
-
-string apiPost(string api, string data, bool useCache = true) {
-	return apiPost(api, data, Host, "", useCache);
-}
-
-string apiPost(string api, string data, string host, bool useCache = true) {
-	return apiPost(api, data, host, "", useCache);
-}
-
-string apiPost(string api, string data, string host, string headers, bool useCache = true) {
-	ResponseCacheItem item;
-	bool debug = true;
-	string key;
-	string cacheStatus = "";
-
-	if (useCache) {
-		debug = false;
-		if (!data.empty()) {
-			key = HostRegExpRemove(HostRegExpRemove(api, "&w_rid=[^&]*"), "&wts=[^&]*") + "?" + data;
-		} else {
-			key = HostRegExpRemove(HostRegExpRemove(api, "&w_rid=[^&]*"), "&wts=[^&]*");
-		}
-
-		if (ResponseCache.get(key, item)) {
-			if (HostGetTickCount() - item.tick_count <= item.valid_time) {
-				log("Cache Hit, url", host + api);
-				return item.response;
-			} else {
-				cacheStatus = "Cache expire";
-			}
-		} else {
-			cacheStatus = "Cache not Hit";
-		}
-	}
-
-	uint start = HostGetTickCount();
-	string resp = post(host + api, data, headers, debug);
-	uint end = HostGetTickCount();
-
-	if (!cacheStatus.empty()) {
-		log(cacheStatus + ", request time: " + formatFloat((end - start) / 1000.0, "", 3, 3) +"s, url: " + host + api);
-	}
-
-	if (resp.empty()) {
-		HostMessageBox("未获取到响应数据，请等待一段时间后重试一下\n\nurl: " + host + api, "请求失败");
-		return "";
-	}
-
-	JsonReader Reader;
-	JsonValue Root;
-	if (!Reader.parse(resp, Root) || !Root.isObject()) {
-		HostMessageBox("未能解析响应数据\nurl: " + host + api, "请求失败");
-		return "";
-	}
-	if (Root["code"].asInt() != 0) {
-		log("error code: " + Root["code"].asInt() + ", " + "error message: " + Root["message"].asString() + ", " + "url:" + Host + api);
-		HostMessageBox("error code: " + Root["code"].asInt() + "\n" + "error message: " + Root["message"].asString() + "\n\n" + "url:" + Host + api, Root["message"].asString());
-		return "";
-	}
-	if (useCache) {
-		item.response = resp;
-		item.tick_count = HostGetTickCount();
-		item.valid_time = ConfigData.cacheValidTime * 1000;
-		ResponseCache[key] = item;
-	}
-
-	return resp;
-}
 
 string parse(string url, string key, string defaultValue = "") {
 	string value = HostRegExpParse(url, "\\?" + key + "=([^&]+)");
@@ -1149,509 +1170,448 @@ bool isP2PCDN(const string&in url) {
 	return subdomain.find("302") >= 0;
 }
 
-string getFixedURL(JsonValue&in data) {
-	string base_url = data["url"].isString() ? data["url"].asString() : (data["base_url"].isString() ? data["base_url"].asString() : data["baseUrl"].asString());
+array<dictionary> GetBilibiliSubtitles(const string &in aid, const string &in cid, bool allowAiSubtitle) {
+    array<dictionary> result;
+    if (aid.empty() || cid.empty()) return result;
 
-	if (!ConfigData.blockP2PCDN) {
-		return base_url;
-	}
+    for (uint attempt = 0; attempt < (allowAiSubtitle ? 2 : 1); attempt++) {
+        string param = "oid=" + cid + "&pid=" + aid + "&context_ext=%7B%22video_type%22%3A1%7D&type=1&cur_production_type=0";
+        if (attempt == 1) param += "&preferred_language=ai-zh";
+        string response = apiPost("/x/v2/subtitle/web/view?" + encWbi(param + "&playlist_switch=0"), true, true);
+        if (response.empty()) return result;
 
-	if (!isP2PCDN(base_url)) {
-		return base_url;
-	}
+        array<string> ownUrls, ownNames, ownLangs, aiUrls, aiNames, aiLangs;
+        array<uint> ends = {response.length(), 0, 0};
+        uint pos = 0, depth = 0;
+        string lan, name, url;
 
-	if (data["backup_url"].isString() || data["backupUrl"].isString()) {
-		string backup_url = ( data["backup_url"].isString() ) ? data["backup_url"].asString() : data["backupUrl"].asString();
-		if (!isP2PCDN(backup_url)) {
-			return backup_url;
-		}
-	} else if (data["backup_url"].isArray()) {
-		for (uint j = 0; j < data["backup_url"].size(); j++) {
-			string backup_url = data["backup_url"][j].asString();
+        while (true) {
+            if (pos == ends[depth]) {
+                if (depth == 2 && !lan.empty() && !url.empty()) {
+                    if (name.empty()) name = lan;
+                    if (url.find("//") == 0) url = "https:" + url;
+                    if (lan.find("ai-") == 0) { aiUrls.insertLast(url); aiNames.insertLast(name); aiLangs.insertLast(lan); }
+                    else { ownUrls.insertLast(url); ownNames.insertLast(name); ownLangs.insertLast(lan); }
+                }
+                if (depth == 0) break;
+                depth--;
+                continue;
+            }
 
-			if (!isP2PCDN(backup_url)) {
-				return backup_url;
-			}
-		}
-	} else if (data["backupUrl"].isArray()) {
-		for (uint j = 0; j < data["backupUrl"].size(); j++) {
-			string backup_url = data["backupUrl"][j].asString();
+            uint64 tag = 0, value = 0;
+            uint shift = 0;
+            bool done = false;
+            for (uint i = 0; i < 10 && pos < ends[depth]; i++) {
+                uint8 b = uint8(response[pos++]); tag |= uint64(b & 127) << shift;
+                if ((b & 128) == 0) { done = true; break; }
+                shift += 7;
+            }
+            if (!done || (tag >> 3) == 0) return result;
 
-			if (!isP2PCDN(backup_url)) {
-				return backup_url;
-			}
-		}
-	}
+            uint field = uint(tag >> 3), wire = uint(tag & 7);
+            if (wire == 0 || wire == 2) {
+                shift = 0; done = false;
+                for (uint i = 0; i < 10 && pos < ends[depth]; i++) {
+                    uint8 b = uint8(response[pos++]); value |= uint64(b & 127) << shift;
+                    if ((b & 128) == 0) { done = true; break; }
+                    shift += 7;
+                }
+                if (!done) return result;
+                if (wire == 0) continue;
+                if (value > uint64(ends[depth] - pos)) return result;
 
-	log("getFixedURL: all backup URLs are P2P CDN, returning base URL");
-	return base_url;
+                uint next = pos + uint(value);
+                if (depth == 0 && field == 1) { depth = 1; ends[1] = next; }
+                else if (depth == 1 && field == 3) { lan = ""; name = ""; url = ""; depth = 2; ends[2] = next; }
+                else {
+                    if (depth == 2) {
+                        if (field == 3) lan = response.substr(pos, uint(value));
+                        else if (field == 4) name = response.substr(pos, uint(value));
+                        else if (field == 5) url = response.substr(pos, uint(value));
+                    }
+                    pos = next;
+                }
+            } else if (wire == 1 || wire == 5) {
+                uint size = wire == 1 ? 8 : 4;
+                if (size > ends[depth] - pos) return result;
+                pos += size;
+            } else return result;
+        }
+
+        if (attempt == 0 && ownUrls.empty()) continue;
+
+        array<string> urls = ownUrls, names = ownNames, langs = ownLangs;
+        if (attempt == 1) { urls = aiUrls; names = aiNames; langs = aiLangs; }
+
+        const uint maxConcurrent = 5;
+
+        for (uint batchStart = 0; batchStart < urls.length(); batchStart += maxConcurrent) {
+            uint batchCount = urls.length() - batchStart;
+            if (batchCount > maxConcurrent) batchCount = maxConcurrent;
+
+            array<dictionary@> tasks(batchCount);
+            array<int> threads(batchCount, -1);
+
+            for (uint i = 0; i < batchCount; i++) {
+                @tasks[i] = dictionary();
+                tasks[i].set("url", urls[batchStart + i]);
+
+                threads[i] = HostCreateThread(function(any@ threadParam) {
+                    dictionary@ task;
+                    if (threadParam is null || !threadParam.retrieve(@task) || task is null) return;
+
+                    string subtitleUrl;
+                    if (!task.get("url", subtitleUrl) || subtitleUrl.empty()) return;
+
+                    const string hostPrefix = "https://subtitle.bilibili.com/";
+
+                    if (subtitleUrl.find(hostPrefix) == 0) {
+                        uint pathStart = hostPrefix.length();
+                        int queryStart = subtitleUrl.find("?", pathStart);
+                        if (queryStart < 0) return;
+
+                        string encoded = subtitleUrl.substr(pathStart, uint(queryStart) - pathStart);
+                        const string hex = "0123456789ABCDEF";
+                        array<uint8> cipher;
+
+                        for (uint p = 0; p < encoded.length(); p++) {
+                            if (encoded[p] == 37 && p + 2 < encoded.length()) {
+                                int hi = hex.find(encoded.substr(p + 1, 1).MakeUpper());
+                                int lo = hex.find(encoded.substr(p + 2, 1).MakeUpper());
+                                if (hi >= 0 && lo >= 0) {
+                                    cipher.insertLast(uint8((hi << 4) | lo));
+                                    p += 2;
+                                    continue;
+                                }
+                            }
+                            cipher.insertLast(uint8(encoded[p]));
+                        }
+
+                        array<string> prefixes = {
+                            "nP](wOFRvU.+<fjS{jn-!$D|Dz&\",zT`",
+                            "Bn\"q~|albg@]Go~ACgyDvKnd+)_D}^&J?"
+                        };
+                        array<string> keys = {
+                            "=CFxYRn{.y|uVyO$uh&sikph?N.ilF/`bilibili",
+                            "Cu~L!xs~f^&r@'vh=q]q{eeng*sEg^kp#Jbilibili"
+                        };
+
+                        string path;
+                        for (uint k = 0; k < keys.length(); k++) {
+                            string decodedEncoded;
+                            for (uint p = 0; p < cipher.length(); p++) {
+                                uint8 b = cipher[p] ^ uint8(keys[k][p % keys[k].length()]);
+                                decodedEncoded += "%" + hex.substr(b >> 4, 1) + hex.substr(b & 15, 1);
+                            }
+                            string decoded = HostUrlDecode(decodedEncoded);
+                            if (decoded.find(prefixes[k]) == 0) {
+                                path = decoded.substr(prefixes[k].length());
+                                break;
+                            }
+                        }
+
+                        if (path.find("/bfs/") != 0) return;
+                        subtitleUrl = path + subtitleUrl.substr(uint(queryStart));
+                    }
+
+                    string json = apiPost(subtitleUrl, "", "https://aisubtitle.hdslb.com", true, true);
+                    if (json.empty()) return;
+
+                    JsonReader reader;
+                    JsonValue root;
+                    if (!reader.parse(json, root) || !root.isObject() || !root["body"].isArray()) return;
+
+                    JsonValue body = root["body"];
+                    string srt;
+                    uint number = 0;
+
+                    for (int j = 0; j < body.size(); j++) {
+                        JsonValue line = body[j];
+                        if (!line.isObject() || !line["from"].isNumeric() || !line["to"].isNumeric() || !line["content"].isString()) continue;
+
+                        double from = line["from"].asDouble(), to = line["to"].asDouble();
+                        if (from < 0 || to <= from) continue;
+
+                        uint start = uint(from * 1000 + 0.5), finish = uint(to * 1000 + 0.5);
+                        string t1 = formatInt(start / 3600000) + ":" + (start / 60000 % 60 < 10 ? "0" : "") + formatInt(start / 60000 % 60) + ":" + (start / 1000 % 60 < 10 ? "0" : "") + formatInt(start / 1000 % 60) + "," + (start % 1000 < 100 ? "0" : "") + (start % 1000 < 10 ? "0" : "") + formatInt(start % 1000);
+                        string t2 = formatInt(finish / 3600000) + ":" + (finish / 60000 % 60 < 10 ? "0" : "") + formatInt(finish / 60000 % 60) + ":" + (finish / 1000 % 60 < 10 ? "0" : "") + formatInt(finish / 1000 % 60) + "," + (finish % 1000 < 100 ? "0" : "") + (finish % 1000 < 10 ? "0" : "") + formatInt(finish % 1000);
+                        srt += formatInt(++number) + "\r\n" + t1 + " --> " + t2 + "\r\n" + line["content"].asString() + "\r\n\r\n";
+                    }
+
+                    if (!srt.empty()) task.set("srt", srt);
+                }, @tasks[i]);
+
+                if (threads[i] < 0) return result;
+            }
+
+            for (uint i = 0; i < batchCount; i++) while (!HostWaitThread(threads[i], 10)) HostIncTimeOut(10);
+
+            for (uint i = 0; i < batchCount; i++) {
+                uint index = batchStart + i;
+                string srt;
+                if (!tasks[i].get("srt", srt) || srt.empty()) continue;
+
+                dictionary subtitle;
+                subtitle["name"] = langs[index].find("ai-") == 0 ? names[index] + "(AI)" : names[index];
+                subtitle["langCode"] = langs[index].find("ai-") == 0 ? langs[index].substr(3) : langs[index];
+                subtitle["fileContent"] = srt;
+                result.insertLast(subtitle);
+            }
+        }
+
+        return result;
+    }
+
+    return result;
 }
 
-string getLiveQuality(JsonValue g_qn_desc, int qn, int hdr_type, JsonValue video_color_info) {
-	int etof = 0;
-	if (video_color_info.isObject() && video_color_info["eotf"].isNumeric()) {
-		etof = video_color_info["eotf"].asInt();
-	}
-
-	if (!g_qn_desc.isArray() || g_qn_desc.size() == 0) {
-		log("getLiveQualityNew: g_qn_desc is not an array or is empty");
-		return "未匹配画质";
-	}
-
-	for (int i = 0; i < g_qn_desc.size(); i++) {
-		JsonValue item = g_qn_desc[i];
-		if (!item.isObject()) {
-			log("getLiveQualityNew item is not object, index", i);
-			continue;
-		}
-
-		int item_qn = item["qn"].asInt();
-		int item_hdr_type = item["hdr_type"].asInt();
-		int item_etof = item["eotf"].asInt();
-
-		if (item_qn != qn || item_hdr_type != hdr_type || item["eotf"].asInt() != etof) {
-			continue;
-		}
-
-		string fallback_desc = item["desc"].asString();
-		JsonValue media_base_desc = item["media_base_desc"];
-		if (!media_base_desc.isObject()) {
-			log("getLiveQualityNew media_base_desc missing, fallback desc, qn=" + qn + ", hdr_type=" + hdr_type + ", etof=" + etof);
-			return fallback_desc;
-		}
-
-		JsonValue detail_desc = media_base_desc["detail_desc"];
-		if (!detail_desc.isObject()) {
-			log("getLiveQualityNew detail_desc missing, fallback desc, qn=" + qn + ", hdr_type=" + hdr_type + ", etof=" + etof);
-			return fallback_desc;
-		}
-
-		string main_desc = detail_desc["desc"].asString();
-		if (main_desc.empty()) {
-			log("getLiveQualityNew detail_desc desc empty, fallback desc, qn=" + qn + ", hdr_type=" + hdr_type + ", etof=" + etof);
-			return fallback_desc;
-		}
-
-		JsonValue tags = detail_desc["tag"];
-		if (!tags.isArray()) {
-			return main_desc;
-		}
-
-		string tag_text = "";
-		for (int t = 0; t < tags.size(); t++) {
-			if (!tag_text.empty()) {
-				tag_text += " ";
-			}
-			tag_text += tags[t].asString();
-		}
-
-		return main_desc + " (" + tag_text + ")";
-	}
-
-	return "未匹配画质";
-}
-
-string getVideoQuality(JsonValue support_formats, int quality) {
-	for (int i = 0; i < support_formats.size(); i++) {
-		if (support_formats[i]["quality"].asInt() == quality) return support_formats[i]["new_description"].asString();
-	}
-	return "未知";
-}
-
-string getBestUrl(array<dictionary>& QualityList, int best_qn = -1) {
-	int bestQn = -1;
-
-	if (best_qn == -1) {
-		for (int i = int(ConfigData.videoIdOrder.length()) - 1; i >= 0; i--) {
-			int qn = ConfigData.videoIdOrder[i];
-
-			for (uint j = 0; j < QualityList.length(); j++) {
-				dictionary QualityItem = QualityList[j];
-				if (!QualityItem.exists("qn") || !QualityItem.exists("codecid") || (QualityItem.exists("va") && string(QualityItem["va"]) == "a")) continue;
-
-				int itemQn = int(QualityItem["qn"]);
-
-				if (itemQn == qn) {
-					bestQn = qn;
-					break;
-				}
-			}
-
-			if (bestQn != -1) break;
-		}
-	} else {
-		bestQn = best_qn;
-	}
-
-	if (bestQn == -1) {
-		log("No suitable quality number found.");
-		return "";
-	}
-
-	for (uint i = 0; i < ConfigData.defaultCodec.length(); i++) {
-		string codecName = ConfigData.defaultCodec[i];
-		if (!ConfigData.codecNameToCodeId.exists(codecName)) continue;
-		int targetCodecid = int(ConfigData.codecNameToCodeId[codecName]);
-
-		for (uint j = 0; j < QualityList.length(); j++) {
-			dictionary QualityItem = QualityList[j];
-			if (int(QualityItem["qn"]) != bestQn) continue;
-
-			int codecid = int(QualityItem["codecid"]);
-			if (codecid == targetCodecid) {
-				QualityList[j]["itag"] = 702;
-				// log("Found suitable URL for best quality number", QualityItem);
-				return string(QualityItem["url"]);
-			}
-		}
-	}
-
-	log("No suitable URL found for the best quality number.");
-	return "";
-}
-
-string AppendBangumiQualityList(const string epid, const string path, array<dictionary>& QualityList) {
-	status = 5;
-
-	string url;
-	string res;
-	JsonReader Reader;
-	JsonValue Root;
-
-	string html = post(path);
-	string prefix = "const playurlSSRData =";
-	array<string> lines = html.split("\n");
-
-	for (uint i = 0; i < lines.length(); i++) {
-		string line = lines[i].Trim();
-		if (line.find(prefix) == 0) {
-			res = line.substr(prefix.length()).Trim();
-			break;
-		}
-	}
-
-	if (res.empty()) return url;
-	if (!Reader.parse(res, Root) || !Root.isObject()) return url;
-	if (!Root["data"].isObject())	return url;
-	if (!Root["data"]["result"].isObject()) return url;
-
-	string play_video_type = Root["data"]["result"]["play_video_type"].asString();
-	if (play_video_type != "whole") {
-		if (play_video_type == "preview") {
-			HostMessageBox("应版权方要求，本片需购买，当前为试看片段", "试看片段", 0, 0);
-		}
-	}
-
-	if (!Root["data"]["result"]["video_info"].isObject()) return url;
-
-	JsonValue support_formats = Root["data"]["result"]["video_info"]["support_formats"];
-	JsonValue dash = Root["data"]["result"]["video_info"]["dash"];
-	string referer = path;
-
-	if (dash.isObject()) {
-		JsonValue videos = dash["video"];
-		if (!videos.isArray()) return url;
-		videos = SortVideos(videos);
-
-		int itag = 0;
-		for (int i = 0; i < videos.size(); i++) {
-			JsonValue video = videos[i];
-
-			int qn = video["id"].asInt();
-			int codecid = video["codecid"].asInt();
-
-			url = getFixedURL(video);
-			string width = formatInt(video["width"].asInt());
-			string height = formatInt(video["height"].asInt());
-			int bitrateVal = video["bandwidth"].asInt();
-			string bitrate = HostFormatBitrate(bitrateVal) + "bps";
-			int fps = parseInt(video["frame_rate"].asString());
-			bool isHDR = (qn == 125 || qn == 126 || qn == 129);
-			string mime_type = video["mime_type"].asString().MakeLower();
-			string format = mime_type.substr(mime_type.findLast("/") + 1) + ", " + getCodec(codecid) + ", " + bitrate;
-			string quality = getVideoQuality(support_formats, qn);
-			itag = getVideoItag(qn, codecid);
-			if (itag <= 0 || HostExistITag(itag)) {
-				itag = HostGetITag(video["height"].asInt(), 0, true, false);
-				if (itag <= 0) itag = HostGetITag(video["height"].asInt(), 0, true, true);
-			}
-			while (HostExistITag(itag)) itag++;
-			HostSetITag(itag);
-
-			QualityListItem item;
-
-			item.url = url;
-			item.bitrateVal = bitrateVal;
-			item.bitrate = bitrate;
-			item.resolution = width + "x" + height;
-			item.fps = fps;
-			item.isHDR = isHDR;
-			item.format = format;
-			item.quality = quality;
-			item.qualityDetail = quality;
-			item.itag = itag;
-			item.audioIsDefault = false;
-			item.qn = qn;
-			item.codecid = codecid;
-			item.va = "v";
-			item.referer = referer;
-			if (i == videos.size() - 1) item.videoIsDefault = true;
-
-			if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
-		}
-
-		JsonValue audios;
-		JsonValue audio;
-		if (dash["audio"].isArray()) {
-			audios = dash["audio"];
-			for (int i = 0; i < audios.size(); i++) {
-				audio = audios[i];
-				AppendAudioQualityList(audio, referer, QualityList);
-			}
-		}
-		if (dash["dolby"]["audio"].isArray()) {
-			audios = dash["dolby"]["audio"];
-			for (int i = 0; i < audios.size(); i++) {
-				audio = audios[i];
-				AppendAudioQualityList(audio, referer, QualityList);
-			}
-		}
-		if (dash["flac"].isObject()) {
-			audio = dash["flac"]["audio"];
-			AppendAudioQualityList(audio, referer, QualityList);
-		}
-
-	} else if (Root["data"]["result"]["video_info"]["durls"].isArray()) {
-		JsonValue durls = Root["data"]["result"]["video_info"]["durls"];
-		int itag;
-		for (uint i = 0; i < durls.size(); i++) {
-			JsonValue durl = durls[i];
-			url = getFixedURL(durl["durl"][0]);
-			int qn = durl["quality"].asInt();
-			string quality = getVideoQuality(support_formats, qn);
-			int itag = getUniItag();
-			referer = referer;
-
-			QualityListItem item;
-
-			item.url = url;
-			item.quality = quality;
-			item.qualityDetail = quality;
-			item.itag = itag;
-			item.qn = qn;
-			item.va = "va";
-			item.referer = referer;
-
-			if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
-		}
-	} else if (Root["data"]["result"]["video_info"]["durl"].isArray()) {
-		JsonValue durl = Root["data"]["result"]["video_info"]["durl"][0];
-		url = getFixedURL(durl);
-		int itag = getUniItag();
-
-		QualityListItem item;
-
-		item.url = url;
-		item.itag = itag;
-		item.va = "va";
-		item.referer = referer;
-
-		if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
-	}
-
-	if (QualityList.size() > 1) {
-		string bestUrl = getBestUrl(QualityList);
-		if (!bestUrl.isEmpty()) url = bestUrl;
-	}
-
-	return url;
-}
-
-string AppendVideoQualityList(string bvid, string aid, string cid, array<dictionary>& QualityList) {
-	status = 5;
-
-	string url;
-	int qn = 127;
-	string params;
-	string res;
-	string referer;
-	JsonReader reader;
-	JsonValue root;
-
-	params = "bvid=" + bvid + "&avid=" + aid + "&cid=" + cid + "&qn=" + qn + "&fnval=4048&fourk=1";
-	res = apiPost("/x/player/wbi/playurl?" + encWbi(params));
-	if (reader.parse(res, root) && root.isObject()) {
-		if (root["code"].asInt() == 0) {
-			JsonValue data = root["data"];
-			JsonValue support_formats = data["support_formats"];
-			referer = "https://www.bilibili.com/video/" + bvid;
-
-			if (data["dash"].isObject()) {
-				int itag = 0;
-				JsonValue videos = data["dash"]["video"];
-				videos = SortVideos(videos);
-
-				for (int i = 0; i < videos.size(); i++) {
-					JsonValue video = videos[i];
-
-					int qn = video["id"].asInt();
-					int codecid = video["codecid"].asInt();
-
-					url = getFixedURL(video);
-					string width = formatInt(video["width"].asInt());
-					string height = formatInt(video["height"].asInt());
-					int bitrateVal = video["bandwidth"].asInt();
-					string bitrate = HostFormatBitrate(bitrateVal) + "bps";
-					int fps = ( video["frame_rate"].isString() ) ? parseInt(video["frame_rate"].asString()) : parseInt(video["frameRate"].asString());
-					bool isHDR = (qn == 125 || qn == 126 || qn == 129);
-					string mime_type = ( video["mime_type"].isString() ) ? video["mime_type"].asString().MakeLower() : video["mimeType"].asString().MakeLower();
-					string format = mime_type.substr(mime_type.findLast("/") + 1) + ", " + getCodec(codecid) + ", " + bitrate;
-					string quality = getVideoQuality(data["support_formats"], qn);
-					itag = getVideoItag(qn, codecid);
-					if (itag <= 0 || HostExistITag(itag)) {
-						itag = HostGetITag(video["height"].asInt(), 0, true, false);
-						if (itag <= 0) itag = HostGetITag(video["height"].asInt(), 0, true, true);
-					}
-					while (HostExistITag(itag)) itag++;
-					HostSetITag(itag);
-
-					QualityListItem item;
-
-					item.url = url;
-					item.bitrateVal = bitrateVal;
-					item.bitrate = bitrate;
-					item.resolution = width + "x" + height;
-					item.fps = fps;
-					item.isHDR = isHDR;
-					item.format = format;
-					item.quality = quality;
-					item.qualityDetail = quality;
-					item.itag = itag;
-					item.audioIsDefault = false;
-					item.qn = qn;
-					item.codecid = codecid;
-					item.va = "v";
-					item.referer = referer;
-					if (i == videos.size() - 1) item.videoIsDefault = true;
-
-					if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
-				}
-
-				JsonValue audios;
-				JsonValue audio;
-				if (data["dash"]["audio"].isArray()) {
-					audios = data["dash"]["audio"];
-					for (int i = 0; i < audios.size(); i++) {
-						audio = audios[i];
-						AppendAudioQualityList(audio, referer, QualityList);
-					}
-				}
-				if (data["dash"]["dolby"]["audio"].isArray()) {
-					audios = data["dash"]["dolby"]["audio"];
-					for (int i = 0; i < audios.size(); i++) {
-						audio = audios[i];
-						AppendAudioQualityList(audio, referer, QualityList);
-					}
-				}
-				if (data["dash"]["flac"].isObject()) {
-					audio = data["dash"]["flac"]["audio"];
-					AppendAudioQualityList(audio, referer, QualityList);
-				}
-			} else if (data["durls"].isArray()) {
-				JsonValue durls = data["durls"];
-				int itag;
-				for (uint i = 0; i < durls.size(); i++) {
-					JsonValue durl = durls[i];
-					url = getFixedURL(durl["durl"][0]);
-					int qn = durl["quality"].asInt();
-					string quality = getVideoQuality(support_formats, qn);
-					int itag = getUniItag();
-					referer = referer;
-
-					QualityListItem item;
-
-					item.url = url;
-					item.quality = quality;
-					item.qualityDetail = quality;
-					item.itag = itag;
-					item.qn = qn;
-					item.va = "va";
-					item.referer = referer;
-
-					if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
-				}
-			} else if (data["durl"].isArray()) {
-				JsonValue durl = data["durl"][0];
-				url = getFixedURL(durl);
-				int itag = getUniItag();
-
-				QualityListItem item;
-
-				item.url = url;
-				item.itag = itag;
-				item.va = "va";
-				item.referer = referer;
-
-				if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
-			}
-		}
-	}
-
-	if (QualityList.size() > 1) {
-		string bestUrl = getBestUrl(QualityList);
-		if (!bestUrl.isEmpty()) url = bestUrl;
-	}
-
-	return url;
-}
-
-void AppendAudioQualityList(JsonValue audio, string referer, array<dictionary>& QualityList) {
-	int itag = 0;
-	string quality; 
-	bool audioIsDefault = false;
-	int audioid = audio["id"].asInt();
-
-	string url = getFixedURL(audio);
-
-	if (audioid == 30250) {
-		quality = "杜比全景声";
-	} else if (audioid == 30251) {
-		quality = "Hi-Res无损";
-		audioIsDefault = true;
-	} else if (audio["codecs"].asString().MakeLower().find("mp4a") >= 0) {
-		quality = "AAC";
-	}
-
-	int bitrateVal = audio["bandwidth"].asInt();
-	string bitrate = HostFormatBitrate(bitrateVal) + "bps";
-
-	itag = getAudioItag(audioid);
-	// if (itag <= 0 || HostExistITag(itag)) {
-	// 	itag = HostGetITag(0, int(bitrateVal / 1000.0), true, false);
-	// 	if (itag <= 0) itag = HostGetITag(0, int(bitrateVal / 1000.0), true, true);
-	// }
-	// while (HostExistITag(itag)) itag++;
-	// HostSetITag(itag);
-
-	string codec = audio["codecs"].asString().MakeLower();
-	string mime_type = audio["mime_type"].asString().MakeLower();
-	string format = mime_type.substr(mime_type.findLast("/") + 1) + ", " + (codec.find(".") >= 0 ? codec.substr(0, codec.find(".")) : codec) + ", " + bitrate;
-
-	QualityListItem item;
-
-	item.url = url;
-	item.bitrateVal = bitrateVal;
-	item.bitrate = bitrate;
-	item.resolution = "audio only";	
-	item.format = format;
-	item.quality = quality;
-	item.qualityDetail = item.quality;
-	item.itag = itag;
-	item.audioIsDefault = audioIsDefault;
-	item.va = "a";
-	item.referer = referer;
-
-	if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
+string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration) {
+    if (aid.empty() || cid.empty() || duration == 0 || !ConfigData.danmakuEnable) return "";
+
+    const string hex = "0123456789ABCDEF";
+    string font = ConfigData.danmakuFont.empty() ? "微软雅黑 Light" : ConfigData.danmakuFont;
+    int fontSize = int(ConfigData.danmakuFontSize);
+    if (fontSize <= 0) fontSize = 24;
+
+    double opacity = ConfigData.danmakuOpacity, area = ConfigData.danmakuDisplayArea, stay = ConfigData.danmakuStayTime;
+    if (opacity < 0) opacity = 0; else if (opacity > 1) opacity = 1;
+    if (area < 0) area = 0; else if (area > 1) area = 1;
+    if (stay <= 0) stay = 15;
+
+    uint alpha = uint((1 - opacity) * 255 + 0.5);
+    string alphaHex = hex.substr(alpha >> 4, 1) + hex.substr(alpha & 15, 1);
+    uint laneHeight = uint(fontSize) + 4;
+    uint lanes = uint(1080 * area) / laneHeight;
+    if (lanes == 0) lanes = 1;
+
+    array<uint> scrollStart(lanes, 0), scrollWidth(lanes, 0), reverseStart(lanes, 0), reverseWidth(lanes, 0), topReady(lanes, 0), bottomReady(lanes, 0);
+    array<bool> scrollUsed(lanes, false), reverseUsed(lanes, false);
+    array<uint> times, modes, colors;
+    array<string> contents;
+    array<uint64> order;
+
+    string ass =
+        "[Script Info]\r\nTitle: Bilibili Danmaku\r\nScriptType: v4.00+\r\nPlayResX: 1920\r\nPlayResY: 1080\r\nWrapStyle: 2\r\nScaledBorderAndShadow: yes\r\nYCbCr Matrix: TV.709\r\n\r\n"
+        "[V4+ Styles]\r\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\r\n"
+        "Style: Danmaku," + font + "," + formatInt(fontSize) + ",&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1.5,0,8,0,0,0,1\r\n"
+        "Style: Subtitle," + font + "," + formatInt(fontSize) + ",&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,1,2,10,10,20,1\r\n\r\n"
+        "[Events]\r\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\r\n";
+
+    uint totalSegments = (duration + 359) / 360;
+    const uint maxConcurrent = 5;
+
+    for (uint batchStart = 1; batchStart <= totalSegments; batchStart += maxConcurrent) {
+        uint batchCount = totalSegments - batchStart + 1;
+        if (batchCount > maxConcurrent) batchCount = maxConcurrent;
+
+        array<dictionary@> tasks(batchCount);
+        array<int> threads(batchCount, -1);
+
+        for (uint i = 0; i < batchCount; i++) {
+            @tasks[i] = dictionary();
+            tasks[i].set("aid", aid);
+            tasks[i].set("cid", cid);
+            tasks[i].set("segment", int64(batchStart + i));
+
+            threads[i] = HostCreateThread(function(any@ threadParam) {
+                dictionary@ task;
+                if (threadParam is null || !threadParam.retrieve(@task) || task is null) return;
+
+                string taskAid, taskCid;
+                int64 segment = 0;
+                if (!task.get("aid", taskAid) || !task.get("cid", taskCid) || !task.get("segment", segment)) return;
+
+                string param = "type=1&oid=" + taskCid + "&pid=" + taskAid + "&segment_index=" + formatInt(segment) + "&web_location=1315873";
+                string data = apiPost("/x/v2/dm/wbi/web/seg.so?" + encWbi(param), true, true);
+                task.set("data", data);
+            }, @tasks[i]);
+
+            if (threads[i] < 0) return "";
+        }
+
+        for (uint i = 0; i < batchCount; i++) while (!HostWaitThread(threads[i], 10)) HostIncTimeOut(10);
+
+        for (uint segmentIndex = 0; segmentIndex < batchCount; segmentIndex++) {
+            string data;
+            if (!tasks[segmentIndex].get("data", data) || data.empty()) return "";
+            if (data.substr(0, 1) == "{") return "";
+
+            uint pos = 0;
+            while (pos < data.length()) {
+                uint64 tag = 0, length = 0;
+                uint shift = 0;
+                bool done = false;
+
+                for (uint i = 0; i < 10 && pos < data.length(); i++) {
+                    uint8 b = uint8(data[pos++]); tag |= uint64(b & 127) << shift;
+                    if ((b & 128) == 0) { done = true; break; }
+                    shift += 7;
+                }
+
+                if (!done || (tag >> 3) == 0) return "";
+                uint field = uint(tag >> 3), wire = uint(tag & 7);
+
+                if (wire == 0) {
+                    done = false;
+                    for (uint i = 0; i < 10 && pos < data.length(); i++) if ((uint8(data[pos++]) & 128) == 0) { done = true; break; }
+                    if (!done) return "";
+                    continue;
+                }
+
+                if (wire == 1 || wire == 5) {
+                    uint size = wire == 1 ? 8 : 4;
+                    if (size > data.length() - pos) return "";
+                    pos += size;
+                    continue;
+                }
+
+                if (wire != 2) return "";
+                shift = 0; done = false;
+
+                for (uint i = 0; i < 10 && pos < data.length(); i++) {
+                    uint8 b = uint8(data[pos++]); length |= uint64(b & 127) << shift;
+                    if ((b & 128) == 0) { done = true; break; }
+                    shift += 7;
+                }
+
+                if (!done || length > uint64(data.length() - pos)) return "";
+                uint end = pos + uint(length);
+
+                if (field != 1) { pos = end; continue; }
+
+                uint progress = 0, mode = 1, color = 0xFFFFFF;
+                string content;
+
+                while (pos < end) {
+                    uint64 innerTag = 0, value = 0;
+                    shift = 0; done = false;
+
+                    for (uint i = 0; i < 10 && pos < end; i++) {
+                        uint8 b = uint8(data[pos++]); innerTag |= uint64(b & 127) << shift;
+                        if ((b & 128) == 0) { done = true; break; }
+                        shift += 7;
+                    }
+
+                    if (!done || (innerTag >> 3) == 0) return "";
+                    uint innerField = uint(innerTag >> 3), innerWire = uint(innerTag & 7);
+
+                    if (innerWire == 0 || innerWire == 2) {
+                        shift = 0; done = false;
+
+                        for (uint i = 0; i < 10 && pos < end; i++) {
+                            uint8 b = uint8(data[pos++]); value |= uint64(b & 127) << shift;
+                            if ((b & 128) == 0) { done = true; break; }
+                            shift += 7;
+                        }
+
+                        if (!done) return "";
+
+                        if (innerWire == 2) {
+                            if (value > uint64(end - pos)) return "";
+                            if (innerField == 7) content = data.substr(pos, uint(value));
+                            pos += uint(value);
+                        } else {
+                            if (innerField == 2) progress = uint(value);
+                            else if (innerField == 3) mode = uint(value);
+                            else if (innerField == 5) color = uint(value) & 0xFFFFFF;
+                        }
+                    } else if (innerWire == 1 || innerWire == 5) {
+                        uint size = innerWire == 1 ? 8 : 4;
+                        if (size > end - pos) return "";
+                        pos += size;
+                    } else return "";
+                }
+
+                if (pos != end) return "";
+                if (content.empty() || (mode != 1 && mode != 4 && mode != 5 && mode != 6)) continue;
+
+                uint index = contents.length();
+                times.insertLast(progress); modes.insertLast(mode); colors.insertLast(color); contents.insertLast(content);
+                order.insertLast((uint64(progress) << 32) | uint64(index));
+            }
+        }
+    }
+
+    order.sortAsc();
+
+    for (uint item = 0; item < order.length(); item++) {
+        uint index = uint(order[item] & 0xFFFFFFFF);
+        uint progress = times[index], mode = modes[index], color = colors[index];
+        string content = contents[index];
+        string safeText;
+        uint characters = 0;
+
+        for (uint i = 0; i < content.length(); i++) {
+            uint8 b = uint8(content[i]);
+
+            if (b == 10 || b == 13) { safeText += " "; characters++; continue; }
+
+            if (b == 92) safeText += "＼";
+            else if (b == 123) safeText += "｛";
+            else if (b == 125) safeText += "｝";
+            else safeText += content.substr(i, 1);
+
+            if ((b & 0xC0) != 0x80) characters++;
+        }
+
+        if (safeText.empty()) continue;
+
+        uint start = (progress + 5) / 10, durationCs = uint(stay * 100 + 0.5);
+        if (durationCs == 0) durationCs = 1;
+        uint finish = start + durationCs;
+
+        string startTime = formatInt(start / 360000) + ":" + (start / 6000 % 60 < 10 ? "0" : "") + formatInt(start / 6000 % 60) + ":" + (start / 100 % 60 < 10 ? "0" : "") + formatInt(start / 100 % 60) + "." + (start % 100 < 10 ? "0" : "") + formatInt(start % 100);
+        string endTime = formatInt(finish / 360000) + ":" + (finish / 6000 % 60 < 10 ? "0" : "") + formatInt(finish / 6000 % 60) + ":" + (finish / 100 % 60 < 10 ? "0" : "") + formatInt(finish / 100 % 60) + "." + (finish % 100 < 10 ? "0" : "") + formatInt(finish % 100);
+
+        uint red = (color >> 16) & 255, green = (color >> 8) & 255, blue = color & 255;
+        string assColor = hex.substr(blue >> 4, 1) + hex.substr(blue & 15, 1) + hex.substr(green >> 4, 1) + hex.substr(green & 15, 1) + hex.substr(red >> 4, 1) + hex.substr(red & 15, 1);
+
+        uint width = characters * uint(fontSize);
+        uint lane = lanes;
+
+        array<uint>@ lastStart = @scrollStart;
+        array<uint>@ lastWidth = @scrollWidth;
+        array<bool>@ used = @scrollUsed;
+
+        if (mode == 6) { @lastStart = @reverseStart; @lastWidth = @reverseWidth; @used = @reverseUsed; }
+
+        for (uint i = 0; i < lanes; i++) {
+            if (mode == 5 && topReady[i] <= progress) { lane = i; break; }
+            if (mode == 4 && bottomReady[i] <= progress) { lane = i; break; }
+            if (mode != 1 && mode != 6) continue;
+            if (!used[i]) { lane = i; break; }
+
+            uint elapsed = progress >= lastStart[i] ? progress - lastStart[i] : 0;
+            double previousWidth = double(lastWidth[i]);
+            double entryDelay = stay * 1000 * previousWidth / (1920 + previousWidth);
+            double exitDelay = stay * 1000 * width / (1920 + width);
+
+            if (double(elapsed) >= entryDelay && double(elapsed) >= exitDelay) { lane = i; break; }
+        }
+
+        if (lane == lanes) continue;
+
+        if (mode == 5) topReady[lane] = progress + durationCs * 10;
+        else if (mode == 4) bottomReady[lane] = progress + durationCs * 10;
+        else { used[lane] = true; lastStart[lane] = progress; lastWidth[lane] = width; }
+
+        uint y = lane * laneHeight;
+        string position;
+
+        if (mode == 5) position = "\\an8\\pos(960," + formatInt(y) + ")";
+        else if (mode == 4) position = "\\an2\\pos(960," + formatInt(1080 - y) + ")";
+        else {
+            uint right = 1920 + width / 2;
+            int left = -int(width / 2);
+
+            if (mode == 6) position = "\\move(" + formatInt(left) + "," + formatInt(y) + "," + formatInt(right) + "," + formatInt(y) + ")";
+            else position = "\\move(" + formatInt(right) + "," + formatInt(y) + "," + formatInt(left) + "," + formatInt(y) + ")";
+        }
+
+        ass += "Dialogue: 0," + startTime + "," + endTime + ",Danmaku,,0,0,0,,{" + position + "\\alpha&H" + alphaHex + "&\\1c&H" + assColor + "&\\fs" + formatInt(fontSize) + "\\fn" + font + "\\bord1.5\\shad0\\q2}" + safeText + "\r\n";
+    }
+
+    return ass;
 }
 
 array<dictionary> generateChapter(const string&in bvid, const array<dictionary>&in chapter, const float duration) {
@@ -2092,6 +2052,511 @@ array<dictionary> generateChapter(const string&in bvid, const array<dictionary>&
 	}
 
 	return result;
+}
+
+string getFixedURL(JsonValue&in data) {
+	string base_url = data["url"].isString() ? data["url"].asString() : (data["base_url"].isString() ? data["base_url"].asString() : data["baseUrl"].asString());
+
+	if (!ConfigData.blockP2PCDN) {
+		return base_url;
+	}
+
+	if (!isP2PCDN(base_url)) {
+		return base_url;
+	}
+
+	if (data["backup_url"].isString() || data["backupUrl"].isString()) {
+		string backup_url = ( data["backup_url"].isString() ) ? data["backup_url"].asString() : data["backupUrl"].asString();
+		if (!isP2PCDN(backup_url)) {
+			return backup_url;
+		}
+	} else if (data["backup_url"].isArray()) {
+		for (uint j = 0; j < data["backup_url"].size(); j++) {
+			string backup_url = data["backup_url"][j].asString();
+
+			if (!isP2PCDN(backup_url)) {
+				return backup_url;
+			}
+		}
+	} else if (data["backupUrl"].isArray()) {
+		for (uint j = 0; j < data["backupUrl"].size(); j++) {
+			string backup_url = data["backupUrl"][j].asString();
+
+			if (!isP2PCDN(backup_url)) {
+				return backup_url;
+			}
+		}
+	}
+
+	log("getFixedURL: all backup URLs are P2P CDN, returning base URL");
+	return base_url;
+}
+
+string getLiveQuality(JsonValue g_qn_desc, int qn, int hdr_type, JsonValue video_color_info) {
+	int etof = 0;
+	if (video_color_info.isObject() && video_color_info["eotf"].isNumeric()) {
+		etof = video_color_info["eotf"].asInt();
+	}
+
+	if (!g_qn_desc.isArray() || g_qn_desc.size() == 0) {
+		log("getLiveQualityNew: g_qn_desc is not an array or is empty");
+		return "未匹配画质";
+	}
+
+	for (int i = 0; i < g_qn_desc.size(); i++) {
+		JsonValue item = g_qn_desc[i];
+		if (!item.isObject()) {
+			log("getLiveQualityNew item is not object, index", i);
+			continue;
+		}
+
+		int item_qn = item["qn"].asInt();
+		int item_hdr_type = item["hdr_type"].asInt();
+		int item_etof = item["eotf"].asInt();
+
+		if (item_qn != qn || item_hdr_type != hdr_type || item["eotf"].asInt() != etof) {
+			continue;
+		}
+
+		string fallback_desc = item["desc"].asString();
+		JsonValue media_base_desc = item["media_base_desc"];
+		if (!media_base_desc.isObject()) {
+			log("getLiveQualityNew media_base_desc missing, fallback desc, qn=" + qn + ", hdr_type=" + hdr_type + ", etof=" + etof);
+			return fallback_desc;
+		}
+
+		JsonValue detail_desc = media_base_desc["detail_desc"];
+		if (!detail_desc.isObject()) {
+			log("getLiveQualityNew detail_desc missing, fallback desc, qn=" + qn + ", hdr_type=" + hdr_type + ", etof=" + etof);
+			return fallback_desc;
+		}
+
+		string main_desc = detail_desc["desc"].asString();
+		if (main_desc.empty()) {
+			log("getLiveQualityNew detail_desc desc empty, fallback desc, qn=" + qn + ", hdr_type=" + hdr_type + ", etof=" + etof);
+			return fallback_desc;
+		}
+
+		JsonValue tags = detail_desc["tag"];
+		if (!tags.isArray()) {
+			return main_desc;
+		}
+
+		string tag_text = "";
+		for (int t = 0; t < tags.size(); t++) {
+			if (!tag_text.empty()) {
+				tag_text += " ";
+			}
+			tag_text += tags[t].asString();
+		}
+
+		return main_desc + " (" + tag_text + ")";
+	}
+
+	return "未匹配画质";
+}
+
+string getVideoQuality(JsonValue support_formats, int quality) {
+	for (int i = 0; i < support_formats.size(); i++) {
+		if (support_formats[i]["quality"].asInt() == quality) return support_formats[i]["new_description"].asString();
+	}
+	return "未知";
+}
+
+string getBestUrl(array<dictionary>& QualityList, int best_qn = -1) {
+	int bestQn = -1;
+
+	if (best_qn == -1) {
+		for (int i = int(ConfigData.videoIdOrder.length()) - 1; i >= 0; i--) {
+			int qn = ConfigData.videoIdOrder[i];
+
+			for (uint j = 0; j < QualityList.length(); j++) {
+				dictionary QualityItem = QualityList[j];
+				if (!QualityItem.exists("qn") || !QualityItem.exists("codecid") || (QualityItem.exists("va") && string(QualityItem["va"]) == "a")) continue;
+
+				int itemQn = int(QualityItem["qn"]);
+
+				if (itemQn == qn) {
+					bestQn = qn;
+					break;
+				}
+			}
+
+			if (bestQn != -1) break;
+		}
+	} else {
+		bestQn = best_qn;
+	}
+
+	if (bestQn == -1) {
+		log("No suitable quality number found.");
+		return "";
+	}
+
+	for (uint i = 0; i < ConfigData.defaultCodec.length(); i++) {
+		string codecName = ConfigData.defaultCodec[i];
+		if (!ConfigData.codecNameToCodeId.exists(codecName)) continue;
+		int targetCodecid = int(ConfigData.codecNameToCodeId[codecName]);
+
+		for (uint j = 0; j < QualityList.length(); j++) {
+			dictionary QualityItem = QualityList[j];
+			if (int(QualityItem["qn"]) != bestQn) continue;
+
+			int codecid = int(QualityItem["codecid"]);
+			if (codecid == targetCodecid) {
+				QualityList[j]["itag"] = 702;
+				// log("Found suitable URL for best quality number", QualityItem);
+				return string(QualityItem["url"]);
+			}
+		}
+	}
+
+	log("No suitable URL found for the best quality number.");
+	return "";
+}
+
+string AppendBangumiQualityList(const string epid, const string path, array<dictionary>& QualityList) {
+	status = 5;
+
+	string url;
+	string res;
+	JsonReader Reader;
+	JsonValue Root;
+
+	string html = post(path);
+	string prefix = "const playurlSSRData =";
+	array<string> lines = html.split("\n");
+
+	for (uint i = 0; i < lines.length(); i++) {
+		string line = lines[i].Trim();
+		if (line.find(prefix) == 0) {
+			res = line.substr(prefix.length()).Trim();
+			break;
+		}
+	}
+
+	if (res.empty()) return url;
+	if (!Reader.parse(res, Root) || !Root.isObject()) return url;
+	if (!Root["data"].isObject())	return url;
+	if (!Root["data"]["result"].isObject()) return url;
+
+	string play_video_type = Root["data"]["result"]["play_video_type"].asString();
+	if (play_video_type != "whole") {
+		if (play_video_type == "preview") {
+			HostMessageBox("应版权方要求，本片需购买，当前为试看片段", "BilibiliPotPlayer", 0, 0);
+		}
+	}
+
+	if (!Root["data"]["result"]["video_info"].isObject()) return url;
+
+	JsonValue support_formats = Root["data"]["result"]["video_info"]["support_formats"];
+	JsonValue dash = Root["data"]["result"]["video_info"]["dash"];
+	string referer = path;
+
+	if (dash.isObject()) {
+		JsonValue videos = dash["video"];
+		if (!videos.isArray()) return url;
+		videos = SortVideos(videos);
+
+		int itag = 0;
+		for (int i = 0; i < videos.size(); i++) {
+			JsonValue video = videos[i];
+
+			int qn = video["id"].asInt();
+			int codecid = video["codecid"].asInt();
+
+			url = getFixedURL(video);
+			string width = formatInt(video["width"].asInt());
+			string height = formatInt(video["height"].asInt());
+			int bitrateVal = video["bandwidth"].asInt();
+			string bitrate = HostFormatBitrate(bitrateVal) + "bps";
+			int fps = parseInt(video["frame_rate"].asString());
+			bool isHDR = (qn == 125 || qn == 126 || qn == 129);
+			string mime_type = video["mime_type"].asString().MakeLower();
+			string format = mime_type.substr(mime_type.findLast("/") + 1) + ", " + getCodec(codecid) + ", " + bitrate;
+			string quality = getVideoQuality(support_formats, qn);
+			itag = getVideoItag(qn, codecid);
+			if (itag <= 0 || HostExistITag(itag)) {
+				itag = HostGetITag(video["height"].asInt(), 0, true, false);
+				if (itag <= 0) itag = HostGetITag(video["height"].asInt(), 0, true, true);
+			}
+			while (HostExistITag(itag)) itag++;
+			HostSetITag(itag);
+
+			QualityListItem item;
+
+			item.url = url;
+			item.bitrateVal = bitrateVal;
+			item.bitrate = bitrate;
+			item.resolution = width + "x" + height;
+			item.fps = fps;
+			item.isHDR = isHDR;
+			item.format = format;
+			item.quality = quality;
+			item.qualityDetail = quality;
+			item.itag = itag;
+			item.audioIsDefault = false;
+			item.qn = qn;
+			item.codecid = codecid;
+			item.va = "v";
+			item.referer = referer;
+			if (i == videos.size() - 1) item.videoIsDefault = true;
+
+			if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
+		}
+
+		JsonValue audios;
+		JsonValue audio;
+		if (dash["audio"].isArray()) {
+			audios = dash["audio"];
+			for (int i = 0; i < audios.size(); i++) {
+				audio = audios[i];
+				AppendAudioQualityList(audio, referer, QualityList);
+			}
+		}
+		if (dash["dolby"]["audio"].isArray()) {
+			audios = dash["dolby"]["audio"];
+			for (int i = 0; i < audios.size(); i++) {
+				audio = audios[i];
+				AppendAudioQualityList(audio, referer, QualityList);
+			}
+		}
+		if (dash["flac"].isObject()) {
+			audio = dash["flac"]["audio"];
+			AppendAudioQualityList(audio, referer, QualityList);
+		}
+
+	} else if (Root["data"]["result"]["video_info"]["durls"].isArray()) {
+		JsonValue durls = Root["data"]["result"]["video_info"]["durls"];
+		int itag;
+		for (uint i = 0; i < durls.size(); i++) {
+			JsonValue durl = durls[i];
+			url = getFixedURL(durl["durl"][0]);
+			int qn = durl["quality"].asInt();
+			string quality = getVideoQuality(support_formats, qn);
+			int itag = getUniItag();
+			referer = referer;
+
+			QualityListItem item;
+
+			item.url = url;
+			item.quality = quality;
+			item.qualityDetail = quality;
+			item.itag = itag;
+			item.qn = qn;
+			item.va = "va";
+			item.referer = referer;
+
+			if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
+		}
+	} else if (Root["data"]["result"]["video_info"]["durl"].isArray()) {
+		JsonValue durl = Root["data"]["result"]["video_info"]["durl"][0];
+		url = getFixedURL(durl);
+		int itag = getUniItag();
+
+		QualityListItem item;
+
+		item.url = url;
+		item.itag = itag;
+		item.va = "va";
+		item.referer = referer;
+
+		if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
+	}
+
+	if (QualityList.size() > 1) {
+		string bestUrl = getBestUrl(QualityList);
+		if (!bestUrl.isEmpty()) url = bestUrl;
+	}
+
+	return url;
+}
+
+string AppendVideoQualityList(string bvid, string aid, string cid, array<dictionary>& QualityList) {
+	status = 5;
+
+	string url;
+	int qn = 127;
+	string params;
+	string res;
+	string referer;
+	JsonReader reader;
+	JsonValue root;
+
+	params = "bvid=" + bvid + "&avid=" + aid + "&cid=" + cid + "&qn=" + qn + "&fnval=4048&fourk=1";
+	res = apiPost("/x/player/wbi/playurl?" + encWbi(params));
+	if (reader.parse(res, root) && root.isObject()) {
+		if (root["code"].asInt() == 0) {
+			JsonValue data = root["data"];
+			JsonValue support_formats = data["support_formats"];
+			referer = "https://www.bilibili.com/video/" + bvid;
+
+			if (data["dash"].isObject()) {
+				int itag = 0;
+				JsonValue videos = data["dash"]["video"];
+				videos = SortVideos(videos);
+
+				for (int i = 0; i < videos.size(); i++) {
+					JsonValue video = videos[i];
+
+					int qn = video["id"].asInt();
+					int codecid = video["codecid"].asInt();
+
+					url = getFixedURL(video);
+					string width = formatInt(video["width"].asInt());
+					string height = formatInt(video["height"].asInt());
+					int bitrateVal = video["bandwidth"].asInt();
+					string bitrate = HostFormatBitrate(bitrateVal) + "bps";
+					int fps = ( video["frame_rate"].isString() ) ? parseInt(video["frame_rate"].asString()) : parseInt(video["frameRate"].asString());
+					bool isHDR = (qn == 125 || qn == 126 || qn == 129);
+					string mime_type = ( video["mime_type"].isString() ) ? video["mime_type"].asString().MakeLower() : video["mimeType"].asString().MakeLower();
+					string format = mime_type.substr(mime_type.findLast("/") + 1) + ", " + getCodec(codecid) + ", " + bitrate;
+					string quality = getVideoQuality(data["support_formats"], qn);
+					itag = getVideoItag(qn, codecid);
+					if (itag <= 0 || HostExistITag(itag)) {
+						itag = HostGetITag(video["height"].asInt(), 0, true, false);
+						if (itag <= 0) itag = HostGetITag(video["height"].asInt(), 0, true, true);
+					}
+					while (HostExistITag(itag)) itag++;
+					HostSetITag(itag);
+
+					QualityListItem item;
+
+					item.url = url;
+					item.bitrateVal = bitrateVal;
+					item.bitrate = bitrate;
+					item.resolution = width + "x" + height;
+					item.fps = fps;
+					item.isHDR = isHDR;
+					item.format = format;
+					item.quality = quality;
+					item.qualityDetail = quality;
+					item.itag = itag;
+					item.audioIsDefault = false;
+					item.qn = qn;
+					item.codecid = codecid;
+					item.va = "v";
+					item.referer = referer;
+					if (i == videos.size() - 1) item.videoIsDefault = true;
+
+					if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
+				}
+
+				JsonValue audios;
+				JsonValue audio;
+				if (data["dash"]["audio"].isArray()) {
+					audios = data["dash"]["audio"];
+					for (int i = 0; i < audios.size(); i++) {
+						audio = audios[i];
+						AppendAudioQualityList(audio, referer, QualityList);
+					}
+				}
+				if (data["dash"]["dolby"]["audio"].isArray()) {
+					audios = data["dash"]["dolby"]["audio"];
+					for (int i = 0; i < audios.size(); i++) {
+						audio = audios[i];
+						AppendAudioQualityList(audio, referer, QualityList);
+					}
+				}
+				if (data["dash"]["flac"].isObject()) {
+					audio = data["dash"]["flac"]["audio"];
+					AppendAudioQualityList(audio, referer, QualityList);
+				}
+			} else if (data["durls"].isArray()) {
+				JsonValue durls = data["durls"];
+				int itag;
+				for (uint i = 0; i < durls.size(); i++) {
+					JsonValue durl = durls[i];
+					url = getFixedURL(durl["durl"][0]);
+					int qn = durl["quality"].asInt();
+					string quality = getVideoQuality(support_formats, qn);
+					int itag = getUniItag();
+					referer = referer;
+
+					QualityListItem item;
+
+					item.url = url;
+					item.quality = quality;
+					item.qualityDetail = quality;
+					item.itag = itag;
+					item.qn = qn;
+					item.va = "va";
+					item.referer = referer;
+
+					if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
+				}
+			} else if (data["durl"].isArray()) {
+				JsonValue durl = data["durl"][0];
+				url = getFixedURL(durl);
+				int itag = getUniItag();
+
+				QualityListItem item;
+
+				item.url = url;
+				item.itag = itag;
+				item.va = "va";
+				item.referer = referer;
+
+				if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
+			}
+		}
+	}
+
+	if (QualityList.size() > 1) {
+		string bestUrl = getBestUrl(QualityList);
+		if (!bestUrl.isEmpty()) url = bestUrl;
+	}
+
+	return url;
+}
+
+void AppendAudioQualityList(JsonValue audio, string referer, array<dictionary>& QualityList) {
+	int itag = 0;
+	string quality; 
+	bool audioIsDefault = false;
+	int audioid = audio["id"].asInt();
+
+	string url = getFixedURL(audio);
+
+	if (audioid == 30250) {
+		quality = "杜比全景声";
+	} else if (audioid == 30251) {
+		quality = "Hi-Res无损";
+		audioIsDefault = true;
+	} else if (audio["codecs"].asString().MakeLower().find("mp4a") >= 0) {
+		quality = "AAC";
+	}
+
+	int bitrateVal = audio["bandwidth"].asInt();
+	string bitrate = HostFormatBitrate(bitrateVal) + "bps";
+
+	itag = getAudioItag(audioid);
+	// if (itag <= 0 || HostExistITag(itag)) {
+	// 	itag = HostGetITag(0, int(bitrateVal / 1000.0), true, false);
+	// 	if (itag <= 0) itag = HostGetITag(0, int(bitrateVal / 1000.0), true, true);
+	// }
+	// while (HostExistITag(itag)) itag++;
+	// HostSetITag(itag);
+
+	string codec = audio["codecs"].asString().MakeLower();
+	string mime_type = audio["mime_type"].asString().MakeLower();
+	string format = mime_type.substr(mime_type.findLast("/") + 1) + ", " + (codec.find(".") >= 0 ? codec.substr(0, codec.find(".")) : codec) + ", " + bitrate;
+
+	QualityListItem item;
+
+	item.url = url;
+	item.bitrateVal = bitrateVal;
+	item.bitrate = bitrate;
+	item.resolution = "audio only";	
+	item.format = format;
+	item.quality = quality;
+	item.qualityDetail = item.quality;
+	item.itag = itag;
+	item.audioIsDefault = audioIsDefault;
+	item.va = "a";
+	item.referer = referer;
+
+	if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
 }
 
 JsonValue SortVideos(JsonValue& videos) {
@@ -2672,6 +3137,8 @@ string Bangumi(const string&in path, dictionary& MetaData, array<dictionary>& Qu
 
 			string title = ((episode["badge"].isString() && !episode["badge"].asString().empty()) ?  "【" + episode["badge"].asString() + "】\n" : "") + episode["share_copy"].asString() + "\n" + episode["show_title"].asString();
 
+			int64 duration = episode["duration"].asInt64();
+
 			string chatUrl;
 			string chatScript;
 			if (ConfigData.enableVodChatUrl && HostFileExist(ConfigData.ChatScriptVod)) {
@@ -2688,7 +3155,7 @@ string Bangumi(const string&in path, dictionary& MetaData, array<dictionary>& Qu
 			if (@MetaData !is null) {
 				MetaData["title"] = title;
 				MetaData["vid"] = bvid;
-				MetaData["duration"] = episode["duration"].asString();
+				MetaData["duration"] = formatInt(duration);
 				MetaData["thumbnail"] = episode["cover"].asString();
 				MetaData["webUrl"] = makeWebUrl(path);
 				MetaData["date"] = UnixTimeToDateTime(episode["pub_time"].asInt64());
@@ -2714,7 +3181,7 @@ string Bangumi(const string&in path, dictionary& MetaData, array<dictionary>& Qu
 						item["time"] = formatFloat(episode["skip"]["ed"]["start"].asFloat() * 1000, "", 32, 0);
 						chapter.insertLast(item);
 
-						if (episode["skip"]["ed"]["end"].asFloat() * 1000 < episode["duration"].asFloat()) {
+						if (episode["skip"]["ed"]["end"].asFloat() < float(duration)) {
 							item["title"] = "正片";
 							item["time"] = formatFloat(episode["skip"]["ed"]["end"].asFloat() * 1000, "", 32, 0);
 							chapter.insertLast(item);
@@ -2723,7 +3190,7 @@ string Bangumi(const string&in path, dictionary& MetaData, array<dictionary>& Qu
 
 					if (ConfigData.enableSponsorBlock) {
 						status = 6;
-						chapter = generateChapter(bvid, chapter, episode["duration"].asFloat());
+						chapter = generateChapter(bvid, chapter, float(duration));
 						status = 4;
 					}
 
@@ -2731,11 +3198,25 @@ string Bangumi(const string&in path, dictionary& MetaData, array<dictionary>& Qu
 				}
 
 				array<dictionary> subtitle;
+				
 				if (ConfigData.danmakuEnable) {
 					dictionary dic;
-					dic["name"] = "【弹幕】" + title;
-					dic["url"] = ConfigData.danmakuUrl + cid;
+
+					dic["name"] = "弹幕";
+					dic["langCode"] = "danmu";
+					if (!ConfigData.danmakuUrl.isEmpty()) {
+						dic["url"] = ConfigData.danmakuUrl + cid;
+					} else {
+						status = 9;
+						string danmuAss = BuildDanmakuAss(aid, cid, duration/1000);
+						if (danmuAss.isEmpty()) {
+							HostMessageBox('弹幕生成失败\n1. 等待BilibiliPotplayer更新\n2. 找一个可用的弹幕源，写入配置文件："danmaku" - "server"', "BilibiliPotPlayer", 0, 0);
+						}
+						dic["fileContent"] = danmuAss;
+					}
+
 					subtitle.insertLast(dic);
+
 					if (!subtitle.empty()) MetaData["subtitle"] = subtitle;
 				}
 
@@ -2830,6 +3311,8 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 		author = "@" + view["owner"]["name"].asString();
 	}
 
+	int64 duration = view["duration"].asInt() * 1000;
+
 	bool is360 = view["rights"]["is360"].asInt() != 0;
 
 	string chatUrl;
@@ -2852,7 +3335,7 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 	if (@MetaData !is null) {
 		MetaData["vid"] = cid;
 		MetaData["title"] = title;
-		MetaData["duration"] = formatInt(view["duration"].asInt() * 1000);
+		MetaData["duration"] = formatInt(duration);
 		MetaData["thumbnail"] = view["pic"].asString();
 		MetaData["author"] = author;
 		MetaData["content"] = view["desc"].asString();
@@ -2868,25 +3351,53 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 
 		if (ConfigData.enableSponsorBlock) {
 			status = 6;
-			chapter = generateChapter(bvid, chapter, view["duration"].asInt() * 1000.0);
-			status = 4;
+			chapter = generateChapter(bvid, chapter, float(duration));
 		}
 		if (!chapter.empty()) MetaData["chapter"] = chapter;
 
+		dictionary dic;
+
+		if (ConfigData.subtitleEnable) {
+			if (!ConfigData.subtitleServer.isEmpty()) {
+				dic["url"] = ConfigData.subtitleServer + "aid=" + aid + "&cid=" + cid;
+			} else {
+				status = 8;
+				array<dictionary> bilibiliSubtitles = GetBilibiliSubtitles(aid, cid, true);
+				if (bilibiliSubtitles.length() != 0) {
+					for (uint i = 0; i < bilibiliSubtitles.length(); i++) {
+						subtitle.insertLast(bilibiliSubtitles[i]);
+					}
+				} else {
+					log("subtitle", "no subtitles found");
+				}
+			}
+		}
+
 		if (ConfigData.danmakuEnable) {
-			dictionary dic;
-			dic["name"] = "【弹幕】" + title;
-			dic["url"] = ConfigData.danmakuUrl + cid;
+			dic["name"] = "弹幕";
+
+			if (!ConfigData.danmakuUrl.isEmpty()) {
+				dic["url"] = ConfigData.danmakuUrl + cid;
+			} else {
+				status = 9;
+				string danmuAss = BuildDanmakuAss(aid, cid, duration/1000);
+				if (danmuAss.isEmpty()) {
+					HostMessageBox('弹幕生成失败\n1. 等待BilibiliPotplayer更新\n2. 找一个可用的弹幕源，写入配置文件："danmaku" - "server"', "BilibiliPotPlayer", 0, 0);
+				}
+				dic["fileContent"] = danmuAss;
+			}
+
 			subtitle.insertLast(dic);
+
 			if (!subtitle.empty()) MetaData["subtitle"] = subtitle;
 		}
 	}
 
 	if (is_upower_exclusive) {
 		if (is_upower_preview) {
-			HostMessageBox("该视频为充电视频，试看中...", "充电专属", 0, 0);
+			HostMessageBox("该视频为充电视频，试看中...", "BilibiliPotPlayer", 0, 0);
 		} else {
-			HostMessageBox("该视频为充电视频, 且不支持试看...", "充电专属", 0, 0);
+			HostMessageBox("该视频为充电视频, 且不支持试看...", "BilibiliPotPlayer", 0, 0);
 			if (@MetaData !is null) MetaData["fileExt"] = "jpg";
 			return view["pic"].asString();
 		}
@@ -2971,12 +3482,12 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 	}
 
 	if (live_status != 1) {
-		HostMessageBox(Root["data"]["anchor_info"]["base_info"]["uname"].asString() + " 当前未开播", "未开播", 0, 0);
+		HostMessageBox(Root["data"]["anchor_info"]["base_info"]["uname"].asString() + " 当前未开播", "BilibiliPotPlayer", 0, 0);
 		url = "https://i1.hdslb.com/bfs/static/blive/blfe-live-room/static/img/player-bg.866a348..png";
 
 		return url;
 	} else if (special_type == 1) {
-		HostMessageBox("当前直播间为大航海专属", "大航海专属", 0, 0);
+		HostMessageBox("当前直播间为大航海专属", "BilibiliPotPlayer", 0, 0);
 	}
 
 	status = 5;
@@ -2985,7 +3496,7 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 	array<int> accept_qns;
 	string default_format;
 	int qn = 25000;
-	
+
 	string param = "room_id=" + room_id + "&protocol=0,1&format=0,1,2&codec=0,1,2&qn=" + qn + "&platform=web&ptype=8&dolby=5&panorama=1&eotf=0,1,2&req_reason=0&supported_drms=0";
 	res = apiPost("/xlive/web-room/v2/index/getRoomPlayInfo?" + encWbi(param), "", "https://api.live.bilibili.com");
 
@@ -3795,7 +4306,7 @@ array<dictionary> followingLive() {
 	}
 
 	if (videos.size() == 0) {
-		HostMessageBox("[正在直播] 列表是空的，刷点别的视频吧。", "[正在直播] 为空", 2, 0);
+		HostMessageBox("[正在直播] 列表是空的，刷点别的视频吧。", "BilibiliPotPlayer", 2, 0);
 	}
 
 	return videos;
@@ -4150,7 +4661,7 @@ array<dictionary> watchlater() {
 		}
 	}
 	if (videos.size() == 0) {
-		HostMessageBox("[稍后再看] 列表是空的，刷点别的视频吧。", "[稍后再看] 为空", 2,0);
+		HostMessageBox("[稍后再看] 列表是空的，刷点别的视频吧。", "BilibiliPotPlayer", 2,0);
 	}
 	return videos;
 }
