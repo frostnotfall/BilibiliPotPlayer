@@ -95,7 +95,7 @@ string GetTitle() {
 }
 
 string GetVersion() {
-	return "2.6.28";
+	return "2.6.29";
 }
 
 string GetDesc() {
@@ -187,12 +187,87 @@ string GetStatus() {
 
 string GetBroadcastListUrl() {
 	log('GetBroadcastListUrl()');
-	return "https://live.bilibili.com/";
+	return "https://www.bilibili.com/";
 }
 
-string GetBroadcastListScript(){
+string GetBroadcastListScript() {
 	log('GetBroadcastListScript()');
-	return "";
+
+	return '(() => {\n'
+		'  "use strict";\n'
+		'\n'
+		'  if (window.__potPlayerBilibiliClick) return;\n'
+		'  if (!window.chrome || !chrome.webview) return;\n'
+		'  window.__potPlayerBilibiliClick = true;\n'
+		'\n'
+		'  const messageType = "potPlayer.video-click";\n'
+		'\n'
+		'  function isSupportedUrl(value) {\n'
+		'    try {\n'
+		'      const u = new URL(value, location.href);\n'
+		'      const host = u.hostname.toLowerCase();\n'
+		'      const path = u.pathname;\n'
+		'\n'
+		'      if (host === "t.bilibili.com") return true;\n'
+		'      if (host === "search.bilibili.com") return true;\n'
+		'      if (host === "space.bilibili.com" && /^\\/\\d+(?:\\/|$)/.test(path)) return true;\n'
+		'      if (host === "link.bilibili.com" && path.includes("/user-center/follow")) return true;\n'
+		'      if (host === "live.bilibili.com") return true;\n'
+		'\n'
+		'      if (host === "www.bilibili.com") {\n'
+		'        if (path.startsWith("/v/popular/all")) return true;\n'
+		'        if (path.startsWith("/v/popular/weekly")) return true;\n'
+		'        if (path.startsWith("/v/popular/history")) return true;\n'
+		'        if (path.startsWith("/v/popular/rank")) return true;\n'
+		'        if (path.startsWith("/watchlater")) return true;\n'
+		'        if (path.startsWith("/history")) return true;\n'
+		'        if (path.includes("/medialist/detail/ml")) return true;\n'
+		'        if (path.startsWith("/audio/am")) return true;\n'
+		'        if (/^\\/bangumi\\/media\\/md\\d+/i.test(path)) return true;\n'
+		'        if (/^\\/bangumi\\/play\\/ep\\d+/i.test(path)) return true;\n'
+		'        if (/^\\/bangumi\\/play\\/ss\\d+/i.test(path)) return true;\n'
+		'        if (/^\\/video\\/BV[a-zA-Z0-9]+/i.test(path)) return true;\n'
+		'        if (/^\\/video\\/av\\d+/i.test(path)) return true;\n'
+		'        if (/^\\/audio\\/au\\d+/i.test(path)) return true;\n'
+		'        if (path === "/" || path === "") return true;\n'
+		'      }\n'
+		'\n'
+		'      return false;\n'
+		'    } catch (e) {\n'
+		'      return false;\n'
+		'    }\n'
+		'  }\n'
+		'\n'
+		'  function getSupportedUrl(target) {\n'
+		'    const a = target && target.closest ? target.closest("a[href]") : null;\n'
+		'    if (!a) return "";\n'
+		'\n'
+		'    try {\n'
+		'      const url = new URL(a.getAttribute("href"), location.href).href;\n'
+		'      return isSupportedUrl(url) ? url : "";\n'
+		'    } catch (e) {\n'
+		'      return "";\n'
+		'    }\n'
+		'  }\n'
+		'\n'
+		'  function onClick(e) {\n'
+		'    if (typeof e.button === "number" && e.button === 2) return;\n'
+		'\n'
+		'    const url = getSupportedUrl(e.target);\n'
+		'    if (!url) return;\n'
+		'\n'
+		'    e.preventDefault();\n'
+		'    e.stopPropagation();\n'
+		'    e.stopImmediatePropagation();\n'
+		'\n'
+		'    chrome.webview.postMessage({\n'
+		'      type: messageType,\n'
+		'      url: url\n'
+		'    });\n'
+		'  }\n'
+		'\n'
+		'  window.addEventListener("click", onClick, { capture: true, passive: false });\n'
+		'})();\n';
 }
 
 void OnFinalize() {
@@ -278,7 +353,7 @@ class Config {
 
 	bool subtitleEnable = false;
 	string subtitleServer;
-	bool danmakuEnable = true;
+	bool danmakuEnable = false;
 	string danmakuServer;
 	string danmakuFont;
 	float danmakuFontSize = 30.0;
@@ -1614,7 +1689,39 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
     return ass;
 }
 
-array<dictionary> generateChapter(const string&in bvid, const array<dictionary>&in chapter, const float duration) {
+array<dictionary> generateChapter(JsonValue&in skip, const string&in bvid, const float duration) {
+	array<dictionary> chapter;
+	if (skip.isObject()) {
+		dictionary item;
+		if (skip["op"].isObject() && skip["op"]["end"].asInt() != 0) {
+			item["title"] = "开场动画";
+			item["time"] = formatFloat(skip["op"]["start"].asFloat() * 1000, "", 32, 0);
+			chapter.insertLast(item);
+
+			item["title"] = "正片";
+			item["time"] = formatFloat(skip["op"]["end"].asFloat() * 1000, "", 32, 0);
+			chapter.insertLast(item);
+		}
+		if (skip["ed"].isObject() && skip["ed"]["start"].asInt() != 0 && skip["ed"]["end"].asInt() != 0) {
+			item["title"] = "片尾";
+			item["time"] = formatFloat(skip["ed"]["start"].asFloat() * 1000, "", 32, 0);
+			chapter.insertLast(item);
+
+			if (skip["ed"]["end"].asFloat() < float(duration)) {
+				item["title"] = "正片";
+				item["time"] = formatFloat(skip["ed"]["end"].asFloat() * 1000, "", 32, 0);
+				chapter.insertLast(item);
+			}
+		}
+	}
+
+	if (ConfigData.enableSponsorBlock) chapter = generateSponsorBlockChapter(bvid, chapter, duration);
+
+	return chapter;
+}
+
+array<dictionary> generateSponsorBlockChapter(const string&in bvid, const array<dictionary>&in chapter, const float duration) {
+	status = 6;
 	array<dictionary> result;
 
 	const float MIN_CHAPTER_DURATION = 1.0f;
@@ -2052,6 +2159,46 @@ array<dictionary> generateChapter(const string&in bvid, const array<dictionary>&
 	}
 
 	return result;
+}
+
+array<dictionary> generateSubtitle(const string&in aid, const string&in cid, const float duration, bool isBangumi) {
+	array<dictionary> subtitle;
+	dictionary dic;
+
+	if (ConfigData.subtitleEnable && !isBangumi) {
+		if (!ConfigData.subtitleServer.isEmpty()) {
+			dic["url"] = ConfigData.subtitleServer + "aid=" + aid + "&cid=" + cid;
+		} else {
+			status = 8;
+			array<dictionary> bilibiliSubtitles = GetBilibiliSubtitles(aid, cid, true);
+			if (bilibiliSubtitles.length() != 0) {
+				for (uint i = 0; i < bilibiliSubtitles.length(); i++) {
+					subtitle.insertLast(bilibiliSubtitles[i]);
+				}
+			} else {
+				log("subtitle", "no subtitles found");
+			}
+		}
+	}
+
+	if (ConfigData.danmakuEnable) {
+		dic["name"] = "弹幕";
+
+		if (!ConfigData.danmakuUrl.isEmpty()) {
+			dic["url"] = ConfigData.danmakuUrl + cid;
+		} else {
+			status = 9;
+			string danmuAss = BuildDanmakuAss(aid, cid, duration);
+			if (danmuAss.isEmpty()) {
+				HostMessageBox('弹幕生成失败\n1. 等待BilibiliPotplayer更新\n2. 找一个可用的弹幕源，写入配置文件："danmaku" - "server"', "BilibiliPotPlayer", 0, 0);
+			}
+			dic["fileContent"] = danmuAss;
+		}
+
+		subtitle.insertLast(dic);
+	}
+
+	return subtitle;
 }
 
 string getFixedURL(JsonValue&in data) {
@@ -3163,62 +3310,11 @@ string Bangumi(const string&in path, dictionary& MetaData, array<dictionary>& Qu
 				if (!chatUrl.isEmpty()) MetaData["chatUrl"] = chatUrl;
 				if (!chatUrl.isEmpty() &&!chatScript.isEmpty()) MetaData["chatScript"] = chatScript;
 
-				if (episode["skip"].isObject()) {
-					array<dictionary> chapter;
-					dictionary item;
+				array<dictionary> chapter = generateChapter(episode["skip"], bvid, float(duration));
+				if (!chapter.empty()) MetaData["chapter"] = chapter;
 
-					if (episode["skip"]["op"].isObject() && episode["skip"]["op"]["end"].asInt() != 0) {
-						item["title"] = "开场动画";
-						item["time"] = formatFloat(episode["skip"]["op"]["start"].asFloat() * 1000, "", 32, 0);
-						chapter.insertLast(item);
-
-						item["title"] = "正片";
-						item["time"] = formatFloat(episode["skip"]["op"]["end"].asFloat() * 1000, "", 32, 0);
-						chapter.insertLast(item);
-					}
-					if (episode["skip"]["ed"].isObject() && episode["skip"]["ed"]["start"].asInt() != 0 && episode["skip"]["ed"]["end"].asInt() != 0) {
-						item["title"] = "片尾";
-						item["time"] = formatFloat(episode["skip"]["ed"]["start"].asFloat() * 1000, "", 32, 0);
-						chapter.insertLast(item);
-
-						if (episode["skip"]["ed"]["end"].asFloat() < float(duration)) {
-							item["title"] = "正片";
-							item["time"] = formatFloat(episode["skip"]["ed"]["end"].asFloat() * 1000, "", 32, 0);
-							chapter.insertLast(item);
-						}
-					}
-
-					if (ConfigData.enableSponsorBlock) {
-						status = 6;
-						chapter = generateChapter(bvid, chapter, float(duration));
-						status = 4;
-					}
-
-					if (!chapter.empty()) MetaData["chapter"] = chapter;
-				}
-
-				array<dictionary> subtitle;
-				
-				if (ConfigData.danmakuEnable) {
-					dictionary dic;
-
-					dic["name"] = "弹幕";
-					dic["langCode"] = "danmu";
-					if (!ConfigData.danmakuUrl.isEmpty()) {
-						dic["url"] = ConfigData.danmakuUrl + cid;
-					} else {
-						status = 9;
-						string danmuAss = BuildDanmakuAss(aid, cid, duration/1000);
-						if (danmuAss.isEmpty()) {
-							HostMessageBox('弹幕生成失败\n1. 等待BilibiliPotplayer更新\n2. 找一个可用的弹幕源，写入配置文件："danmaku" - "server"', "BilibiliPotPlayer", 0, 0);
-						}
-						dic["fileContent"] = danmuAss;
-					}
-
-					subtitle.insertLast(dic);
-
-					if (!subtitle.empty()) MetaData["subtitle"] = subtitle;
-				}
+				array<dictionary> subtitle = generateSubtitle(aid, cid, duration/1000, true);
+				if (!subtitle.empty()) MetaData["subtitle"] = subtitle;
 
 				res = apiPost("/pgc/season/episode/web/info?ep_id=" + epid);
 				Reader.parse(res, Root);
@@ -3256,8 +3352,6 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 	string params;
 	JsonReader reader;
 	JsonValue Root;
-	array<dictionary> subtitle;
-	array<dictionary> chapter;
 	array<string> queryParts;
 
 	if (id.find("BV") == 0) {
@@ -3349,47 +3443,10 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 		if (!chatUrl.isEmpty()) MetaData["chatUrl"] = chatUrl;
 		if (!chatUrl.isEmpty() && !chatScript.isEmpty()) MetaData["chatScript"] = chatScript;
 
-		if (ConfigData.enableSponsorBlock) {
-			status = 6;
-			chapter = generateChapter(bvid, chapter, float(duration));
-		}
+		array<dictionary> chapter = generateChapter(JsonValue(), bvid, float(duration));
 		if (!chapter.empty()) MetaData["chapter"] = chapter;
 
-		dictionary dic;
-
-		if (ConfigData.subtitleEnable) {
-			if (!ConfigData.subtitleServer.isEmpty()) {
-				dic["url"] = ConfigData.subtitleServer + "aid=" + aid + "&cid=" + cid;
-			} else {
-				status = 8;
-				array<dictionary> bilibiliSubtitles = GetBilibiliSubtitles(aid, cid, true);
-				if (bilibiliSubtitles.length() != 0) {
-					for (uint i = 0; i < bilibiliSubtitles.length(); i++) {
-						subtitle.insertLast(bilibiliSubtitles[i]);
-					}
-				} else {
-					log("subtitle", "no subtitles found");
-				}
-			}
-		}
-
-		if (ConfigData.danmakuEnable) {
-			dic["name"] = "弹幕";
-
-			if (!ConfigData.danmakuUrl.isEmpty()) {
-				dic["url"] = ConfigData.danmakuUrl + cid;
-			} else {
-				status = 9;
-				string danmuAss = BuildDanmakuAss(aid, cid, duration/1000);
-				if (danmuAss.isEmpty()) {
-					HostMessageBox('弹幕生成失败\n1. 等待BilibiliPotplayer更新\n2. 找一个可用的弹幕源，写入配置文件："danmaku" - "server"', "BilibiliPotPlayer", 0, 0);
-				}
-				dic["fileContent"] = danmuAss;
-			}
-
-			subtitle.insertLast(dic);
-		}
-		
+		array<dictionary> subtitle = generateSubtitle(aid, cid, duration/1000, false);
 		if (!subtitle.empty()) MetaData["subtitle"] = subtitle;
 	}
 
