@@ -95,7 +95,7 @@ string GetTitle() {
 }
 
 string GetVersion() {
-	return "2.6.29";
+	return "2.6.30";
 }
 
 string GetDesc() {
@@ -3350,6 +3350,9 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 	string cid;
 	string title;
 	string params;
+	int64 duration;
+	string thumbnail;
+	string date;
 	JsonReader reader;
 	JsonValue Root;
 	array<string> queryParts;
@@ -3373,9 +3376,11 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 
 	bvid = view["bvid"].asString();
 	aid = view["aid"].asString();
-
-	title = view["title"].asString();
 	cid = view["cid"].asString();
+	title = view["title"].asString();
+	duration = view["duration"].asInt() * 1000;
+	thumbnail = view["pic"].asString();
+	date = UnixTimeToDateTime(view["pubdate"].asInt64());
 
 	if (view["pages"].isArray() && view["pages"].size() > 0) {
 		int p = parseInt(parse(path, "p", "1"));
@@ -3392,6 +3397,10 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 		if (view["pages"].size() > 1) {
 			title = view["title"].asString() + "\n" + page["part"].asString();
 		}
+
+		duration = page["duration"].asInt() * 1000;
+		thumbnail = page["first_frame"].asString();
+		date = UnixTimeToDateTime(page["ctime"].asInt64());
 	}
 
 	string author;
@@ -3405,9 +3414,8 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 		author = "@" + view["owner"]["name"].asString();
 	}
 
-	int64 duration = view["duration"].asInt() * 1000;
-
-	bool is360 = view["rights"]["is360"].asInt() != 0;
+	bool is360;
+	if (view["rights"]["is_360"].isInt()) is360 = view["rights"]["is_360"].asInt() != 0;
 
 	string chatUrl;
 	string chatScript;
@@ -3430,14 +3438,14 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 		MetaData["vid"] = cid;
 		MetaData["title"] = title;
 		MetaData["duration"] = formatInt(duration);
-		MetaData["thumbnail"] = view["pic"].asString();
+		MetaData["thumbnail"] = thumbnail;
 		MetaData["author"] = author;
 		MetaData["content"] = view["desc"].asString();
 		MetaData["webUrl"] = makeWebUrl(path);
 		MetaData["viewCount"] = view["stat"]["view"].asString();
 		MetaData["likeCount"] = view["stat"]["like"].asString();
 		MetaData["dislikeCount"] = view["stat"]["dislike"].asString();
-		MetaData["date"] = UnixTimeToDateTime(view["pubdate"].asInt64());
+		MetaData["date"] = date;
 		MetaData["is360"] = is360;
 		MetaData["fileExt"] = "mp4";
 		if (!chatUrl.isEmpty()) MetaData["chatUrl"] = chatUrl;
