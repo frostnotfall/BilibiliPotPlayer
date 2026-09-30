@@ -35,6 +35,9 @@
     // 是否显示番剧/电影预告片。默认：true。
     "showTrailer": true,
 
+    // 点播视频启用网页版评论区，默认：false。观看视频时 potplayer 播放列表侧会展示该视频评论区。
+    "enableVodChatUrl": true,
+
     // 是否屏蔽 P2P CDN。默认：true。
     "blockP2PCDN": true,
 
@@ -84,6 +87,8 @@
         },
         // 直播聊天窗口配置，观看直播时 potplayer 播放列表侧会出现聊天窗口。
         "liveChatUrl": {
+            // 使用网页版聊天窗口。默认：false。
+            "useWebPage": true,
             // 使用 Bilibili_Danmuji 服务，默认：false。需自己部署 Bilibili_Danmuji 服务。useBilibiliDanmuji 优先级高于 useWebPage。
             "useBilibiliDanmuji": false,
             // BBilibili_Danmuji 地址。

@@ -40,6 +40,7 @@
 - 增加心跳上报功能，用于历史记录同步。
 - 支持新版本更新检测。
 - 首次打开时，账号异常弹出对话框。
+- 支持原生聊天窗口。
 
 ### 📺 直播
 
@@ -98,7 +99,7 @@
 
 其他文档：
 
-- [Bilibili_Danmuji 弹幕接入](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/Bilibili_Danmuji-%E5%BC%B9%E5%B9%95%E6%8E%A5%E5%85%A5)
+- [使用聊天窗口](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/使用聊天窗口)
 - [常见问题与故障排查](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E5%B8%B8%E8%A7%81%E9%97%AE%E9%A2%98%E4%B8%8E%E6%95%85%E9%9A%9C%E6%8E%92%E6%9F%A5)
 - [PotPlayer AngelScript 开发参考](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/PotPlayer-AngelScript-%E5%BC%80%E5%8F%91%E5%8F%82%E8%80%83)
 
