@@ -95,7 +95,7 @@ string GetTitle() {
 }
 
 string GetVersion() {
-	return "2.6.30";
+	return "2.7.31";
 }
 
 string GetDesc() {
@@ -4330,14 +4330,12 @@ array<dictionary> followingLive() {
 		string url = "/xlive/web-ucenter/user/following?page=" + page + "&page_size=10&hit_ab=true";
 		string res = apiPost(url, "", "https://api.live.bilibili.com", false);
 
-		if (!Reader.parse(res, Root) || !Root.isObject() || Root["code"].asInt() != 0)
-			break;
+		if (!Reader.parse(res, Root) || !Root.isObject() || Root["code"].asInt() != 0) break;
 
 		JsonValue data = Root["data"];
 		JsonValue list = data["list"];
 
-		if (!list.isArray())
-			break;
+		if (!list.isArray()) break;
 
 		bool hasOffline = false;
 
@@ -4359,14 +4357,9 @@ array<dictionary> followingLive() {
 			videos.insertLast(video);
 		}
 
-		if (hasOffline)
-			break;
-
+		if (hasOffline) break;
 		uint totalPage = data["totalPage"].asUInt();
-
-		if (page >= totalPage)
-			break;
-
+		if (page >= totalPage) break;
 		page++;
 	}
 
