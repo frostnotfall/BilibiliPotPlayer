@@ -88,7 +88,7 @@
         // 直播聊天窗口配置，观看直播时 potplayer 播放列表侧会出现聊天窗口。
         "liveChatUrl": {
             // 使用网页版聊天窗口。默认：false。
-            "useWebPage": true,
+            "useWebPage": false,
             // 使用 Bilibili_Danmuji 服务，默认：false。需自己部署 Bilibili_Danmuji 服务。useBilibiliDanmuji 优先级高于 useWebPage。
             "useBilibiliDanmuji": false,
             // BBilibili_Danmuji 地址。
