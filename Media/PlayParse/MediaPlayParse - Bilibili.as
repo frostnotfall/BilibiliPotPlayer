@@ -389,7 +389,7 @@ class Config {
 	bool useKeyframe = false;
 
 	bool disableAVC = false;
-	array<string> defaultCodec = {"hevc", "av1", "avc"};
+	array<string> defaultCodec = {"hevc", "avc", "av1"};
 	bool preferHDR = false;
 
 	bool debug = false;
@@ -965,7 +965,6 @@ string makeWebUrl(string path) {
 
 	return url + "?" + query;
 }
-
 
 string parse(string url, string key, string defaultValue = "") {
 	string value = HostRegExpParse(url, "\\?" + key + "=([^&]+)");
@@ -3560,7 +3559,7 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 	string default_protocol = ConfigData.useHttpStream ? "http_stream" : "http_hls";
 	array<int> accept_qns;
 	string default_format;
-	int qn = 25000;
+	int qn = 20000;
 
 	string param = "room_id=" + room_id + "&protocol=0,1&format=0,1,2&codec=0,1,2&qn=" + qn + "&platform=web&ptype=8&dolby=5&panorama=1&eotf=0,1,2&req_reason=0&supported_drms=0";
 	res = apiPost("/xlive/web-room/v2/index/getRoomPlayInfo?" + encWbi(param), "", "https://api.live.bilibili.com");

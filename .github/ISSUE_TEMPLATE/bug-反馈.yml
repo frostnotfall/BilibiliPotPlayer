@@ -27,12 +27,13 @@ body:
     validations:
       required: false
 
-  - type: input
+  - type: textarea
     id: config
     attributes:
       label: 配置文件
-      description: 贴出你的配置
+      description: 请完整贴出你的配置文件内容。
       placeholder: 将你的配置文件内容贴出来
+      render: jsonc
     validations:
       required: false
 
@@ -57,6 +58,6 @@ body:
     id: additional
     attributes:
       label: 其他信息
-      description: 其他可能有帮助的信息，例如日志、错误信息等。可将 debug 设为 true，potplayer 播放失败后将调试窗口内容完整贴出。
+      description: 其他可能有帮助的信息，例如日志、错误信息等。可将 debug 设为 true，PotPlayer 播放失败后将调试窗口内容完整贴出。
       placeholder: |
         如有相关日志，请粘贴在这里。
