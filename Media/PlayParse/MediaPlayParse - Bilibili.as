@@ -388,7 +388,7 @@ class Config {
 	bool useBilibiliDanmuji = false;
 	string bilibiliDanmujiServer;
 	bool useKeyframe = false;
-	bool showRecommendedLiveRooms = true;
+	bool showRecommendedLiveRooms = false;
 
 	bool disableAVC = false;
 	array<string> defaultCodec = {"hevc", "avc", "av1"};

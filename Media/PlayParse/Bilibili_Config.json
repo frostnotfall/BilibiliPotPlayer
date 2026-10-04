@@ -108,7 +108,7 @@
 
     // 以下配置项帮助默认选择最优画质。
     // 默认编码选择优先级。默认: ["hevc", "av1", "avc"]。考虑到硬解支持的广泛性，默认优先 hevc。如果你的设备支持 av1 硬解，可将 av1 提升优先级。
-    "defaultCodec": ["hevc", "av1", "avc"],
+    "defaultCodec": ["hevc", "avc", "av1"],
     // HDR优先。默认：false。跟随官方设定，“8K超高清” 优先级高于 “HDR/杜比视界”。设为 true：“杜比视界/HDR真彩色” 优先级高于“8K超高清”。
     "preferHDR": false,
 
