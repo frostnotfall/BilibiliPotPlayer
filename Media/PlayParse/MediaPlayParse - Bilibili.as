@@ -95,7 +95,7 @@ string GetTitle() {
 }
 
 string GetVersion() {
-	return "2.7.31";
+	return "2.7.32";
 }
 
 string GetDesc() {
@@ -361,10 +361,6 @@ class Config {
 	float danmakuDisplayArea = 0.8;
 	float danmakuStayTime = 15.0;
 
-	bool showRecommendedVideos = false;
-	bool showTrailer = true;
-	bool enableVodChatUrl = false;
-
 	bool blockP2PCDN = true;
 	int cacheValidTime = 300;
 	bool enableSponsorBlock = false;
@@ -379,6 +375,11 @@ class Config {
 	int spaceDynamicVideoNums = 30;
 	int maxliveroom = 40;
 
+	bool showRecommendedVideos = false;
+	bool showUgcSeason = true;
+	bool showTrailer = true;
+	bool enableVodChatUrl = false;
+
 	bool useHttpStream = false;
 	bool parseM3u8RealUrl = false;
 	bool parseM3u8RealUrlFastMode = false;
@@ -387,6 +388,7 @@ class Config {
 	bool useBilibiliDanmuji = false;
 	string bilibiliDanmujiServer;
 	bool useKeyframe = false;
+	bool showRecommendedLiveRooms = true;
 
 	bool disableAVC = false;
 	array<string> defaultCodec = {"hevc", "avc", "av1"};
@@ -455,16 +457,6 @@ Config ReadConfigFile(string file) {
 		}
 	}
 
-	if (root["showRecommendedVideos"].isBool()) {
-		config.showRecommendedVideos = root["showRecommendedVideos"].asBool();
-	}
-	if (root["showTrailer"].isBool()) {
-		config.showTrailer = root["showTrailer"].asBool();
-	}
-	if (root["enableVodChatUrl"].isBool()) {
-		config.enableVodChatUrl = root["enableVodChatUrl"].asBool();
-	}
-
 	if (root["blockP2PCDN"].isBool()) {
 		config.blockP2PCDN = root["blockP2PCDN"].asBool();
 	}
@@ -503,6 +495,23 @@ Config ReadConfigFile(string file) {
 		}
 		if (videoNums["maxliveroom"].isNumeric()) {
 			config.maxliveroom = videoNums["maxliveroom"].asInt();
+		}
+	}
+
+	if (root["vod"].isObject()) {
+		JsonValue vod = root["vod"];
+
+		if (vod["showRecommendedVideos"].isBool()) {
+			config.showRecommendedVideos = vod["showRecommendedVideos"].asBool();
+		}
+		if (vod["showUgcSeason"].isBool()) {
+			config.showUgcSeason = vod["showUgcSeason"].asBool();
+		}
+		if (vod["showTrailer"].isBool()) {
+			config.showTrailer = vod["showTrailer"].asBool();
+		}
+		if (vod["enableVodChatUrl"].isBool()) {
+			config.enableVodChatUrl = vod["enableVodChatUrl"].asBool();
 		}
 	}
 
@@ -546,6 +555,9 @@ Config ReadConfigFile(string file) {
 		}
 		if (live["useKeyframe"].isBool()) {
 			config.useKeyframe = live["useKeyframe"].asBool();
+		}
+		if (live["showRecommendedLiveRooms"].isBool()) {
+			config.showRecommendedLiveRooms = live["showRecommendedLiveRooms"].asBool();
 		}
 	}
 
@@ -2880,6 +2892,10 @@ array<dictionary> UGCSeason(const string&in path) {
 				for (int k = 0; k < pages.size(); k++) {
 					JsonValue page = pages[k];
 					if (!page.isObject()) continue;
+					
+					bool isCurrent = ((episode["bvid"].asString() == bvid || episode["aid"].asString() == aid) && page["page"].asString() == p) ? true : false;
+					
+					if (!ConfigData.showUgcSeason && !isCurrent) continue;
 
 					string finalTitle;
 
@@ -2896,8 +2912,6 @@ array<dictionary> UGCSeason(const string&in path) {
 							finalTitle = sectionTitle + "\n" + episodeTitle;
 						}
 					}
-
-					bool isCurrent = ((episode["bvid"].asString() == bvid || episode["aid"].asString() == aid) && page["page"].asString() == p) ? true : false;
 
 					dictionary video;
 
@@ -2923,6 +2937,9 @@ array<dictionary> UGCSeason(const string&in path) {
 		for (int i = 0; i < pages.size(); i++) {
 			JsonValue page = pages[i];
 
+			bool isCurrent = parse(path, "p", "1") == page["page"].asString();
+			if (!ConfigData.showUgcSeason && !isCurrent) continue;
+
 			dictionary video;
 
 			video["title"] = Root["data"]["View"]["title"].asString() + "\n" + page["part"].asString();
@@ -2931,7 +2948,7 @@ array<dictionary> UGCSeason(const string&in path) {
 			video["author"] = "@" + Root["data"]["View"]["owner"]["name"].asString();
 			video["url"] = makeWebUrl("https://www.bilibili.com/video/" + Root["data"]["View"]["bvid"].asString() + "?p=" + page["page"].asString());
 			video["date"] = UnixTimeToDateTime(page["ctime"].asInt64());
-			if (parse(path, "p", "1") == page["page"].asString()) video["current"] = "1";
+			if (isCurrent) video["current"] = "1";
 			video["referer"] = path;
 
 			videos.insertLast(video);
@@ -3063,7 +3080,7 @@ array<dictionary> RelatedLiveRooms(const string id, const string&in path) {
 
 	videos.insertLast(video);
 
-	if (!ConfigData.showRecommendedVideos) return videos;
+	if (!ConfigData.showRecommendedLiveRooms) return videos;
 
 	res = apiPost("/xlive/web-interface/v1/webMain/getMoreRecList?platform=web&web_location=0.0", "", "https://api.live.bilibili.com");
 

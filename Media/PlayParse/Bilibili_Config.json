@@ -29,15 +29,6 @@
         "stayTime": 15.0
     },
 
-    // 播放单个视频/直播时是否显示推荐的视频/直播。默认：false。
-    "showRecommendedVideos": false,
-
-    // 是否显示番剧/电影预告片。默认：true。
-    "showTrailer": true,
-
-    // 点播视频启用网页版评论区，默认：false。观看视频时 potplayer 播放列表侧会展示该视频评论区。
-    "enableVodChatUrl": true,
-
     // 是否屏蔽 P2P CDN。默认：true。
     "blockP2PCDN": true,
 
@@ -70,6 +61,18 @@
         "maxliveroom": 100
     },
 
+    // 点播
+    "vod": {
+        // 播放单个视频/直播时是否显示推荐的视频/直播。默认：false。
+        "showRecommendedVideos": false,
+        // 当视频属于用户合集或分P时，是否显示所有合集内容。默认：true。
+        "showUgcSeason": true,
+        // 是否显示番剧/电影预告片。默认：true。
+        "showTrailer": true,
+        // 点播视频启用网页版评论区，默认：false。观看视频时 potplayer 播放列表侧会展示该视频评论区。
+        "enableVodChatUrl": true
+    },
+
     // 直播
     "live": {
         // 官方提供 http_stream(flv) 与 http_hls(ts/fmp4)。
@@ -95,7 +98,9 @@
             "bilibiliDanmujiServer": ""
         },
         // 直播缩略图使用关键帧截图(如果存在)。默认：false。
-        "useKeyframe": false
+        "useKeyframe": false,
+        // 打开单个直播时是否显示推荐的直播间。默认：false。
+        "showRecommendedLiveRooms": false
     },
 
     // 禁用 AVC 编码（仅当存在其他编码时生效）。默认：false。仅当存在其他编码时生效。可根据个人需求使用。推荐设为 true，以免影响默认画质选择。不包括直播。
