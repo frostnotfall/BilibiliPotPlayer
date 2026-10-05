@@ -48,7 +48,9 @@
 - 支持 http_stream。
 - 支持直播备用地址。
 - 增加 解析真实 M3U8 开关。规避画质选项 potplayer 自动覆盖成 HLS 的问题。详见配置项注释。
-- 支持收发弹幕（依赖自建 [Bilibili_Danmuji](https://github.com/BanqiJane/Bilibili_Danmuji) 服务, [Bilibili_Danmuji接入教程](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/Bilibili_Danmuji-弹幕接入)。
+- 聊天窗口支持：
+  - 官方原生页面。
+  - 自建 [Bilibili_Danmuji](https://github.com/BanqiJane/Bilibili_Danmuji) 服务（[Bilibili_Danmuji接入教程](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/Bilibili_Danmuji-弹幕接入)）
 - 遇到直播间未开播、大航海专属的情况，弹出对话框提醒。
 - 从单个直播间打开时，播放列表增加推荐的直播间。
 
