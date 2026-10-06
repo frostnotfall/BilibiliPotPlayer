@@ -59,6 +59,103 @@
   pauseBilibiliVideo();
   let danmakuInitialized = disableBilibiliDanmaku();
 
+  // 点击功能随布局实例安装/卸载；普通浏览器中不改变跳转。
+  function installPotPlayerClick() {
+    const webview = window.chrome?.webview;
+    if (typeof webview?.postMessage !== 'function') return () => {};
+    const originalOpen = window.open;
+    const clickScope = '.video-tag-container, #bgm-entry #musicApp .videoList :is(.coverWrap, .videoTitle)';
+    const commentScope = 'bili-comments, .bb-comment';
+    let click = null;
+    let timer = 0;
+
+    function supportedUrl(value) {
+      if (!value) return '';
+      try {
+        const u = new URL(value, location.href);
+        if (!['https:', 'http:'].includes(u.protocol)) return '';
+        const host = u.hostname.toLowerCase();
+        const path = u.pathname;
+        if (['t.bilibili.com', 'search.bilibili.com', 'live.bilibili.com'].includes(host)
+          || (host === 'space.bilibili.com' && /^\/\d+(?:\/|$)/.test(path))
+          || (host === 'link.bilibili.com' && path.includes('/user-center/follow'))) return u.href;
+        if (host !== 'www.bilibili.com') return '';
+        return path === '/' || /^\/v\/popular\/(?:all|weekly|history|rank)(?:\/|$)/.test(path)
+          || /^\/(?:watchlater|history)(?:\/|$)/.test(path)
+          || path.includes('/medialist/detail/ml')
+          || /^\/audio\/(?:am|au)\d+(?:\/|$)/i.test(path)
+          || /^\/bangumi\/(?:media\/md|play\/(?:ep|ss))\d+(?:\/|$)/i.test(path)
+          || /^\/video\/(?:BV[a-z\d]+|av\d+)(?:\/|$)/i.test(path) ? u.href : '';
+      } catch { return ''; }
+    }
+
+    function send(url) {
+      if (click?.sent === url) return true;
+      try {
+        webview.postMessage({ type: 'potPlayer.video-click', url });
+        if (click) click.sent = url;
+        return true;
+      } catch (error) {
+        console.warn(TAG, 'PotPlayer 消息发送失败，保留官方跳转', error);
+        return false;
+      }
+    }
+
+    function playbackUrl(value) {
+      const url = supportedUrl(value);
+      if (!url) return '';
+      const { hostname, pathname } = new URL(url);
+      return hostname === 'live.bilibili.com' && /^\/(?:blanc\/)?\d+\/?$/.test(pathname)
+        || hostname === 'www.bilibili.com' && /^\/(?:video\/(?:BV[a-z\d]+|av\d+)|bangumi\/play\/(?:ep|ss)\d+)(?:\/|$)/i.test(pathname)
+        ? url : '';
+    }
+
+    function onClick(event) {
+      clearTimeout(timer);
+      click = null;
+      if (!pageType() || !event.isTrusted || ![0, 1].includes(event.button)) return;
+      const path = event.composedPath();
+      // 事件路径可读取开放 Shadow DOM 内的链接，不局限于 retarget 后的 target。
+      const anchor = path.find(node => node.matches?.('a[href]'));
+      const inScope = path.some(node => node.matches?.(clickScope));
+      // 评论只接管明确带 href 的播放链接，不启用 window.open 后备处理。
+      const inComments = path.some(node => node.matches?.(commentScope));
+      if (!inScope && !inComments) return;
+      const href = anchor?.getAttribute('href');
+      const url = inScope ? supportedUrl(href) : playbackUrl(href);
+      if (url) {
+        if (send(url)) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+        return;
+      }
+      // 无 href 时保留官方处理器，由其 window.open 提供实际目标地址。
+      if (inScope) {
+        click = { sent: '' };
+        timer = setTimeout(() => { click = null; }, 0);
+      }
+    }
+
+    function open(...args) {
+      const url = click && pageType() && supportedUrl(args[0]);
+      if (url && send(url)) return null;
+      return Reflect.apply(originalOpen, this, args);
+    }
+
+    window.open = open;
+    window.addEventListener('click', onClick, { capture: true, passive: false });
+    window.addEventListener('auxclick', onClick, { capture: true, passive: false });
+    return () => {
+      clearTimeout(timer);
+      click = null;
+      window.removeEventListener('click', onClick, true);
+      window.removeEventListener('auxclick', onClick, true);
+      if (window.open === open) window.open = originalOpen;
+    };
+  }
+  const destroyPotPlayerClick = installPotPlayerClick();
+
   const attr = 'data-bilibili-video-comments';
   const html = document.documentElement;
   const previous = html.getAttribute(attr);
@@ -98,13 +195,17 @@
     ${ugc} .video-container-v1 { display: block !important; }
     ${ugc} .fixed-sidenav-storage { display: none !important; }
     ${ugc} :is(.video-container-v1 .right-container, .video-info-container,
-      .video-desc-container, .video-tag-container, .video-ai-assistant,
+      .video-ai-assistant,
       .left-container .ad-report, .left-container #slide_ad, .video-page-special-card-small) {
       display: none !important;
     }
-    ${ugc} :is(.video-toolbar-container, #comment, #commentapp) {
+    ${ugc} :is(.video-toolbar-container, .video-desc-container, .video-tag-container, #comment, #commentapp) {
       margin-left: 8px !important; margin-right: 8px !important;
       width: auto !important; min-width: 0 !important;
+    }
+    ${ugc} :is(.video-desc-container, .video-tag-container) {
+      max-width: calc(100% - 16px) !important;
+      box-sizing: border-box !important; overflow-wrap: anywhere;
     }
     ${ugc} .video-toolbar-container {
       display: flex !important; align-items: center; flex-wrap: wrap !important;
@@ -125,6 +226,50 @@
     }
     ${ugc} :is(.video-toolbar-left, .video-toolbar-right) > * {
       flex: 0 0 auto !important; margin-right: 0 !important;
+    }
+
+    /* 音乐挂载节点关闭时为空；只给实际打开的官方面板设置窗口尺寸。 */
+    ${ugc} #bgm-entry:empty { display: none !important; }
+    ${ugc} #bgm-entry:has(> #musicApp.musicPcDetailPlayer) {
+      position: fixed !important; inset: 8px 8px auto auto !important;
+      width: min(640px, calc(100% - 16px)) !important;
+      height: calc(100vh - 16px) !important;
+      height: calc(100dvh - 16px) !important;
+      min-width: 0 !important; min-height: 0 !important;
+      box-sizing: border-box !important; margin: 0 !important;
+    }
+    ${ugc} #bgm-entry > #musicApp.musicPcDetailPlayer {
+      display: flex; flex-direction: column;
+      width: 100% !important; height: 100% !important;
+      min-width: 0 !important; min-height: 0 !important;
+    }
+    ${ugc} #bgm-entry > #musicApp.musicPcDetailPlayer > .mainWarp {
+      flex: 1 1 auto !important; height: auto !important;
+      min-width: 0 !important; min-height: 0 !important;
+      overflow: auto !important; scrollbar-width: thin;
+    }
+
+    /* 笔记不再依赖已压缩的播放器高度；显隐和关闭仍由官方控制。 */
+    ${ugc} .note-pc {
+      position: fixed !important; inset: 8px 8px auto auto !important;
+      width: min(640px, calc(100% - 16px)) !important;
+      height: calc(100vh - 16px) !important;
+      height: calc(100dvh - 16px) !important;
+      min-width: 0 !important; min-height: 0 !important;
+      max-width: none !important; max-height: none !important;
+      box-sizing: border-box !important; margin: 0 !important;
+    }
+    ${ugc} .note-pc .note-container {
+      display: flex; flex-direction: column;
+      width: 100% !important; height: 100% !important;
+      min-width: 0 !important; min-height: 0 !important;
+      box-sizing: border-box !important;
+    }
+    ${ugc} .note-pc .note-header { flex: 0 0 auto !important; }
+    ${ugc} .note-pc .note-content {
+      flex: 1 1 auto !important; height: auto !important;
+      min-width: 0 !important; min-height: 0 !important;
+      overflow: auto !important; scrollbar-width: thin;
     }
 
     /* PGC：解除播放器高度占位，信息区留在官方父容器内。 */
@@ -267,18 +412,98 @@
       #user-name { overflow-wrap: anywhere; min-width: 0; }
     `,
     'bili-comment-goods-card': ':host { min-width: 0 !important; max-width: 100% !important; }',
+    'bili-user-profile': `
+      :host {
+        left: var(--bilibili-video-comments-profile-left, 8px) !important;
+        top: var(--bilibili-video-comments-profile-top, 8px) !important;
+        bottom: auto !important;
+        max-width: calc(100% - 16px) !important;
+        max-height: calc(100vh - 16px) !important;
+        max-height: calc(100dvh - 16px) !important;
+        overflow: auto; scrollbar-width: thin;
+      }
+      #bg { width: 100% !important; }
+    `,
   };
   // 遍历这些开放组件边界，不修改 attachShadow 或官方组件原型。
   const tags = ['bili-comments-bottom-fixed-wrapper', 'bili-comment-reply-renderer',
     ...Object.keys(shadowCSS)];
   const selector = tags.join(',');
   const roots = new Map();
+  const profilePositions = new Map();
+  const profileProperties = ['--bilibili-video-comments-profile-left', '--bilibili-video-comments-profile-top'];
+  function restoreProfile(host) {
+    const saved = profilePositions.get(host);
+    if (!saved) return;
+    profileProperties.forEach((key, i) => {
+      const [value, priority] = saved[i];
+      if (value) host.style.setProperty(key, value, priority);
+      else host.style.removeProperty(key);
+    });
+    profilePositions.delete(host);
+  }
+  function fitProfile(host) {
+    const { width, height } = host.getBoundingClientRect();
+    if (!width || !height) return;
+    const left = parseFloat(host.style.left) || 0;
+    const top = host.style.top ? parseFloat(host.style.top)
+      : window.innerHeight - (parseFloat(host.style.bottom) || 0) - height;
+    const clamp = (value, size, limit) => Math.max(8, Math.min(value, limit - size - 8));
+    const positions = [clamp(left, width, html.clientWidth), clamp(top, height, window.innerHeight)];
+    positions.forEach((value, i) => {
+      const key = profileProperties[i], next = `${value}px`;
+      if (host.style.getPropertyValue(key) !== next) host.style.setProperty(key, next);
+    });
+  }
   const style = document.createElement('style');
   style.dataset.bilibiliVideoCommentsStyle = '';
   style.textContent = css;
   html.append(style);
   let stopped = false;
   let frame = 0;
+  let resizeFrame = 0;
+  let responsiveRoute = '';
+  const responsiveTargets = new Map();
+  function notifyOfficialResize() {
+    if (stopped || resizeFrame) return;
+    // 等 CSS 布局完成，再让官方按新的容器宽度计算按钮与标签。
+    resizeFrame = requestAnimationFrame(() => {
+      resizeFrame = 0;
+      if (!stopped) window.dispatchEvent(new Event('resize'));
+    });
+  }
+  const sizeObserver = new ResizeObserver(entries => {
+    for (const { target, contentRect } of entries) {
+      if (!responsiveTargets.has(target)) continue;
+      if (responsiveTargets.get(target) !== contentRect.width) {
+        responsiveTargets.set(target, contentRect.width);
+        notifyOfficialResize();
+      }
+    }
+  });
+  function syncResponsiveLayout(type) {
+    const targets = type === 'ugc'
+      ? [...document.querySelectorAll('.video-toolbar-container, .video-tag-container')] : [];
+    let added = false;
+    for (const target of responsiveTargets.keys()) {
+      if (!targets.includes(target)) {
+        sizeObserver.unobserve(target);
+        responsiveTargets.delete(target);
+      }
+    }
+    for (const target of targets) {
+      if (!responsiveTargets.has(target)) {
+        responsiveTargets.set(target, null);
+        sizeObserver.observe(target);
+        added = true;
+      }
+    }
+    const route = type === 'ugc' ? location.pathname + (location.search || '') : '';
+    if (responsiveRoute !== route) {
+      responsiveRoute = route;
+      if (targets.length && !added) notifyOfficialResize();
+    }
+  }
 
   const observer = new MutationObserver(schedule);
   function schedule() {
@@ -297,11 +522,16 @@
         }
         roots.set(shadow, localStyle);
         observer.observe(shadow, { childList: true, subtree: true });
+        if (host.localName === 'bili-user-profile') {
+          profilePositions.set(host, profileProperties.map(key => [host.style.getPropertyValue(key), host.style.getPropertyPriority(key)]));
+          observer.observe(host, { attributes: true, attributeFilter: ['style'] });
+        }
       } else {
         const localStyle = roots.get(shadow);
         if (localStyle && localStyle.parentNode !== shadow) shadow.append(localStyle);
       }
       visit(shadow);
+      if (host.localName === 'bili-user-profile') fitProfile(host);
     }
   }
   function sync() {
@@ -316,6 +546,7 @@
     let detached = false;
     for (const [root, localStyle] of roots) {
       if (!type || !root.host.isConnected) {
+        restoreProfile(root.host);
         localStyle?.remove();
         roots.delete(root);
         detached = true;
@@ -325,20 +556,29 @@
       observer.disconnect();
       observer.observe(html, { childList: true, subtree: true });
       for (const root of roots.keys()) observer.observe(root, { childList: true, subtree: true });
+      for (const host of profilePositions.keys()) observer.observe(host, { attributes: true, attributeFilter: ['style'] });
     }
     if (type) visit(document);
+    syncResponsiveLayout(type);
   }
   observer.observe(html, { childList: true, subtree: true });
   window.addEventListener('popstate', schedule);
+  window.addEventListener('resize', schedule);
   // 已在 DOM 中但还未升级的组件，定义完成后再检查，不使用轮询。
   for (const tag of tags) customElements.whenDefined(tag).then(schedule);
   const controller = {
     destroy() {
       if (stopped) return;
       stopped = true;
+      destroyPotPlayerClick();
       cancelAnimationFrame(frame);
+      cancelAnimationFrame(resizeFrame);
+      sizeObserver.disconnect();
+      responsiveTargets.clear();
       observer.disconnect();
       window.removeEventListener('popstate', schedule);
+      window.removeEventListener('resize', schedule);
+      for (const host of profilePositions.keys()) restoreProfile(host);
       for (const localStyle of roots.values()) localStyle?.remove();
       roots.clear();
       style.remove();
