@@ -381,8 +381,8 @@ class Config {
 	bool enableVodChatUrl = false;
 
 	bool useHttpStream = false;
-	bool parseM3u8RealUrl = false;
-	bool parseM3u8RealUrlFastMode = false;
+	bool parseM3u8RealUrl = true;
+	bool parseM3u8RealUrlFastMode = true;
 	array<string> m3u8RedirectDomains;
 	bool liveChatUrlUseWebPage = false;
 	bool useBilibiliDanmuji = false;
