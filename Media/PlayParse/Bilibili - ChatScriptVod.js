@@ -96,7 +96,6 @@
         if (click) click.sent = url;
         return true;
       } catch (error) {
-        console.warn(TAG, 'PotPlayer 消息发送失败，保留官方跳转', error);
         return false;
       }
     }
@@ -163,6 +162,11 @@
   const ugc = `html[${attr}="ugc"]`;
   const pgc = `html[${attr}="pgc"]`;
   const scope = `:is(${ugc}, ${pgc})`;
+  // 整个弹幕容器作为弹出框；内部切换菜单时不再依赖屏蔽区域的显隐。
+  const panelAttr = 'data-bilibili-video-comments-panel';
+  const panel = `${ugc}[${panelAttr}] #danmukuBox`;
+  const panelSide = `${ugc}[${panelAttr}]:has(#danmukuBox .bui-collapse-wrap:not(.bui-collapse-wrap-folded)) .right-container`;
+  const panelPath = ':is(.right-container-inner, .video-pod-above-modules, .video-pod-above-modules__inner)';
   const css = `
     ${scope} {
       min-width: 0 !important;
@@ -194,7 +198,8 @@
     }
     ${ugc} .video-container-v1 { display: block !important; }
     ${ugc} .fixed-sidenav-storage { display: none !important; }
-    ${ugc} :is(.video-container-v1 .right-container, .video-info-container,
+    ${ugc} .video-container-v1 .right-container { display: none !important; }
+    ${ugc} :is(.video-info-container,
       .video-ai-assistant,
       .left-container .ad-report, .left-container #slide_ad, .video-page-special-card-small) {
       display: none !important;
@@ -307,7 +312,7 @@
 
     /* 共用播放器：初始化已暂停一次，此处只压缩不可见画面。 */
     ${scope} :is(#playerWrap, #bilibili-player-wrap, #bilibili-player,
-      .bpx-docker, .bpx-player-container, .bpx-player-primary-area,
+      .bpx-docker:not(.bpx-docker-minor), .bpx-player-container, .bpx-player-primary-area,
       [class*="video_playerInner"], [class*="NanoPlayer_nanoDocker"],
       [class*="NanoPlayer_nonoPlayerContainer"], [class*="NanoPlayer_nonoPlayerPrimaryArea"]) {
       box-sizing: border-box !important;
@@ -333,6 +338,57 @@
     }
     ${scope} :is(.bpx-player-dm-root, .bpx-player-dm-wrap, .bpx-player-dm-input) {
       min-width: 0 !important; max-width: 100% !important;
+    }
+    /* 原弹幕浮层向上覆盖视频；改为锚定发送栏下方，显隐仍由官方控制。 */
+    ${scope} .bpx-player-dm-setting { position: static !important; }
+    ${scope} .bpx-player-dm-setting-wrap {
+      inset: 100% auto auto 8px !important;
+      width: min(320px, calc(100vw - 16px)) !important;
+      height: min(366px, calc(100vh - 110px)) !important;
+      height: min(366px, calc(100dvh - 110px)) !important;
+    }
+    ${scope} .bpx-player-dm-setting-box {
+      /* 保留底部锚点，切换较矮的高级面板时鼠标仍在官方悬浮区域内。 */
+      position: absolute !important; inset: auto auto 0 0 !important;
+      box-sizing: border-box !important; width: 100% !important;
+      max-height: calc(100vh - 110px) !important;
+      max-height: calc(100dvh - 110px) !important;
+      /* 高级设置在同一轨道横向滑入；保持原本的横向裁切，只允许纵向滚动。 */
+      overflow-x: hidden !important; overflow-y: auto !important; scrollbar-width: thin;
+    }
+
+    /* 恢复通往 #danmukuBox 的路径，其他推荐内容保持隐藏。 */
+    ${panelSide}, ${panelSide} ${panelPath} { display: contents !important; }
+    ${panelSide} > :not(:has(#danmukuBox)),
+    ${panelSide} ${panelPath} > :not(#danmukuBox):not(:has(#danmukuBox)) {
+      display: none !important;
+    }
+    ${panel} {
+      position: fixed !important; inset: 8px 8px auto auto !important;
+      width: min(350px, calc(100vw - 16px)) !important;
+      height: calc(100vh - 16px) !important;
+      height: calc(100dvh - 16px) !important;
+      min-width: 0 !important; min-height: 0 !important; margin: 0 !important;
+      box-sizing: border-box !important; z-index: 1002;
+    }
+    ${panel} :is(.danmaku-wrap, .bpx-docker-minor,
+      .bpx-player-auxiliary, .bpx-player-collapse,
+      .bpx-player-collapse > .bui-area, .bui-collapse-wrap) {
+      display: flex !important; flex-direction: column;
+      width: 100% !important; height: 100% !important; min-height: 0 !important;
+    }
+    ${panel} .bui-collapse-header {
+      flex: 0 0 44px; height: 44px !important;
+    }
+    ${panel} .bui-collapse-body {
+      flex: 1 1 auto; min-height: 0 !important; height: auto !important;
+    }
+    ${panel} .bpx-player-wraplist {
+      height: 100% !important; min-height: 0 !important;
+    }
+    ${panel} .bpx-player-dm > :is(.bpx-player-dm-wrap, .bpx-player-dm-wrap-child) {
+      /* 官方表头 32px、底栏 31px、间距 8px；仅修正列表视口高度。 */
+      height: calc(100% - 71px) !important; min-height: 0 !important;
     }
     ${scope} bili-comments { display: block; width: 100%; min-width: 0; }
     /* 旧版普通 DOM 评论入口；新版组件由下方局部样式处理。 */
@@ -464,6 +520,22 @@
   let resizeFrame = 0;
   let responsiveRoute = '';
   const responsiveTargets = new Map();
+  const panelClickOptions = { capture: true };
+  function onDanmakuPanelClick(event) {
+    if (pageType() !== 'ugc' || (typeof event.button === 'number' && event.button !== 0)) return;
+    const panel = document.querySelector('#danmukuBox');
+    if (!panel) return;
+    const path = event.composedPath();
+    if (path.some(node => node.matches?.('.bpx-player-dm-setting-left-block-add'))) {
+      html.setAttribute(panelAttr, '');
+      return; // 后续官方处理器会选择屏蔽设定并展开容器。
+    }
+    if (html.getAttribute(panelAttr) === null || path.includes(panel)
+      || path.some(node => node.matches?.('.bpx-player-dm-setting'))) return;
+    html.removeAttribute(panelAttr);
+    // 不取消外部点击；通过官方折叠控件同步其状态，之后仍可重新打开。
+    if (!panel.querySelector('.bui-collapse-wrap-folded')) panel.querySelector('.bui-collapse-arrow')?.click();
+  }
   function notifyOfficialResize() {
     if (stopped || resizeFrame) return;
     // 等 CSS 布局完成，再让官方按新的容器宽度计算按钮与标签。
@@ -505,7 +577,10 @@
     }
   }
 
-  const observer = new MutationObserver(schedule);
+  // 弹幕长列表由官方管理，内部更新不需要重新遍历评论组件。
+  const observer = new MutationObserver(records => {
+    if (records.some(({ target }) => !target.closest?.('#danmukuBox'))) schedule();
+  });
   function schedule() {
     if (!stopped && !frame) frame = requestAnimationFrame(sync);
   }
@@ -538,6 +613,7 @@
     frame = 0;
     if (stopped) return;
     const type = pageType();
+    if (type !== 'ugc' || !document.querySelector('#danmukuBox')) html.removeAttribute(panelAttr);
     // 只等首次可用；成功后不在 DOM 更新或手动重新开启时重复关闭。
     if (type && !danmakuInitialized) danmakuInitialized = disableBilibiliDanmaku();
     if (type) html.setAttribute(attr, type);
@@ -564,6 +640,7 @@
   observer.observe(html, { childList: true, subtree: true });
   window.addEventListener('popstate', schedule);
   window.addEventListener('resize', schedule);
+  window.addEventListener('click', onDanmakuPanelClick, panelClickOptions);
   // 已在 DOM 中但还未升级的组件，定义完成后再检查，不使用轮询。
   for (const tag of tags) customElements.whenDefined(tag).then(schedule);
   const controller = {
@@ -578,6 +655,8 @@
       observer.disconnect();
       window.removeEventListener('popstate', schedule);
       window.removeEventListener('resize', schedule);
+      window.removeEventListener('click', onDanmakuPanelClick, panelClickOptions);
+      html.removeAttribute(panelAttr);
       for (const host of profilePositions.keys()) restoreProfile(host);
       for (const localStyle of roots.values()) localStyle?.remove();
       roots.clear();

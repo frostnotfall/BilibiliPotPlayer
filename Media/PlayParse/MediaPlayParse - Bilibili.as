@@ -95,7 +95,7 @@ string GetTitle() {
 }
 
 string GetVersion() {
-	return "2.7.32";
+	return "2.7.33";
 }
 
 string GetDesc() {
@@ -360,6 +360,16 @@ class Config {
 	float danmakuOpacity = 0.8;
 	float danmakuDisplayArea = 0.8;
 	float danmakuStayTime = 15.0;
+    bool danmakuBold = false;
+    int danmakuFontBorder = 1;
+    bool danmakuBlockTop = false;
+    bool danmakuBlockBottom = false;
+    bool danmakuBlockColor = false;
+    bool danmakuMergeSame = false;
+    bool danmakuBlockRepeatedUser = false;
+    bool danmakuEnableCloudBlockList = false;
+    array<int> danmakuBlockRuleTypes;
+    array<string> danmakuBlockRuleFilters;
 
 	bool blockP2PCDN = true;
 	int cacheValidTime = 300;
@@ -455,6 +465,49 @@ Config ReadConfigFile(string file) {
 		if (danmaku["stayTime"].isNumeric()) {
 			config.danmakuStayTime = danmaku["stayTime"].asFloat();
 		}
+
+        if (danmaku["bold"].isBool()) {
+            config.danmakuBold = danmaku["bold"].asBool();
+        }
+        if (danmaku["fontBorder"].isNumeric()) {
+            config.danmakuFontBorder = danmaku["fontBorder"].asInt();
+            if (config.danmakuFontBorder < 0 || config.danmakuFontBorder > 2) config.danmakuFontBorder = 1;
+        }
+        if (danmaku["blockTop"].isBool()) {
+            config.danmakuBlockTop = danmaku["blockTop"].asBool();
+        }
+        if (danmaku["blockBottom"].isBool()) {
+            config.danmakuBlockBottom = danmaku["blockBottom"].asBool();
+        }
+        if (danmaku["blockColor"].isBool()) {
+            config.danmakuBlockColor = danmaku["blockColor"].asBool();
+        }
+        if (danmaku["mergeSameDanmaku"].isBool()) {
+            config.danmakuMergeSame = danmaku["mergeSameDanmaku"].asBool();
+        }
+        if (danmaku["blockRepeatedUserDanmaku"].isBool()) {
+            config.danmakuBlockRepeatedUser = danmaku["blockRepeatedUserDanmaku"].asBool();
+        }
+        if (danmaku["enableCloudBlockList"].isBool()) {
+            config.danmakuEnableCloudBlockList = danmaku["enableCloudBlockList"].asBool();
+        }
+        if (danmaku["blockRules"].isArray()) {
+            JsonValue rules = danmaku["blockRules"];
+
+            for (uint i = 0; i < rules.size(); i++) {
+                JsonValue rule = rules[i];
+
+                if (!rule.isObject() || !rule["type"].isNumeric() || !rule["filter"].isString()) continue;
+
+                int type = rule["type"].asInt();
+                string filter = rule["filter"].asString();
+
+                if (type < 0 || type > 2 || filter.empty()) continue;
+
+                config.danmakuBlockRuleTypes.insertLast(type);
+                config.danmakuBlockRuleFilters.insertLast(filter);
+            }
+        }
 	}
 
 	if (root["blockP2PCDN"].isBool()) {
@@ -1455,6 +1508,7 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
     if (aid.empty() || cid.empty() || duration == 0 || !ConfigData.danmakuEnable) return "";
 
     const string hex = "0123456789ABCDEF";
+    const string lowerHex = "0123456789abcdef";
     string font = ConfigData.danmakuFont.empty() ? "微软雅黑 Light" : ConfigData.danmakuFont;
     int fontSize = int(ConfigData.danmakuFontSize);
     if (fontSize <= 0) fontSize = 24;
@@ -1470,10 +1524,54 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
     uint lanes = uint(1080 * area) / laneHeight;
     if (lanes == 0) lanes = 1;
 
+    string assEffect = ConfigData.danmakuBold ? "\\b1" : "";
+    if (ConfigData.danmakuFontBorder == 0) assEffect += "\\bord2.5\\shad0";
+    else if (ConfigData.danmakuFontBorder == 2) assEffect += "\\bord0\\shad1.5";
+    else assEffect += "\\bord1.5\\shad0";
+
+    array<int> blockRuleTypes = ConfigData.danmakuBlockRuleTypes;
+    array<string> blockRuleFilters = ConfigData.danmakuBlockRuleFilters;
+
+    for (uint i = 0; i < blockRuleTypes.length(); i++) {
+        if (blockRuleTypes[i] != 2) continue;
+
+        uint crc = 0xFFFFFFFF;
+        for (uint j = 0; j < blockRuleFilters[i].length(); j++) {
+            crc ^= uint8(blockRuleFilters[i][j]);
+            for (uint k = 0; k < 8; k++) crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320 : crc >> 1;
+        }
+        crc ^= 0xFFFFFFFF;
+
+        string midHash;
+        do {
+            midHash = lowerHex.substr(crc & 15, 1) + midHash;
+            crc >>= 4;
+        } while (crc != 0);
+
+        blockRuleFilters[i] = midHash;
+    }
+
+    dictionary@ cloudTask;
+    int cloudThread = -1;
+
+    if (ConfigData.danmakuEnableCloudBlockList) {
+        @cloudTask = dictionary();
+
+        cloudThread = HostCreateThread(function(any@ threadParam) {
+            dictionary@ task;
+            if (threadParam is null || !threadParam.retrieve(@task) || task is null) return;
+
+            string data = apiPost("/x/dm/filter/user", true, true);
+            task.set("data", data);
+        }, @cloudTask);
+
+        if (cloudThread < 0) return "";
+    }
+
     array<uint> scrollStart(lanes, 0), scrollWidth(lanes, 0), reverseStart(lanes, 0), reverseWidth(lanes, 0), topReady(lanes, 0), bottomReady(lanes, 0);
     array<bool> scrollUsed(lanes, false), reverseUsed(lanes, false);
     array<uint> times, modes, colors;
-    array<string> contents;
+    array<string> contents, midHashes;
     array<uint64> order;
 
     string ass =
@@ -1566,7 +1664,7 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
                 if (field != 1) { pos = end; continue; }
 
                 uint progress = 0, mode = 1, color = 0xFFFFFF;
-                string content;
+                string content, midHash;
 
                 while (pos < end) {
                     uint64 innerTag = 0, value = 0;
@@ -1594,7 +1692,8 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
 
                         if (innerWire == 2) {
                             if (value > uint64(end - pos)) return "";
-                            if (innerField == 7) content = data.substr(pos, uint(value));
+                            if (innerField == 6) midHash = data.substr(pos, uint(value));
+                            else if (innerField == 7) content = data.substr(pos, uint(value));
                             pos += uint(value);
                         } else {
                             if (innerField == 2) progress = uint(value);
@@ -1610,20 +1709,116 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
 
                 if (pos != end) return "";
                 if (content.empty() || (mode != 1 && mode != 4 && mode != 5 && mode != 6)) continue;
+                if (ConfigData.danmakuBlockTop && mode == 5) continue;
+                if (ConfigData.danmakuBlockBottom && mode == 4) continue;
+                if (ConfigData.danmakuBlockColor && color != 0xFFFFFF) continue;
 
                 uint index = contents.length();
-                times.insertLast(progress); modes.insertLast(mode); colors.insertLast(color); contents.insertLast(content);
+                times.insertLast(progress); modes.insertLast(mode); colors.insertLast(color); contents.insertLast(content); midHashes.insertLast(midHash);
                 order.insertLast((uint64(progress) << 32) | uint64(index));
             }
         }
     }
 
+    if (cloudThread >= 0) {
+        while (!HostWaitThread(cloudThread, 10)) HostIncTimeOut(10);
+
+        string data;
+        if (!cloudTask.get("data", data) || data.empty()) {
+            HostMessageBox("获取云端屏蔽词失败", "BilibiliPotPlayer", 0, 1);
+            return "";
+        }
+
+        JsonReader reader;
+        JsonValue root;
+        if (!reader.parse(data, root) || !root.isObject() || !root["code"].isNumeric() || root["code"].asInt() != 0 || !root["data"].isObject() || !root["data"]["rule"].isArray()) {
+            HostMessageBox("获取云端屏蔽词失败", "BilibiliPotPlayer", 0, 1);
+            return "";
+        }
+
+        JsonValue rules = root["data"]["rule"];
+        for (uint i = 0; i < rules.size(); i++) {
+            JsonValue rule = rules[i];
+            if (!rule.isObject() || !rule["type"].isNumeric() || !rule["filter"].isString()) {
+                HostMessageBox("获取云端屏蔽词失败", "BilibiliPotPlayer", 0, 1);
+                return "";
+            }
+
+            int type = rule["type"].asInt();
+            string filter = rule["filter"].asString();
+            if (type < 0 || type > 2 || filter.empty()) {
+                HostMessageBox("获取云端屏蔽词失败", "BilibiliPotPlayer", 0, 1);
+                return "";
+            }
+
+            blockRuleTypes.insertLast(type); blockRuleFilters.insertLast(filter);
+        }
+    }
+
     order.sortAsc();
 
-    for (uint item = 0; item < order.length(); item++) {
-        uint index = uint(order[item] & 0xFFFFFFFF);
+    bool processRules = !blockRuleTypes.empty(), processRepeatedUser = ConfigData.danmakuBlockRepeatedUser, processMerge = ConfigData.danmakuMergeSame;
+    bool processExtra = processRules || processRepeatedUser || processMerge;
+    dictionary seenUser, mergeGroup, mergeFirst;
+    array<uint> renderIndices, mergeCounts;
+
+    if (processExtra) {
+        for (uint item = 0; item < order.length(); item++) {
+            uint index = uint(order[item] & 0xFFFFFFFF);
+            uint progress = times[index], mode = modes[index];
+            string content = contents[index], midHash = midHashes[index];
+            bool blocked = false;
+
+            if (processRules) {
+                for (uint i = 0; i < blockRuleTypes.length(); i++) {
+                    int type = blockRuleTypes[i];
+                    string filter = blockRuleFilters[i];
+
+                    if (type == 0) {
+                        if (content.findFirst(filter) >= 0) { blocked = true; break; }
+                    } else if (type == 1) {
+                        array<dictionary> matches;
+                        if (HostRegExpParse(content, filter, matches)) { blocked = true; break; }
+                    } else if (type == 2) {
+                        if (!midHash.empty() && midHash == filter) { blocked = true; break; }
+                    }
+                }
+            }
+
+            if (blocked) continue;
+
+            if (processRepeatedUser && !midHash.empty()) {
+                string key = midHash + "|" + formatUInt(mode) + "|" + content;
+                bool exists = false;
+                if (seenUser.get(key, exists)) continue;
+                seenUser.set(key, true);
+            }
+
+            if (processMerge) {
+                string key = formatUInt(mode) + "|" + content;
+                int64 groupIndex = -1, firstProgress = 0;
+
+                if (mergeGroup.get(key, groupIndex) && mergeFirst.get(key, firstProgress) && progress >= uint(firstProgress) && progress - uint(firstProgress) <= uint(stay * 1000 + 0.5)) {
+                    mergeCounts[uint(groupIndex)]++;
+                    continue;
+                }
+
+                uint newIndex = renderIndices.length();
+                renderIndices.insertLast(index); mergeCounts.insertLast(1);
+                mergeGroup.set(key, int64(newIndex)); mergeFirst.set(key, int64(progress));
+            } else {
+                renderIndices.insertLast(index); mergeCounts.insertLast(1);
+            }
+        }
+    }
+
+    uint renderLength = processExtra ? renderIndices.length() : order.length();
+
+    for (uint item = 0; item < renderLength; item++) {
+        uint index = processExtra ? renderIndices[item] : uint(order[item] & 0xFFFFFFFF);
         uint progress = times[index], mode = modes[index], color = colors[index];
         string content = contents[index];
+        if (processMerge && mergeCounts[item] > 1) content += "(" + formatUInt(mergeCounts[item]) + ")";
         string safeText;
         uint characters = 0;
 
@@ -1694,7 +1889,7 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
             else position = "\\move(" + formatInt(right) + "," + formatInt(y) + "," + formatInt(left) + "," + formatInt(y) + ")";
         }
 
-        ass += "Dialogue: 0," + startTime + "," + endTime + ",Danmaku,,0,0,0,,{" + position + "\\alpha&H" + alphaHex + "&\\1c&H" + assColor + "&\\fs" + formatInt(fontSize) + "\\fn" + font + "\\bord1.5\\shad0\\q2}" + safeText + "\r\n";
+        ass += "Dialogue: 0," + startTime + "," + endTime + ",Danmaku,,0,0,0,,{" + position + "\\alpha&H" + alphaHex + "&\\1c&H" + assColor + "&\\fs" + formatInt(fontSize) + "\\fn" + font + assEffect + "\\q2}" + safeText + "\r\n";
     }
 
     return ass;

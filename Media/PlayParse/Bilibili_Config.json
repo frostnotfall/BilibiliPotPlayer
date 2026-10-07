@@ -26,7 +26,31 @@
         // 弹幕显示区域大小，取值范围 0.0 ~ 1.0
         "displayArea": 0.8,
         // 弹幕显示时间
-        "stayTime": 15.0
+        "stayTime": 15.0,
+
+        // 以下仅内部解析功能支持。
+        // 粗体。默认：false。
+        "bold": false,
+        // 弹幕边缘效果。默认：1。0=重墨，1=描边，2=45°阴影。
+        "fontBorder": 1,
+        // 是否屏蔽顶部固定弹幕。默认：false。
+        "blockTop": false,
+        // 是否屏蔽底部固定弹幕。默认：false。
+        "blockBottom": false,
+        // 是否屏蔽彩色弹幕。默认：false。
+        "blockColor": false,
+        // 合并 stayTime 时间内内容完全相同的弹幕。默认：false。重复弹幕会以 “弹幕内容(n)” 显示。
+        "mergeSameDanmaku": false,
+        // 屏蔽同一用户重复发送的相同内容。默认：false。
+        "blockRepeatedUserDanmaku": false,
+        // 启用云端弹幕屏蔽列表。默认：true。
+        "enableCloudBlockList": false,
+        // 本地屏蔽规则。type类型：0=关键字匹配，1=正则匹配，2=用户mid匹配。
+        "blockRules": [
+            {"type": 0, "filter": "关键词"},
+            {"type": 1, "filter": ".*正则.*"},
+            {"type": 2, "filter": "123456"}
+        ]
     },
 
     // 是否屏蔽 P2P CDN。默认：true。
