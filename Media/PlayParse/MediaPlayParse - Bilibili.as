@@ -360,14 +360,17 @@ class Config {
 	float danmakuOpacity = 0.8;
 	float danmakuDisplayArea = 0.8;
 	float danmakuStayTime = 15.0;
-    bool danmakuBold = false;
-    int danmakuFontBorder = 1;
+	bool danmakuBold = false;
+    int danmakuFontEffect = 2;
+    float danmakuShadowDepth = 1.0;
+    float danmakuOutlineWidth = 1.0;
+    float danmakuBlurRadius = 5.0;
     bool danmakuBlockTop = false;
     bool danmakuBlockBottom = false;
     bool danmakuBlockColor = false;
     bool danmakuMergeSame = false;
     bool danmakuBlockRepeatedUser = false;
-    bool danmakuEnableCloudBlockList = false;
+    bool danmakuEnableCloudBlockList = true;
     array<int> danmakuBlockRuleTypes;
     array<string> danmakuBlockRuleFilters;
 
@@ -442,36 +445,50 @@ Config ReadConfigFile(string file) {
 			config.subtitleServer = subtitle["server"].asString();
 		}
 	}
-	if (root["danmaku"].isObject()) {
-		JsonValue danmaku = root["danmaku"];
-		if (danmaku["enable"].isBool()) {
-			config.danmakuEnable = danmaku["enable"].asBool();
-		}
-		if (danmaku["server"].isString() && !danmaku["server"].asString().empty()) {
-			config.danmakuServer = danmaku["server"].asString();
-		}
-		if (danmaku["font"].isString()) {
-			config.danmakuFont = danmaku["font"].asString();
-		}
-		if (danmaku["fontSize"].isNumeric()) {
-			config.danmakuFontSize = danmaku["fontSize"].asFloat();
-		}
-		if (danmaku["opacity"].isNumeric()) {
-			config.danmakuOpacity = danmaku["opacity"].asFloat();
-		}
-		if (danmaku["displayArea"].isNumeric()) {
-			config.danmakuDisplayArea = danmaku["displayArea"].asFloat();
-		}
-		if (danmaku["stayTime"].isNumeric()) {
-			config.danmakuStayTime = danmaku["stayTime"].asFloat();
-		}
-
+    if (root["danmaku"].isObject()) {
+        JsonValue danmaku = root["danmaku"];
+        if (danmaku["enable"].isBool()) {
+            config.danmakuEnable = danmaku["enable"].asBool();
+        }
+        if (danmaku["server"].isString() && !danmaku["server"].asString().empty()) {
+            config.danmakuServer = danmaku["server"].asString();
+        }
+        if (danmaku["font"].isString()) {
+            config.danmakuFont = danmaku["font"].asString();
+        }
+        if (danmaku["fontSize"].isNumeric()) {
+            config.danmakuFontSize = danmaku["fontSize"].asFloat();
+        }
+        if (danmaku["opacity"].isNumeric()) {
+            config.danmakuOpacity = danmaku["opacity"].asFloat();
+        }
+        if (danmaku["displayArea"].isNumeric()) {
+            config.danmakuDisplayArea = danmaku["displayArea"].asFloat();
+        }
+        if (danmaku["stayTime"].isNumeric()) {
+            config.danmakuStayTime = danmaku["stayTime"].asFloat();
+        }
         if (danmaku["bold"].isBool()) {
             config.danmakuBold = danmaku["bold"].asBool();
         }
-        if (danmaku["fontBorder"].isNumeric()) {
-            config.danmakuFontBorder = danmaku["fontBorder"].asInt();
-            if (config.danmakuFontBorder < 0 || config.danmakuFontBorder > 2) config.danmakuFontBorder = 1;
+        if (danmaku["fontEffect"].isObject()) {
+            JsonValue fontEffect = danmaku["fontEffect"];
+            if (fontEffect["type"].isNumeric()) {
+                config.danmakuFontEffect = fontEffect["type"].asInt();
+                if (config.danmakuFontEffect < 0 || config.danmakuFontEffect > 4) config.danmakuFontEffect = 2;
+            }
+            if (fontEffect["shadowDepth"].isNumeric()) {
+                config.danmakuShadowDepth = fontEffect["shadowDepth"].asFloat();
+                if (config.danmakuShadowDepth < 0) config.danmakuShadowDepth = 0;
+            }
+            if (fontEffect["outlineWidth"].isNumeric()) {
+                config.danmakuOutlineWidth = fontEffect["outlineWidth"].asFloat();
+                if (config.danmakuOutlineWidth < 0) config.danmakuOutlineWidth = 0;
+            }
+            if (fontEffect["blurRadius"].isNumeric()) {
+                config.danmakuBlurRadius = fontEffect["blurRadius"].asFloat();
+                if (config.danmakuBlurRadius < 0) config.danmakuBlurRadius = 0;
+            }
         }
         if (danmaku["blockTop"].isBool()) {
             config.danmakuBlockTop = danmaku["blockTop"].asBool();
@@ -492,23 +509,17 @@ Config ReadConfigFile(string file) {
             config.danmakuEnableCloudBlockList = danmaku["enableCloudBlockList"].asBool();
         }
         if (danmaku["blockRules"].isArray()) {
-            JsonValue rules = danmaku["blockRules"];
-
-            for (uint i = 0; i < rules.size(); i++) {
-                JsonValue rule = rules[i];
-
+            JsonValue blockRules = danmaku["blockRules"];
+            for (uint i = 0; i < blockRules.size(); i++) {
+                JsonValue rule = blockRules[i];
                 if (!rule.isObject() || !rule["type"].isNumeric() || !rule["filter"].isString()) continue;
-
                 int type = rule["type"].asInt();
                 string filter = rule["filter"].asString();
-
                 if (type < 0 || type > 2 || filter.empty()) continue;
-
-                config.danmakuBlockRuleTypes.insertLast(type);
-                config.danmakuBlockRuleFilters.insertLast(filter);
+                config.danmakuBlockRuleTypes.insertLast(type); config.danmakuBlockRuleFilters.insertLast(filter);
             }
         }
-	}
+    }
 
 	if (root["blockP2PCDN"].isBool()) {
 		config.blockP2PCDN = root["blockP2PCDN"].asBool();
@@ -1524,10 +1535,7 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
     uint lanes = uint(1080 * area) / laneHeight;
     if (lanes == 0) lanes = 1;
 
-    string assEffect = ConfigData.danmakuBold ? "\\b1" : "";
-    if (ConfigData.danmakuFontBorder == 0) assEffect += "\\bord2.5\\shad0";
-    else if (ConfigData.danmakuFontBorder == 2) assEffect += "\\bord0\\shad1.5";
-    else assEffect += "\\bord1.5\\shad0";
+    string boldEffect = ConfigData.danmakuBold ? "\\b1" : "";
 
     array<int> blockRuleTypes = ConfigData.danmakuBlockRuleTypes;
     array<string> blockRuleFilters = ConfigData.danmakuBlockRuleFilters;
@@ -1565,7 +1573,10 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
             task.set("data", data);
         }, @cloudTask);
 
-        if (cloudThread < 0) return "";
+        if (cloudThread < 0) {
+            HostMessageBox("获取云端屏蔽词失败", "BilibiliPotPlayer", 0, 1);
+            return "";
+        }
     }
 
     array<uint> scrollStart(lanes, 0), scrollWidth(lanes, 0), reverseStart(lanes, 0), reverseWidth(lanes, 0), topReady(lanes, 0), bottomReady(lanes, 0);
@@ -1889,7 +1900,23 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
             else position = "\\move(" + formatInt(right) + "," + formatInt(y) + "," + formatInt(left) + "," + formatInt(y) + ")";
         }
 
-        ass += "Dialogue: 0," + startTime + "," + endTime + ",Danmaku,,0,0,0,,{" + position + "\\alpha&H" + alphaHex + "&\\1c&H" + assColor + "&\\fs" + formatInt(fontSize) + "\\fn" + font + assEffect + "\\q2}" + safeText + "\r\n";
+        string textEffect;
+
+        if (ConfigData.danmakuFontEffect == 0) {
+            textEffect = "\\bord0\\shad0\\blur0";
+        } else if (ConfigData.danmakuFontEffect == 1) {
+            textEffect = "\\bord0\\xshad" + ConfigData.danmakuShadowDepth + "\\yshad" + ConfigData.danmakuShadowDepth + "\\4c&H000000&\\blur0";
+        } else if (ConfigData.danmakuFontEffect == 2) {
+            textEffect = "\\bord" + ConfigData.danmakuOutlineWidth + "\\shad0\\3c&H000000&\\blur0";
+        } else if (ConfigData.danmakuFontEffect == 3) {
+            ass += "Dialogue: 0," + startTime + "," + endTime + ",Danmaku,,0,0,0,,{" + position + "\\alpha&H" + alphaHex + "&\\1c&H000000&\\bord0\\shad0\\blur" + ConfigData.danmakuBlurRadius + "\\fs" + formatInt(fontSize) + "\\fn" + font + boldEffect + "\\q2}" + safeText + "\r\n";
+            textEffect = "\\bord0\\shad0\\blur0";
+        } else {
+            ass += "Dialogue: 0," + startTime + "," + endTime + ",Danmaku,,0,0,0,,{" + position + "\\alpha&H" + alphaHex + "&\\1c&H000000&\\bord0\\shad0\\blur" + ConfigData.danmakuBlurRadius + "\\fs" + formatInt(fontSize) + "\\fn" + font + boldEffect + "\\q2}" + safeText + "\r\n";
+            textEffect = "\\bord" + ConfigData.danmakuOutlineWidth + "\\shad0\\3c&H000000&\\blur0";
+        }
+
+        ass += "Dialogue: 1," + startTime + "," + endTime + ",Danmaku,,0,0,0,,{" + position + "\\alpha&H" + alphaHex + "&\\1c&H" + assColor + "&\\fs" + formatInt(fontSize) + "\\fn" + font + boldEffect + textEffect + "\\q2}" + safeText + "\r\n";
     }
 
     return ass;
