@@ -164,9 +164,9 @@
   const scope = `:is(${ugc}, ${pgc})`;
   // 整个弹幕容器作为弹出框；内部切换菜单时不再依赖屏蔽区域的显隐。
   const panelAttr = 'data-bilibili-video-comments-panel';
-  const panel = `${ugc}[${panelAttr}] #danmukuBox`;
-  const panelSide = `${ugc}[${panelAttr}]:has(#danmukuBox .bui-collapse-wrap:not(.bui-collapse-wrap-folded)) .right-container`;
-  const panelPath = ':is(.right-container-inner, .video-pod-above-modules, .video-pod-above-modules__inner)';
+  const panel = `${scope}[${panelAttr}] #danmukuBox`;
+  const panelSide = `${scope}[${panelAttr}]:has(#danmukuBox .bui-collapse-wrap:not(.bui-collapse-wrap-folded)) :is(.right-container, .plp-r-wrap)`;
+  const panelPath = ':is(.right-container-inner, .video-pod-above-modules, .video-pod-above-modules__inner, .plp-r)';
   const css = `
     ${scope} {
       min-width: 0 !important;
@@ -522,7 +522,7 @@
   const responsiveTargets = new Map();
   const panelClickOptions = { capture: true };
   function onDanmakuPanelClick(event) {
-    if (pageType() !== 'ugc' || (typeof event.button === 'number' && event.button !== 0)) return;
+    if (!pageType() || (typeof event.button === 'number' && event.button !== 0)) return;
     const panel = document.querySelector('#danmukuBox');
     if (!panel) return;
     const path = event.composedPath();
@@ -613,7 +613,7 @@
     frame = 0;
     if (stopped) return;
     const type = pageType();
-    if (type !== 'ugc' || !document.querySelector('#danmukuBox')) html.removeAttribute(panelAttr);
+    if (!type || !document.querySelector('#danmukuBox')) html.removeAttribute(panelAttr);
     // 只等首次可用；成功后不在 DOM 更新或手动重新开启时重复关闭。
     if (type && !danmakuInitialized) danmakuInitialized = disableBilibiliDanmaku();
     if (type) html.setAttribute(attr, type);
