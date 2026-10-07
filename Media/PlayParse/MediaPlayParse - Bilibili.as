@@ -1320,6 +1320,46 @@ bool isP2PCDN(const string&in url) {
 	return subdomain.find("302") >= 0;
 }
 
+array<dictionary> generateSubtitle(const string&in aid, const string&in cid, const float duration, bool isBangumi) {
+	array<dictionary> subtitle;
+	dictionary dic;
+
+	if (ConfigData.subtitleEnable && !isBangumi) {
+		if (!ConfigData.subtitleServer.isEmpty()) {
+			dic["url"] = ConfigData.subtitleServer + "aid=" + aid + "&cid=" + cid;
+		} else {
+			status = 8;
+			array<dictionary> bilibiliSubtitles = GetBilibiliSubtitles(aid, cid, true);
+			if (bilibiliSubtitles.length() != 0) {
+				for (uint i = 0; i < bilibiliSubtitles.length(); i++) {
+					subtitle.insertLast(bilibiliSubtitles[i]);
+				}
+			} else {
+				log("subtitle", "no subtitles found");
+			}
+		}
+	}
+
+	if (ConfigData.danmakuEnable) {
+		dic["name"] = "弹幕";
+
+		if (!ConfigData.danmakuUrl.isEmpty()) {
+			dic["url"] = ConfigData.danmakuUrl + cid;
+		} else {
+			status = 9;
+			string danmuAss = BuildDanmakuAss(aid, cid, duration);
+			if (danmuAss.isEmpty()) {
+				HostMessageBox('弹幕生成失败\n1. 等待BilibiliPotplayer更新\n2. 找一个可用的弹幕源，写入配置文件："danmaku" - "server"', "BilibiliPotPlayer", 0, 0);
+			}
+			dic["fileContent"] = danmuAss;
+		}
+
+		subtitle.insertLast(dic);
+	}
+
+	return subtitle;
+}
+
 array<dictionary> GetBilibiliSubtitles(const string &in aid, const string &in cid, bool allowAiSubtitle) {
     array<dictionary> result;
     if (aid.empty() || cid.empty()) return result;
@@ -2380,46 +2420,6 @@ array<dictionary> generateSponsorBlockChapter(const string&in bvid, const array<
 	}
 
 	return result;
-}
-
-array<dictionary> generateSubtitle(const string&in aid, const string&in cid, const float duration, bool isBangumi) {
-	array<dictionary> subtitle;
-	dictionary dic;
-
-	if (ConfigData.subtitleEnable && !isBangumi) {
-		if (!ConfigData.subtitleServer.isEmpty()) {
-			dic["url"] = ConfigData.subtitleServer + "aid=" + aid + "&cid=" + cid;
-		} else {
-			status = 8;
-			array<dictionary> bilibiliSubtitles = GetBilibiliSubtitles(aid, cid, true);
-			if (bilibiliSubtitles.length() != 0) {
-				for (uint i = 0; i < bilibiliSubtitles.length(); i++) {
-					subtitle.insertLast(bilibiliSubtitles[i]);
-				}
-			} else {
-				log("subtitle", "no subtitles found");
-			}
-		}
-	}
-
-	if (ConfigData.danmakuEnable) {
-		dic["name"] = "弹幕";
-
-		if (!ConfigData.danmakuUrl.isEmpty()) {
-			dic["url"] = ConfigData.danmakuUrl + cid;
-		} else {
-			status = 9;
-			string danmuAss = BuildDanmakuAss(aid, cid, duration);
-			if (danmuAss.isEmpty()) {
-				HostMessageBox('弹幕生成失败\n1. 等待BilibiliPotplayer更新\n2. 找一个可用的弹幕源，写入配置文件："danmaku" - "server"', "BilibiliPotPlayer", 0, 0);
-			}
-			dic["fileContent"] = danmuAss;
-		}
-
-		subtitle.insertLast(dic);
-	}
-
-	return subtitle;
 }
 
 string getFixedURL(JsonValue&in data) {
