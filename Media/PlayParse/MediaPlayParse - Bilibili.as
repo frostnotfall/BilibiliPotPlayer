@@ -1735,32 +1735,20 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
         while (!HostWaitThread(cloudThread, 10)) HostIncTimeOut(10);
 
         string data;
-        if (!cloudTask.get("data", data) || data.empty()) {
-            HostMessageBox("获取云端屏蔽词失败", "BilibiliPotPlayer", 0, 1);
-            return "";
-        }
+        if (!cloudTask.get("data", data) || data.empty()) return "";
 
         JsonReader reader;
         JsonValue root;
-        if (!reader.parse(data, root) || !root.isObject() || !root["code"].isNumeric() || root["code"].asInt() != 0 || !root["data"].isObject() || !root["data"]["rule"].isArray()) {
-            HostMessageBox("获取云端屏蔽词失败", "BilibiliPotPlayer", 0, 1);
-            return "";
-        }
+        if (!reader.parse(data, root) || !root.isObject() || !root["code"].isNumeric() || root["code"].asInt() != 0 || !root["data"].isObject() || !root["data"]["rule"].isArray()) return "";
 
         JsonValue rules = root["data"]["rule"];
         for (uint i = 0; i < rules.size(); i++) {
             JsonValue rule = rules[i];
-            if (!rule.isObject() || !rule["type"].isNumeric() || !rule["filter"].isString()) {
-                HostMessageBox("获取云端屏蔽词失败", "BilibiliPotPlayer", 0, 1);
-                return "";
-            }
+            if (!rule.isObject() || !rule["type"].isNumeric() || !rule["filter"].isString()) return "";
 
             int type = rule["type"].asInt();
             string filter = rule["filter"].asString();
-            if (type < 0 || type > 2 || filter.empty()) {
-                HostMessageBox("获取云端屏蔽词失败", "BilibiliPotPlayer", 0, 1);
-                return "";
-            }
+            if (type < 0 || type > 2 || filter.empty()) return "";
 
             blockRuleTypes.insertLast(type); blockRuleFilters.insertLast(filter);
         }
