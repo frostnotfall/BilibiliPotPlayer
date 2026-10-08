@@ -58,23 +58,34 @@
   pauseBilibiliVideo();
   let danmakuInitialized = disableBilibiliDanmaku();
 
+  // 时间定位链接保留显示；先于 PotPlayer 点击模块阻止官方跳转/播放。
+  listen('click auxclick', event => {
+    if (!pageType() || !event.composedPath().some(node => node.matches?.('[data-type="seek"]'))) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }, { capture: true, passive: false });
+
   // 点击功能随布局实例安装/卸载；普通浏览器中不改变跳转。
   function installPotPlayerClick() {
     const webview = window.chrome?.webview;
     if (typeof webview?.postMessage !== 'function') return { prepare() {}, destroy() {} };
     const originalOpen = window.open;
     const clickScope = '.video-tag-container, #bgm-entry #musicApp .videoList :is(.coverWrap, .videoTitle)';
-    const commentScope = 'bili-comments, .bb-comment';
+    const playbackScope = 'bili-comments, .bb-comment, .video-desc-container';
     let click = null;
     let timer = 0;
     const shortLinks = new Map();
 
     function prepare(root) {
+      if (root === document) {
+        for (const content of root.querySelectorAll(playbackScope)) prepare(content);
+        return;
+      }
       for (const anchor of root.querySelectorAll('a[href]')) {
         let url;
         try { url = new URL(anchor.getAttribute('href'), location.href).href; } catch { continue; }
         if (!/^https?:\/\/b23\.tv\/[a-z\d]+\/?(?:[?#].*)?$/i.test(url) || shortLinks.has(url)) continue;
-        // 仅提前解析评论短链接；禁用框架脚本，避免目标页自动播放。
+        // 简介和评论共用解析与缓存；禁用框架脚本，避免目标页自动播放。
         const iframe = document.createElement('iframe');
         const entry = { url: '', cancel() {} };
         shortLinks.set(url, entry);
@@ -137,8 +148,8 @@
       // 事件路径可读取开放 Shadow DOM 内的链接，不局限于 retarget 后的 target。
       const anchor = path.find(node => node.matches?.('a[href]'));
       const inScope = path.some(node => node.matches?.(clickScope));
-      // 评论只接管明确带 href 的播放链接，不启用 window.open 后备处理。
-      if (!inScope && !path.some(node => node.matches?.(commentScope))) return;
+      // 评论和简介只接管明确带 href 的播放链接，不启用 window.open 后备处理。
+      if (!inScope && !path.some(node => node.matches?.(playbackScope))) return;
       const url = supportedUrl(anchor?.getAttribute('href'), !inScope);
       if (url) {
         if (send(url)) {
@@ -325,6 +336,8 @@
       flex: 0 0 0 !important; height: 0 !important; min-height: 0 !important;
       visibility: hidden !important; overflow: hidden !important;
     }
+    /* 官方滚动逻辑会内联隐藏发送区；窄屏布局始终保留弹幕栏。 */
+    ${scope} .bpx-player-sending-area { display: block !important; }
     ${scope} :is(.bpx-player-sending-bar, [class*="NanoPlayer_nonoPlayerSendingBar__"]) {
       box-sizing: border-box !important; height: auto !important; min-height: 46px;
       padding: 8px 12px !important; gap: 8px; flex-wrap: wrap !important;
@@ -613,8 +626,7 @@
   }
   function visit(root, inComments = false) {
     inComments ||= root.host?.localName === 'bili-comments';
-    if (inComments && root.host?.localName === 'bili-rich-text') potPlayerClick.prepare(root);
-    if (root === document) for (const comments of root.querySelectorAll('.bb-comment')) potPlayerClick.prepare(comments);
+    if (root === document || inComments && root.host?.localName === 'bili-rich-text') potPlayerClick.prepare(root);
     for (const host of root.querySelectorAll(selector)) {
       const shadow = host.shadowRoot;
       if (!shadow) continue;

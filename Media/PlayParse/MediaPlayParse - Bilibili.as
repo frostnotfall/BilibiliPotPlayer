@@ -2279,22 +2279,33 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
         while (!HostWaitThread(cloudThread, 10)) HostIncTimeOut(10);
 
         string data;
-        if (!cloudTask.get("data", data) || data.empty()) return "";
+        if (cloudTask.get("data", data) && !data.empty()) {
+            JsonReader reader;
+            JsonValue root;
 
-        JsonReader reader;
-        JsonValue root;
-        if (!reader.parse(data, root) || !root.isObject() || !root["code"].isNumeric() || root["code"].asInt() != 0 || !root["data"].isObject() || !root["data"]["rule"].isArray()) return "";
+            if (reader.parse(data, root) && root.isObject() && root["code"].isNumeric() && root["code"].asInt() == 0 && root["data"].isObject() && root["data"]["rule"].isArray()) {
+                JsonValue rules = root["data"]["rule"];
+                array<int> cloudRuleTypes;
+                array<string> cloudRuleFilters;
+                bool valid = true;
 
-        JsonValue rules = root["data"]["rule"];
-        for (uint i = 0; i < rules.size(); i++) {
-            JsonValue rule = rules[i];
-            if (!rule.isObject() || !rule["type"].isNumeric() || !rule["filter"].isString()) return "";
+                for (uint i = 0; i < rules.size(); i++) {
+                    JsonValue rule = rules[i];
+                    if (!rule.isObject() || !rule["type"].isNumeric() || !rule["filter"].isString()) { valid = false; break; }
 
-            int type = rule["type"].asInt();
-            string filter = rule["filter"].asString();
-            if (type < 0 || type > 2 || filter.empty()) return "";
+                    int type = rule["type"].asInt();
+                    string filter = rule["filter"].asString();
+                    if (type < 0 || type > 2 || filter.empty()) { valid = false; break; }
 
-            blockRuleTypes.insertLast(type); blockRuleFilters.insertLast(filter);
+                    cloudRuleTypes.insertLast(type); cloudRuleFilters.insertLast(filter);
+                }
+
+                if (valid) {
+                    for (uint i = 0; i < cloudRuleTypes.length(); i++) {
+                        blockRuleTypes.insertLast(cloudRuleTypes[i]); blockRuleFilters.insertLast(cloudRuleFilters[i]);
+                    }
+                }
+            }
         }
     }
 
