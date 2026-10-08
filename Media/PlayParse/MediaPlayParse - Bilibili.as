@@ -370,7 +370,7 @@ class Config {
     bool danmakuBlockColor = false;
     bool danmakuMergeSame = false;
     bool danmakuBlockRepeatedUser = false;
-    bool danmakuEnableCloudBlockList = true;
+    bool danmakuEnableCloudBlockList = false;
     array<int> danmakuBlockRuleTypes;
     array<string> danmakuBlockRuleFilters;
 
@@ -1320,636 +1320,6 @@ bool isP2PCDN(const string&in url) {
 	return subdomain.find("302") >= 0;
 }
 
-array<dictionary> generateSubtitle(const string&in aid, const string&in cid, const float duration, bool isBangumi) {
-	array<dictionary> subtitle;
-	dictionary dic;
-
-	if (ConfigData.subtitleEnable && !isBangumi) {
-		if (!ConfigData.subtitleServer.isEmpty()) {
-			dic["url"] = ConfigData.subtitleServer + "aid=" + aid + "&cid=" + cid;
-		} else {
-			status = 8;
-			array<dictionary> bilibiliSubtitles = GetBilibiliSubtitles(aid, cid, true);
-			if (bilibiliSubtitles.length() != 0) {
-				for (uint i = 0; i < bilibiliSubtitles.length(); i++) {
-					subtitle.insertLast(bilibiliSubtitles[i]);
-				}
-			} else {
-				log("subtitle", "no subtitles found");
-			}
-		}
-	}
-
-	if (ConfigData.danmakuEnable) {
-		dic["name"] = "弹幕";
-
-		if (!ConfigData.danmakuUrl.isEmpty()) {
-			dic["url"] = ConfigData.danmakuUrl + cid;
-		} else {
-			status = 9;
-			string danmuAss = BuildDanmakuAss(aid, cid, duration);
-			if (danmuAss.isEmpty()) {
-				HostMessageBox('弹幕生成失败\n1. 等待BilibiliPotplayer更新\n2. 找一个可用的弹幕源，写入配置文件："danmaku" - "server"', "BilibiliPotPlayer", 0, 0);
-			}
-			dic["fileContent"] = danmuAss;
-		}
-
-		subtitle.insertLast(dic);
-	}
-
-	return subtitle;
-}
-
-array<dictionary> GetBilibiliSubtitles(const string &in aid, const string &in cid, bool allowAiSubtitle) {
-    array<dictionary> result;
-    if (aid.empty() || cid.empty()) return result;
-
-    for (uint attempt = 0; attempt < (allowAiSubtitle ? 2 : 1); attempt++) {
-        string param = "oid=" + cid + "&pid=" + aid + "&context_ext=%7B%22video_type%22%3A1%7D&type=1&cur_production_type=0";
-        if (attempt == 1) param += "&preferred_language=ai-zh";
-        string response = apiPost("/x/v2/subtitle/web/view?" + encWbi(param + "&playlist_switch=0"), true, true);
-        if (response.empty()) return result;
-
-        array<string> ownUrls, ownNames, ownLangs, aiUrls, aiNames, aiLangs;
-        array<uint> ends = {response.length(), 0, 0};
-        uint pos = 0, depth = 0;
-        string lan, name, url;
-
-        while (true) {
-            if (pos == ends[depth]) {
-                if (depth == 2 && !lan.empty() && !url.empty()) {
-                    if (name.empty()) name = lan;
-                    if (url.find("//") == 0) url = "https:" + url;
-                    if (lan.find("ai-") == 0) { aiUrls.insertLast(url); aiNames.insertLast(name); aiLangs.insertLast(lan); }
-                    else { ownUrls.insertLast(url); ownNames.insertLast(name); ownLangs.insertLast(lan); }
-                }
-                if (depth == 0) break;
-                depth--;
-                continue;
-            }
-
-            uint64 tag = 0, value = 0;
-            uint shift = 0;
-            bool done = false;
-            for (uint i = 0; i < 10 && pos < ends[depth]; i++) {
-                uint8 b = uint8(response[pos++]); tag |= uint64(b & 127) << shift;
-                if ((b & 128) == 0) { done = true; break; }
-                shift += 7;
-            }
-            if (!done || (tag >> 3) == 0) return result;
-
-            uint field = uint(tag >> 3), wire = uint(tag & 7);
-            if (wire == 0 || wire == 2) {
-                shift = 0; done = false;
-                for (uint i = 0; i < 10 && pos < ends[depth]; i++) {
-                    uint8 b = uint8(response[pos++]); value |= uint64(b & 127) << shift;
-                    if ((b & 128) == 0) { done = true; break; }
-                    shift += 7;
-                }
-                if (!done) return result;
-                if (wire == 0) continue;
-                if (value > uint64(ends[depth] - pos)) return result;
-
-                uint next = pos + uint(value);
-                if (depth == 0 && field == 1) { depth = 1; ends[1] = next; }
-                else if (depth == 1 && field == 3) { lan = ""; name = ""; url = ""; depth = 2; ends[2] = next; }
-                else {
-                    if (depth == 2) {
-                        if (field == 3) lan = response.substr(pos, uint(value));
-                        else if (field == 4) name = response.substr(pos, uint(value));
-                        else if (field == 5) url = response.substr(pos, uint(value));
-                    }
-                    pos = next;
-                }
-            } else if (wire == 1 || wire == 5) {
-                uint size = wire == 1 ? 8 : 4;
-                if (size > ends[depth] - pos) return result;
-                pos += size;
-            } else return result;
-        }
-
-        if (attempt == 0 && ownUrls.empty()) continue;
-
-        array<string> urls = ownUrls, names = ownNames, langs = ownLangs;
-        if (attempt == 1) { urls = aiUrls; names = aiNames; langs = aiLangs; }
-
-        const uint maxConcurrent = 5;
-
-        for (uint batchStart = 0; batchStart < urls.length(); batchStart += maxConcurrent) {
-            uint batchCount = urls.length() - batchStart;
-            if (batchCount > maxConcurrent) batchCount = maxConcurrent;
-
-            array<dictionary@> tasks(batchCount);
-            array<int> threads(batchCount, -1);
-
-            for (uint i = 0; i < batchCount; i++) {
-                @tasks[i] = dictionary();
-                tasks[i].set("url", urls[batchStart + i]);
-
-                threads[i] = HostCreateThread(function(any@ threadParam) {
-                    dictionary@ task;
-                    if (threadParam is null || !threadParam.retrieve(@task) || task is null) return;
-
-                    string subtitleUrl;
-                    if (!task.get("url", subtitleUrl) || subtitleUrl.empty()) return;
-
-                    const string hostPrefix = "https://subtitle.bilibili.com/";
-
-                    if (subtitleUrl.find(hostPrefix) == 0) {
-                        uint pathStart = hostPrefix.length();
-                        int queryStart = subtitleUrl.find("?", pathStart);
-                        if (queryStart < 0) return;
-
-                        string encoded = subtitleUrl.substr(pathStart, uint(queryStart) - pathStart);
-                        const string hex = "0123456789ABCDEF";
-                        array<uint8> cipher;
-
-                        for (uint p = 0; p < encoded.length(); p++) {
-                            if (encoded[p] == 37 && p + 2 < encoded.length()) {
-                                int hi = hex.find(encoded.substr(p + 1, 1).MakeUpper());
-                                int lo = hex.find(encoded.substr(p + 2, 1).MakeUpper());
-                                if (hi >= 0 && lo >= 0) {
-                                    cipher.insertLast(uint8((hi << 4) | lo));
-                                    p += 2;
-                                    continue;
-                                }
-                            }
-                            cipher.insertLast(uint8(encoded[p]));
-                        }
-
-                        array<string> prefixes = {
-                            "nP](wOFRvU.+<fjS{jn-!$D|Dz&\",zT`",
-                            "Bn\"q~|albg@]Go~ACgyDvKnd+)_D}^&J?"
-                        };
-                        array<string> keys = {
-                            "=CFxYRn{.y|uVyO$uh&sikph?N.ilF/`bilibili",
-                            "Cu~L!xs~f^&r@'vh=q]q{eeng*sEg^kp#Jbilibili"
-                        };
-
-                        string path;
-                        for (uint k = 0; k < keys.length(); k++) {
-                            string decodedEncoded;
-                            for (uint p = 0; p < cipher.length(); p++) {
-                                uint8 b = cipher[p] ^ uint8(keys[k][p % keys[k].length()]);
-                                decodedEncoded += "%" + hex.substr(b >> 4, 1) + hex.substr(b & 15, 1);
-                            }
-                            string decoded = HostUrlDecode(decodedEncoded);
-                            if (decoded.find(prefixes[k]) == 0) {
-                                path = decoded.substr(prefixes[k].length());
-                                break;
-                            }
-                        }
-
-                        if (path.find("/bfs/") != 0) return;
-                        subtitleUrl = path + subtitleUrl.substr(uint(queryStart));
-                    }
-
-                    string json = apiPost(subtitleUrl, "", "https://aisubtitle.hdslb.com", true, true);
-                    if (json.empty()) return;
-
-                    JsonReader reader;
-                    JsonValue root;
-                    if (!reader.parse(json, root) || !root.isObject() || !root["body"].isArray()) return;
-
-                    JsonValue body = root["body"];
-                    string srt;
-                    uint number = 0;
-
-                    for (int j = 0; j < body.size(); j++) {
-                        JsonValue line = body[j];
-                        if (!line.isObject() || !line["from"].isNumeric() || !line["to"].isNumeric() || !line["content"].isString()) continue;
-
-                        double from = line["from"].asDouble(), to = line["to"].asDouble();
-                        if (from < 0 || to <= from) continue;
-
-                        uint start = uint(from * 1000 + 0.5), finish = uint(to * 1000 + 0.5);
-                        string t1 = formatInt(start / 3600000) + ":" + (start / 60000 % 60 < 10 ? "0" : "") + formatInt(start / 60000 % 60) + ":" + (start / 1000 % 60 < 10 ? "0" : "") + formatInt(start / 1000 % 60) + "," + (start % 1000 < 100 ? "0" : "") + (start % 1000 < 10 ? "0" : "") + formatInt(start % 1000);
-                        string t2 = formatInt(finish / 3600000) + ":" + (finish / 60000 % 60 < 10 ? "0" : "") + formatInt(finish / 60000 % 60) + ":" + (finish / 1000 % 60 < 10 ? "0" : "") + formatInt(finish / 1000 % 60) + "," + (finish % 1000 < 100 ? "0" : "") + (finish % 1000 < 10 ? "0" : "") + formatInt(finish % 1000);
-                        srt += formatInt(++number) + "\r\n" + t1 + " --> " + t2 + "\r\n" + line["content"].asString() + "\r\n\r\n";
-                    }
-
-                    if (!srt.empty()) task.set("srt", srt);
-                }, @tasks[i]);
-
-                if (threads[i] < 0) return result;
-            }
-
-            for (uint i = 0; i < batchCount; i++) while (!HostWaitThread(threads[i], 10)) HostIncTimeOut(10);
-
-            for (uint i = 0; i < batchCount; i++) {
-                uint index = batchStart + i;
-                string srt;
-                if (!tasks[i].get("srt", srt) || srt.empty()) continue;
-
-                dictionary subtitle;
-                subtitle["name"] = langs[index].find("ai-") == 0 ? names[index] + "(AI)" : names[index];
-                subtitle["langCode"] = langs[index].find("ai-") == 0 ? langs[index].substr(3) : langs[index];
-                subtitle["fileContent"] = srt;
-                result.insertLast(subtitle);
-            }
-        }
-
-        return result;
-    }
-
-    return result;
-}
-
-string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration) {
-    if (aid.empty() || cid.empty() || duration == 0 || !ConfigData.danmakuEnable) return "";
-
-    const string hex = "0123456789ABCDEF";
-    const string lowerHex = "0123456789abcdef";
-    string font = ConfigData.danmakuFont.empty() ? "微软雅黑 Light" : ConfigData.danmakuFont;
-    int fontSize = int(ConfigData.danmakuFontSize);
-    if (fontSize <= 0) fontSize = 24;
-
-    double opacity = ConfigData.danmakuOpacity, area = ConfigData.danmakuDisplayArea, stay = ConfigData.danmakuStayTime;
-    if (opacity < 0) opacity = 0; else if (opacity > 1) opacity = 1;
-    if (area < 0) area = 0; else if (area > 1) area = 1;
-    if (stay <= 0) stay = 15;
-
-    uint alpha = uint((1 - opacity) * 255 + 0.5);
-    string alphaHex = hex.substr(alpha >> 4, 1) + hex.substr(alpha & 15, 1);
-    uint laneHeight = uint(fontSize) + 4;
-    uint lanes = uint(1080 * area) / laneHeight;
-    if (lanes == 0) lanes = 1;
-
-    string boldEffect = ConfigData.danmakuBold ? "\\b1" : "";
-
-    array<int> blockRuleTypes = ConfigData.danmakuBlockRuleTypes;
-    array<string> blockRuleFilters = ConfigData.danmakuBlockRuleFilters;
-
-    for (uint i = 0; i < blockRuleTypes.length(); i++) {
-        if (blockRuleTypes[i] != 2) continue;
-
-        uint crc = 0xFFFFFFFF;
-        for (uint j = 0; j < blockRuleFilters[i].length(); j++) {
-            crc ^= uint8(blockRuleFilters[i][j]);
-            for (uint k = 0; k < 8; k++) crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320 : crc >> 1;
-        }
-        crc ^= 0xFFFFFFFF;
-
-        string midHash;
-        do {
-            midHash = lowerHex.substr(crc & 15, 1) + midHash;
-            crc >>= 4;
-        } while (crc != 0);
-
-        blockRuleFilters[i] = midHash;
-    }
-
-    dictionary@ cloudTask;
-    int cloudThread = -1;
-
-    if (ConfigData.danmakuEnableCloudBlockList) {
-        @cloudTask = dictionary();
-
-        cloudThread = HostCreateThread(function(any@ threadParam) {
-            dictionary@ task;
-            if (threadParam is null || !threadParam.retrieve(@task) || task is null) return;
-
-            string data = apiPost("/x/dm/filter/user", true, true);
-            task.set("data", data);
-        }, @cloudTask);
-
-        if (cloudThread < 0) {
-            HostMessageBox("获取云端屏蔽词失败", "BilibiliPotPlayer", 0, 1);
-            return "";
-        }
-    }
-
-    array<uint> scrollStart(lanes, 0), scrollWidth(lanes, 0), reverseStart(lanes, 0), reverseWidth(lanes, 0), topReady(lanes, 0), bottomReady(lanes, 0);
-    array<bool> scrollUsed(lanes, false), reverseUsed(lanes, false);
-    array<uint> times, modes, colors;
-    array<string> contents, midHashes;
-    array<uint64> order;
-
-    string ass =
-        "[Script Info]\r\nTitle: Bilibili Danmaku\r\nScriptType: v4.00+\r\nPlayResX: 1920\r\nPlayResY: 1080\r\nWrapStyle: 2\r\nScaledBorderAndShadow: yes\r\nYCbCr Matrix: TV.709\r\n\r\n"
-        "[V4+ Styles]\r\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\r\n"
-        "Style: Danmaku," + font + "," + formatInt(fontSize) + ",&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1.5,0,8,0,0,0,1\r\n"
-        "Style: Subtitle," + font + "," + formatInt(fontSize) + ",&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,1,2,10,10,20,1\r\n\r\n"
-        "[Events]\r\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\r\n";
-
-    uint totalSegments = (duration + 359) / 360;
-    const uint maxConcurrent = 5;
-
-    for (uint batchStart = 1; batchStart <= totalSegments; batchStart += maxConcurrent) {
-        uint batchCount = totalSegments - batchStart + 1;
-        if (batchCount > maxConcurrent) batchCount = maxConcurrent;
-
-        array<dictionary@> tasks(batchCount);
-        array<int> threads(batchCount, -1);
-
-        for (uint i = 0; i < batchCount; i++) {
-            @tasks[i] = dictionary();
-            tasks[i].set("aid", aid);
-            tasks[i].set("cid", cid);
-            tasks[i].set("segment", int64(batchStart + i));
-
-            threads[i] = HostCreateThread(function(any@ threadParam) {
-                dictionary@ task;
-                if (threadParam is null || !threadParam.retrieve(@task) || task is null) return;
-
-                string taskAid, taskCid;
-                int64 segment = 0;
-                if (!task.get("aid", taskAid) || !task.get("cid", taskCid) || !task.get("segment", segment)) return;
-
-                string param = "type=1&oid=" + taskCid + "&pid=" + taskAid + "&segment_index=" + formatInt(segment) + "&web_location=1315873";
-                string data = apiPost("/x/v2/dm/wbi/web/seg.so?" + encWbi(param), true, true);
-                task.set("data", data);
-            }, @tasks[i]);
-
-            if (threads[i] < 0) return "";
-        }
-
-        for (uint i = 0; i < batchCount; i++) while (!HostWaitThread(threads[i], 10)) HostIncTimeOut(10);
-
-        for (uint segmentIndex = 0; segmentIndex < batchCount; segmentIndex++) {
-            string data;
-            if (!tasks[segmentIndex].get("data", data) || data.empty()) return "";
-            if (data.substr(0, 1) == "{") return "";
-
-            uint pos = 0;
-            while (pos < data.length()) {
-                uint64 tag = 0, length = 0;
-                uint shift = 0;
-                bool done = false;
-
-                for (uint i = 0; i < 10 && pos < data.length(); i++) {
-                    uint8 b = uint8(data[pos++]); tag |= uint64(b & 127) << shift;
-                    if ((b & 128) == 0) { done = true; break; }
-                    shift += 7;
-                }
-
-                if (!done || (tag >> 3) == 0) return "";
-                uint field = uint(tag >> 3), wire = uint(tag & 7);
-
-                if (wire == 0) {
-                    done = false;
-                    for (uint i = 0; i < 10 && pos < data.length(); i++) if ((uint8(data[pos++]) & 128) == 0) { done = true; break; }
-                    if (!done) return "";
-                    continue;
-                }
-
-                if (wire == 1 || wire == 5) {
-                    uint size = wire == 1 ? 8 : 4;
-                    if (size > data.length() - pos) return "";
-                    pos += size;
-                    continue;
-                }
-
-                if (wire != 2) return "";
-                shift = 0; done = false;
-
-                for (uint i = 0; i < 10 && pos < data.length(); i++) {
-                    uint8 b = uint8(data[pos++]); length |= uint64(b & 127) << shift;
-                    if ((b & 128) == 0) { done = true; break; }
-                    shift += 7;
-                }
-
-                if (!done || length > uint64(data.length() - pos)) return "";
-                uint end = pos + uint(length);
-
-                if (field != 1) { pos = end; continue; }
-
-                uint progress = 0, mode = 1, color = 0xFFFFFF;
-                string content, midHash;
-
-                while (pos < end) {
-                    uint64 innerTag = 0, value = 0;
-                    shift = 0; done = false;
-
-                    for (uint i = 0; i < 10 && pos < end; i++) {
-                        uint8 b = uint8(data[pos++]); innerTag |= uint64(b & 127) << shift;
-                        if ((b & 128) == 0) { done = true; break; }
-                        shift += 7;
-                    }
-
-                    if (!done || (innerTag >> 3) == 0) return "";
-                    uint innerField = uint(innerTag >> 3), innerWire = uint(innerTag & 7);
-
-                    if (innerWire == 0 || innerWire == 2) {
-                        shift = 0; done = false;
-
-                        for (uint i = 0; i < 10 && pos < end; i++) {
-                            uint8 b = uint8(data[pos++]); value |= uint64(b & 127) << shift;
-                            if ((b & 128) == 0) { done = true; break; }
-                            shift += 7;
-                        }
-
-                        if (!done) return "";
-
-                        if (innerWire == 2) {
-                            if (value > uint64(end - pos)) return "";
-                            if (innerField == 6) midHash = data.substr(pos, uint(value));
-                            else if (innerField == 7) content = data.substr(pos, uint(value));
-                            pos += uint(value);
-                        } else {
-                            if (innerField == 2) progress = uint(value);
-                            else if (innerField == 3) mode = uint(value);
-                            else if (innerField == 5) color = uint(value) & 0xFFFFFF;
-                        }
-                    } else if (innerWire == 1 || innerWire == 5) {
-                        uint size = innerWire == 1 ? 8 : 4;
-                        if (size > end - pos) return "";
-                        pos += size;
-                    } else return "";
-                }
-
-                if (pos != end) return "";
-                if (content.empty() || (mode != 1 && mode != 4 && mode != 5 && mode != 6)) continue;
-                if (ConfigData.danmakuBlockTop && mode == 5) continue;
-                if (ConfigData.danmakuBlockBottom && mode == 4) continue;
-                if (ConfigData.danmakuBlockColor && color != 0xFFFFFF) continue;
-
-                uint index = contents.length();
-                times.insertLast(progress); modes.insertLast(mode); colors.insertLast(color); contents.insertLast(content); midHashes.insertLast(midHash);
-                order.insertLast((uint64(progress) << 32) | uint64(index));
-            }
-        }
-    }
-
-    if (cloudThread >= 0) {
-        while (!HostWaitThread(cloudThread, 10)) HostIncTimeOut(10);
-
-        string data;
-        if (!cloudTask.get("data", data) || data.empty()) return "";
-
-        JsonReader reader;
-        JsonValue root;
-        if (!reader.parse(data, root) || !root.isObject() || !root["code"].isNumeric() || root["code"].asInt() != 0 || !root["data"].isObject() || !root["data"]["rule"].isArray()) return "";
-
-        JsonValue rules = root["data"]["rule"];
-        for (uint i = 0; i < rules.size(); i++) {
-            JsonValue rule = rules[i];
-            if (!rule.isObject() || !rule["type"].isNumeric() || !rule["filter"].isString()) return "";
-
-            int type = rule["type"].asInt();
-            string filter = rule["filter"].asString();
-            if (type < 0 || type > 2 || filter.empty()) return "";
-
-            blockRuleTypes.insertLast(type); blockRuleFilters.insertLast(filter);
-        }
-    }
-
-    order.sortAsc();
-
-    bool processRules = !blockRuleTypes.empty(), processRepeatedUser = ConfigData.danmakuBlockRepeatedUser, processMerge = ConfigData.danmakuMergeSame;
-    bool processExtra = processRules || processRepeatedUser || processMerge;
-    dictionary seenUser, mergeGroup, mergeFirst;
-    array<uint> renderIndices, mergeCounts;
-
-    if (processExtra) {
-        for (uint item = 0; item < order.length(); item++) {
-            uint index = uint(order[item] & 0xFFFFFFFF);
-            uint progress = times[index], mode = modes[index];
-            string content = contents[index], midHash = midHashes[index];
-            bool blocked = false;
-
-            if (processRules) {
-                for (uint i = 0; i < blockRuleTypes.length(); i++) {
-                    int type = blockRuleTypes[i];
-                    string filter = blockRuleFilters[i];
-
-                    if (type == 0) {
-                        if (content.findFirst(filter) >= 0) { blocked = true; break; }
-                    } else if (type == 1) {
-                        array<dictionary> matches;
-                        if (HostRegExpParse(content, filter, matches)) { blocked = true; break; }
-                    } else if (type == 2) {
-                        if (!midHash.empty() && midHash == filter) { blocked = true; break; }
-                    }
-                }
-            }
-
-            if (blocked) continue;
-
-            if (processRepeatedUser && !midHash.empty()) {
-                string key = midHash + "|" + formatUInt(mode) + "|" + content;
-                bool exists = false;
-                if (seenUser.get(key, exists)) continue;
-                seenUser.set(key, true);
-            }
-
-            if (processMerge) {
-                string key = formatUInt(mode) + "|" + content;
-                int64 groupIndex = -1, firstProgress = 0;
-
-                if (mergeGroup.get(key, groupIndex) && mergeFirst.get(key, firstProgress) && progress >= uint(firstProgress) && progress - uint(firstProgress) <= uint(stay * 1000 + 0.5)) {
-                    mergeCounts[uint(groupIndex)]++;
-                    continue;
-                }
-
-                uint newIndex = renderIndices.length();
-                renderIndices.insertLast(index); mergeCounts.insertLast(1);
-                mergeGroup.set(key, int64(newIndex)); mergeFirst.set(key, int64(progress));
-            } else {
-                renderIndices.insertLast(index); mergeCounts.insertLast(1);
-            }
-        }
-    }
-
-    uint renderLength = processExtra ? renderIndices.length() : order.length();
-
-    for (uint item = 0; item < renderLength; item++) {
-        uint index = processExtra ? renderIndices[item] : uint(order[item] & 0xFFFFFFFF);
-        uint progress = times[index], mode = modes[index], color = colors[index];
-        string content = contents[index];
-        if (processMerge && mergeCounts[item] > 1) content += "(" + formatUInt(mergeCounts[item]) + ")";
-        string safeText;
-        uint characters = 0;
-
-        for (uint i = 0; i < content.length(); i++) {
-            uint8 b = uint8(content[i]);
-
-            if (b == 10 || b == 13) { safeText += " "; characters++; continue; }
-
-            if (b == 92) safeText += "＼";
-            else if (b == 123) safeText += "｛";
-            else if (b == 125) safeText += "｝";
-            else safeText += content.substr(i, 1);
-
-            if ((b & 0xC0) != 0x80) characters++;
-        }
-
-        if (safeText.empty()) continue;
-
-        uint start = (progress + 5) / 10, durationCs = uint(stay * 100 + 0.5);
-        if (durationCs == 0) durationCs = 1;
-        uint finish = start + durationCs;
-
-        string startTime = formatInt(start / 360000) + ":" + (start / 6000 % 60 < 10 ? "0" : "") + formatInt(start / 6000 % 60) + ":" + (start / 100 % 60 < 10 ? "0" : "") + formatInt(start / 100 % 60) + "." + (start % 100 < 10 ? "0" : "") + formatInt(start % 100);
-        string endTime = formatInt(finish / 360000) + ":" + (finish / 6000 % 60 < 10 ? "0" : "") + formatInt(finish / 6000 % 60) + ":" + (finish / 100 % 60 < 10 ? "0" : "") + formatInt(finish / 100 % 60) + "." + (finish % 100 < 10 ? "0" : "") + formatInt(finish % 100);
-
-        uint red = (color >> 16) & 255, green = (color >> 8) & 255, blue = color & 255;
-        string assColor = hex.substr(blue >> 4, 1) + hex.substr(blue & 15, 1) + hex.substr(green >> 4, 1) + hex.substr(green & 15, 1) + hex.substr(red >> 4, 1) + hex.substr(red & 15, 1);
-
-        uint width = characters * uint(fontSize);
-        uint lane = lanes;
-
-        array<uint>@ lastStart = @scrollStart;
-        array<uint>@ lastWidth = @scrollWidth;
-        array<bool>@ used = @scrollUsed;
-
-        if (mode == 6) { @lastStart = @reverseStart; @lastWidth = @reverseWidth; @used = @reverseUsed; }
-
-        for (uint i = 0; i < lanes; i++) {
-            if (mode == 5 && topReady[i] <= progress) { lane = i; break; }
-            if (mode == 4 && bottomReady[i] <= progress) { lane = i; break; }
-            if (mode != 1 && mode != 6) continue;
-            if (!used[i]) { lane = i; break; }
-
-            uint elapsed = progress >= lastStart[i] ? progress - lastStart[i] : 0;
-            double previousWidth = double(lastWidth[i]);
-            double entryDelay = stay * 1000 * previousWidth / (1920 + previousWidth);
-            double exitDelay = stay * 1000 * width / (1920 + width);
-
-            if (double(elapsed) >= entryDelay && double(elapsed) >= exitDelay) { lane = i; break; }
-        }
-
-        if (lane == lanes) continue;
-
-        if (mode == 5) topReady[lane] = progress + durationCs * 10;
-        else if (mode == 4) bottomReady[lane] = progress + durationCs * 10;
-        else { used[lane] = true; lastStart[lane] = progress; lastWidth[lane] = width; }
-
-        uint y = lane * laneHeight;
-        string position;
-
-        if (mode == 5) position = "\\an8\\pos(960," + formatInt(y) + ")";
-        else if (mode == 4) position = "\\an2\\pos(960," + formatInt(1080 - y) + ")";
-        else {
-            uint right = 1920 + width / 2;
-            int left = -int(width / 2);
-
-            if (mode == 6) position = "\\move(" + formatInt(left) + "," + formatInt(y) + "," + formatInt(right) + "," + formatInt(y) + ")";
-            else position = "\\move(" + formatInt(right) + "," + formatInt(y) + "," + formatInt(left) + "," + formatInt(y) + ")";
-        }
-
-        string textEffect;
-
-        if (ConfigData.danmakuFontEffect == 0) {
-            textEffect = "\\bord0\\shad0\\blur0";
-        } else if (ConfigData.danmakuFontEffect == 1) {
-            textEffect = "\\bord0\\xshad" + ConfigData.danmakuShadowDepth + "\\yshad" + ConfigData.danmakuShadowDepth + "\\4c&H000000&\\blur0";
-        } else if (ConfigData.danmakuFontEffect == 2) {
-            textEffect = "\\bord" + ConfigData.danmakuOutlineWidth + "\\shad0\\3c&H000000&\\blur0";
-        } else if (ConfigData.danmakuFontEffect == 3) {
-            ass += "Dialogue: 0," + startTime + "," + endTime + ",Danmaku,,0,0,0,,{" + position + "\\alpha&H" + alphaHex + "&\\1c&H000000&\\bord0\\shad0\\blur" + ConfigData.danmakuBlurRadius + "\\fs" + formatInt(fontSize) + "\\fn" + font + boldEffect + "\\q2}" + safeText + "\r\n";
-            textEffect = "\\bord0\\shad0\\blur0";
-        } else {
-            ass += "Dialogue: 0," + startTime + "," + endTime + ",Danmaku,,0,0,0,,{" + position + "\\alpha&H" + alphaHex + "&\\1c&H000000&\\bord0\\shad0\\blur" + ConfigData.danmakuBlurRadius + "\\fs" + formatInt(fontSize) + "\\fn" + font + boldEffect + "\\q2}" + safeText + "\r\n";
-            textEffect = "\\bord" + ConfigData.danmakuOutlineWidth + "\\shad0\\3c&H000000&\\blur0";
-        }
-
-        ass += "Dialogue: 1," + startTime + "," + endTime + ",Danmaku,,0,0,0,,{" + position + "\\alpha&H" + alphaHex + "&\\1c&H" + assColor + "&\\fs" + formatInt(fontSize) + "\\fn" + font + boldEffect + textEffect + "\\q2}" + safeText + "\r\n";
-    }
-
-    return ass;
-}
-
 array<dictionary> generateChapter(JsonValue&in skip, const string&in bvid, const float duration) {
 	array<dictionary> chapter;
 	if (skip.isObject()) {
@@ -2420,6 +1790,810 @@ array<dictionary> generateSponsorBlockChapter(const string&in bvid, const array<
 	}
 
 	return result;
+}
+
+array<dictionary> generateSubtitle(const string&in aid, const string&in cid, const float duration, bool isBangumi) {
+	array<dictionary> subtitle;
+	dictionary dic;
+
+	if (ConfigData.subtitleEnable && !isBangumi) {
+		if (!ConfigData.subtitleServer.isEmpty()) {
+			dic["url"] = ConfigData.subtitleServer + "aid=" + aid + "&cid=" + cid;
+		} else {
+			status = 8;
+			array<dictionary> bilibiliSubtitles = GetBilibiliSubtitles(aid, cid, true);
+			if (bilibiliSubtitles.length() != 0) {
+				for (uint i = 0; i < bilibiliSubtitles.length(); i++) {
+					subtitle.insertLast(bilibiliSubtitles[i]);
+				}
+			} else {
+				log("subtitle", "no subtitles found");
+			}
+		}
+	}
+
+	if (ConfigData.danmakuEnable) {
+		dic["name"] = "弹幕";
+
+		if (!ConfigData.danmakuUrl.isEmpty()) {
+			dic["url"] = ConfigData.danmakuUrl + cid;
+		} else {
+			status = 9;
+			string danmuAss = BuildDanmakuAss(aid, cid, duration);
+			if (danmuAss.isEmpty()) {
+				HostMessageBox('弹幕生成失败\n1. 等待BilibiliPotplayer更新\n2. 找一个可用的弹幕源，写入配置文件："danmaku" - "server"', "BilibiliPotPlayer", 0, 0);
+			}
+			dic["fileContent"] = danmuAss;
+		}
+
+		subtitle.insertLast(dic);
+	}
+
+	return subtitle;
+}
+
+array<dictionary> GetBilibiliSubtitles(const string &in aid, const string &in cid, bool allowAiSubtitle) {
+    array<dictionary> result;
+    if (aid.empty() || cid.empty()) return result;
+
+    for (uint attempt = 0; attempt < (allowAiSubtitle ? 2 : 1); attempt++) {
+        string param = "oid=" + cid + "&pid=" + aid + "&context_ext=%7B%22video_type%22%3A1%7D&type=1&cur_production_type=0";
+        if (attempt == 1) param += "&preferred_language=ai-zh";
+        string response = apiPost("/x/v2/subtitle/web/view?" + encWbi(param + "&playlist_switch=0"), true, true);
+        if (response.empty()) return result;
+
+        array<string> ownUrls, ownNames, ownLangs, aiUrls, aiNames, aiLangs;
+        array<uint> ends = {response.length(), 0, 0};
+        uint pos = 0, depth = 0;
+        string lan, name, url;
+
+        while (true) {
+            if (pos == ends[depth]) {
+                if (depth == 2 && !lan.empty() && !url.empty()) {
+                    if (name.empty()) name = lan;
+                    if (url.find("//") == 0) url = "https:" + url;
+                    if (lan.find("ai-") == 0) { aiUrls.insertLast(url); aiNames.insertLast(name); aiLangs.insertLast(lan); }
+                    else { ownUrls.insertLast(url); ownNames.insertLast(name); ownLangs.insertLast(lan); }
+                }
+                if (depth == 0) break;
+                depth--;
+                continue;
+            }
+
+            uint64 tag = 0, value = 0;
+            uint shift = 0;
+            bool done = false;
+            for (uint i = 0; i < 10 && pos < ends[depth]; i++) {
+                uint8 b = uint8(response[pos++]); tag |= uint64(b & 127) << shift;
+                if ((b & 128) == 0) { done = true; break; }
+                shift += 7;
+            }
+            if (!done || (tag >> 3) == 0) return result;
+
+            uint field = uint(tag >> 3), wire = uint(tag & 7);
+            if (wire == 0 || wire == 2) {
+                shift = 0; done = false;
+                for (uint i = 0; i < 10 && pos < ends[depth]; i++) {
+                    uint8 b = uint8(response[pos++]); value |= uint64(b & 127) << shift;
+                    if ((b & 128) == 0) { done = true; break; }
+                    shift += 7;
+                }
+                if (!done) return result;
+                if (wire == 0) continue;
+                if (value > uint64(ends[depth] - pos)) return result;
+
+                uint next = pos + uint(value);
+                if (depth == 0 && field == 1) { depth = 1; ends[1] = next; }
+                else if (depth == 1 && field == 3) { lan = ""; name = ""; url = ""; depth = 2; ends[2] = next; }
+                else {
+                    if (depth == 2) {
+                        if (field == 3) lan = response.substr(pos, uint(value));
+                        else if (field == 4) name = response.substr(pos, uint(value));
+                        else if (field == 5) url = response.substr(pos, uint(value));
+                    }
+                    pos = next;
+                }
+            } else if (wire == 1 || wire == 5) {
+                uint size = wire == 1 ? 8 : 4;
+                if (size > ends[depth] - pos) return result;
+                pos += size;
+            } else return result;
+        }
+
+        if (attempt == 0 && ownUrls.empty()) continue;
+
+        array<string> urls = ownUrls, names = ownNames, langs = ownLangs;
+        if (attempt == 1) { urls = aiUrls; names = aiNames; langs = aiLangs; }
+
+        const uint maxConcurrent = 5;
+
+        for (uint batchStart = 0; batchStart < urls.length(); batchStart += maxConcurrent) {
+            uint batchCount = urls.length() - batchStart;
+            if (batchCount > maxConcurrent) batchCount = maxConcurrent;
+
+            array<dictionary@> tasks(batchCount);
+            array<int> threads(batchCount, -1);
+
+            for (uint i = 0; i < batchCount; i++) {
+                @tasks[i] = dictionary();
+                tasks[i].set("url", urls[batchStart + i]);
+
+                threads[i] = HostCreateThread(function(any@ threadParam) {
+                    dictionary@ task;
+                    if (threadParam is null || !threadParam.retrieve(@task) || task is null) return;
+
+                    string subtitleUrl;
+                    if (!task.get("url", subtitleUrl) || subtitleUrl.empty()) return;
+
+                    const string hostPrefix = "https://subtitle.bilibili.com/";
+
+                    if (subtitleUrl.find(hostPrefix) == 0) {
+                        uint pathStart = hostPrefix.length();
+                        int queryStart = subtitleUrl.find("?", pathStart);
+                        if (queryStart < 0) return;
+
+                        string encoded = subtitleUrl.substr(pathStart, uint(queryStart) - pathStart);
+                        const string hex = "0123456789ABCDEF";
+                        array<uint8> cipher;
+
+                        for (uint p = 0; p < encoded.length(); p++) {
+                            if (encoded[p] == 37 && p + 2 < encoded.length()) {
+                                int hi = hex.find(encoded.substr(p + 1, 1).MakeUpper());
+                                int lo = hex.find(encoded.substr(p + 2, 1).MakeUpper());
+                                if (hi >= 0 && lo >= 0) {
+                                    cipher.insertLast(uint8((hi << 4) | lo));
+                                    p += 2;
+                                    continue;
+                                }
+                            }
+                            cipher.insertLast(uint8(encoded[p]));
+                        }
+
+                        array<string> prefixes = {
+                            "nP](wOFRvU.+<fjS{jn-!$D|Dz&\",zT`",
+                            "Bn\"q~|albg@]Go~ACgyDvKnd+)_D}^&J?"
+                        };
+                        array<string> keys = {
+                            "=CFxYRn{.y|uVyO$uh&sikph?N.ilF/`bilibili",
+                            "Cu~L!xs~f^&r@'vh=q]q{eeng*sEg^kp#Jbilibili"
+                        };
+
+                        string path;
+                        for (uint k = 0; k < keys.length(); k++) {
+                            string decodedEncoded;
+                            for (uint p = 0; p < cipher.length(); p++) {
+                                uint8 b = cipher[p] ^ uint8(keys[k][p % keys[k].length()]);
+                                decodedEncoded += "%" + hex.substr(b >> 4, 1) + hex.substr(b & 15, 1);
+                            }
+                            string decoded = HostUrlDecode(decodedEncoded);
+                            if (decoded.find(prefixes[k]) == 0) {
+                                path = decoded.substr(prefixes[k].length());
+                                break;
+                            }
+                        }
+
+                        if (path.find("/bfs/") != 0) return;
+                        subtitleUrl = path + subtitleUrl.substr(uint(queryStart));
+                    }
+
+                    string json = apiPost(subtitleUrl, "", "https://aisubtitle.hdslb.com", true, true);
+                    if (json.empty()) return;
+
+                    JsonReader reader;
+                    JsonValue root;
+                    if (!reader.parse(json, root) || !root.isObject() || !root["body"].isArray()) return;
+
+                    JsonValue body = root["body"];
+                    string srt;
+                    uint number = 0;
+
+                    for (int j = 0; j < body.size(); j++) {
+                        JsonValue line = body[j];
+                        if (!line.isObject() || !line["from"].isNumeric() || !line["to"].isNumeric() || !line["content"].isString()) continue;
+
+                        double from = line["from"].asDouble(), to = line["to"].asDouble();
+                        if (from < 0 || to <= from) continue;
+
+                        uint start = uint(from * 1000 + 0.5), finish = uint(to * 1000 + 0.5);
+                        string t1 = formatInt(start / 3600000) + ":" + (start / 60000 % 60 < 10 ? "0" : "") + formatInt(start / 60000 % 60) + ":" + (start / 1000 % 60 < 10 ? "0" : "") + formatInt(start / 1000 % 60) + "," + (start % 1000 < 100 ? "0" : "") + (start % 1000 < 10 ? "0" : "") + formatInt(start % 1000);
+                        string t2 = formatInt(finish / 3600000) + ":" + (finish / 60000 % 60 < 10 ? "0" : "") + formatInt(finish / 60000 % 60) + ":" + (finish / 1000 % 60 < 10 ? "0" : "") + formatInt(finish / 1000 % 60) + "," + (finish % 1000 < 100 ? "0" : "") + (finish % 1000 < 10 ? "0" : "") + formatInt(finish % 1000);
+                        srt += formatInt(++number) + "\r\n" + t1 + " --> " + t2 + "\r\n" + line["content"].asString() + "\r\n\r\n";
+                    }
+
+                    if (!srt.empty()) task.set("srt", srt);
+                }, @tasks[i]);
+
+                if (threads[i] < 0) return result;
+            }
+
+            for (uint i = 0; i < batchCount; i++) while (!HostWaitThread(threads[i], 10)) HostIncTimeOut(10);
+
+            for (uint i = 0; i < batchCount; i++) {
+                uint index = batchStart + i;
+                string srt;
+                if (!tasks[i].get("srt", srt) || srt.empty()) continue;
+
+                dictionary subtitle;
+                subtitle["name"] = langs[index].find("ai-") == 0 ? names[index] + "(AI)" : names[index];
+                subtitle["langCode"] = langs[index].find("ai-") == 0 ? langs[index].substr(3) : langs[index];
+                subtitle["fileContent"] = srt;
+                result.insertLast(subtitle);
+            }
+        }
+
+        return result;
+    }
+
+    return result;
+}
+
+string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration) {
+    if (aid.empty() || cid.empty() || duration == 0 || !ConfigData.danmakuEnable) return "";
+
+    const string hex = "0123456789ABCDEF";
+    const string lowerHex = "0123456789abcdef";
+    string font = ConfigData.danmakuFont.empty() ? "微软雅黑 Light" : ConfigData.danmakuFont;
+    int fontSize = int(ConfigData.danmakuFontSize);
+    if (fontSize <= 0) fontSize = 24;
+
+    double opacity = ConfigData.danmakuOpacity, area = ConfigData.danmakuDisplayArea, stay = ConfigData.danmakuStayTime;
+    if (opacity < 0) opacity = 0; else if (opacity > 1) opacity = 1;
+    if (area < 0) area = 0; else if (area > 1) area = 1;
+    if (stay <= 0) stay = 15;
+
+    uint alpha = uint((1 - opacity) * 255 + 0.5);
+    string alphaHex = hex.substr(alpha >> 4, 1) + hex.substr(alpha & 15, 1);
+    uint laneHeight = uint(fontSize) + 4;
+    uint lanes = uint(1080 * area) / laneHeight;
+    if (lanes == 0) lanes = 1;
+
+    string boldEffect = ConfigData.danmakuBold ? "\\b1" : "";
+
+    array<int> blockRuleTypes = ConfigData.danmakuBlockRuleTypes;
+    array<string> blockRuleFilters = ConfigData.danmakuBlockRuleFilters;
+
+    for (uint i = 0; i < blockRuleTypes.length(); i++) {
+        if (blockRuleTypes[i] != 2) continue;
+
+        uint crc = 0xFFFFFFFF;
+        for (uint j = 0; j < blockRuleFilters[i].length(); j++) {
+            crc ^= uint8(blockRuleFilters[i][j]);
+            for (uint k = 0; k < 8; k++) crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320 : crc >> 1;
+        }
+        crc ^= 0xFFFFFFFF;
+
+        string midHash;
+        do {
+            midHash = lowerHex.substr(crc & 15, 1) + midHash;
+            crc >>= 4;
+        } while (crc != 0);
+
+        blockRuleFilters[i] = midHash;
+    }
+
+    dictionary@ cloudTask;
+    int cloudThread = -1;
+
+    if (ConfigData.danmakuEnableCloudBlockList) {
+        @cloudTask = dictionary();
+
+        cloudThread = HostCreateThread(function(any@ threadParam) {
+            dictionary@ task;
+            if (threadParam is null || !threadParam.retrieve(@task) || task is null) return;
+
+            string data = apiPost("/x/dm/filter/user", true, true);
+            task.set("data", data);
+        }, @cloudTask);
+
+        if (cloudThread < 0) return "";
+    }
+
+    array<double> scrollEntryDelay(lanes, 0), reverseEntryDelay(lanes, 0);
+    array<uint> scrollStart(lanes, 0), reverseStart(lanes, 0), topReady(lanes, 0), bottomReady(lanes, 0);
+    array<bool> scrollUsed(lanes, false), reverseUsed(lanes, false);
+    array<uint> times, modes, colors;
+    array<string> contents, midHashes;
+    array<uint64> order;
+
+    string ass =
+        "[Script Info]\r\nTitle: Bilibili Danmaku\r\nScriptType: v4.00+\r\nPlayResX: 1920\r\nPlayResY: 1080\r\nWrapStyle: 2\r\nScaledBorderAndShadow: yes\r\nYCbCr Matrix: TV.709\r\n\r\n"
+        "[V4+ Styles]\r\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\r\n"
+        "Style: Danmaku," + font + "," + formatInt(fontSize) + ",&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1.5,0,8,0,0,0,1\r\n"
+        "Style: Subtitle," + font + "," + formatInt(fontSize) + ",&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,1,2,10,10,20,1\r\n\r\n"
+        "[Events]\r\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\r\n";
+
+    uint totalSegments = (duration - 1) / 360000 + 1;
+    const uint maxConcurrent = 5;
+    uint concurrent = totalSegments < maxConcurrent ? totalSegments : maxConcurrent;
+    array<dictionary@> tasks(concurrent);
+    array<int> threads(concurrent, -1);
+    uint filterMask = (ConfigData.danmakuBlockTop ? 1 : 0) |
+        (ConfigData.danmakuBlockBottom ? 2 : 0) | (ConfigData.danmakuBlockColor ? 4 : 0);
+    uint heartbeat = HostGetTickCount();
+
+    for (uint segment = 1; segment <= totalSegments + concurrent; segment++) {
+        if (segment > concurrent) {
+            uint completed = segment - concurrent;
+            uint slot = (completed - 1) % concurrent;
+            while (!HostWaitThread(threads[slot], 10)) HostIncTimeOut(10);
+
+            bool ok = false;
+            array<uint>@ segTimes;
+            array<uint>@ segModes;
+            array<uint>@ segColors;
+            array<string>@ segContents;
+            array<string>@ segHashes;
+            if (!tasks[slot].get("ok", ok) || !ok ||
+                !tasks[slot].get("times", @segTimes) || !tasks[slot].get("modes", @segModes) ||
+                !tasks[slot].get("colors", @segColors) || !tasks[slot].get("contents", @segContents) ||
+                !tasks[slot].get("hashes", @segHashes) || segTimes is null || segModes is null ||
+                segColors is null || segContents is null || segHashes is null) return "";
+
+
+            for (uint j = 0; j < segTimes.length(); j++) {
+                uint index = contents.length(), progress = segTimes[j];
+                times.insertLast(progress); modes.insertLast(segModes[j]); colors.insertLast(segColors[j]);
+                contents.insertLast(segContents[j]); midHashes.insertLast(segHashes[j]);
+                order.insertLast((uint64(progress) << 32) | uint64(index));
+                if ((j & 1023) == 0) {
+                    uint now = HostGetTickCount();
+                    if (now != heartbeat) { HostIncTimeOut(int(now - heartbeat)); heartbeat = now; }
+                }
+            }
+            @tasks[slot] = null;
+            threads[slot] = -1;
+        }
+
+        if (segment > totalSegments) continue;
+        uint slot = (segment - 1) % concurrent;
+        @tasks[slot] = dictionary();
+        tasks[slot].set("aid", aid);
+        tasks[slot].set("cid", cid);
+        tasks[slot].set("segment", int64(segment));
+        tasks[slot].set("mask", int64(filterMask));
+        array<uint>@ segTimes = array<uint>();
+        array<uint>@ segModes = array<uint>();
+        array<uint>@ segColors = array<uint>();
+        array<string>@ segContents = array<string>();
+        array<string>@ segHashes = array<string>();
+        tasks[slot].set("times", @segTimes);
+        tasks[slot].set("modes", @segModes);
+        tasks[slot].set("colors", @segColors);
+        tasks[slot].set("contents", @segContents);
+        tasks[slot].set("hashes", @segHashes);
+
+        threads[slot] = HostCreateThread(function(any@ threadParam) {
+            dictionary@ task;
+            if (threadParam is null || !threadParam.retrieve(@task) || task is null) return;
+
+            string taskAid, taskCid;
+            int64 segmentIndex = 0, mask = 0;
+            array<uint>@ partTimes, partModes, partColors;
+            array<string>@ partContents, partHashes;
+            if (!task.get("aid", taskAid) || !task.get("cid", taskCid) ||
+                !task.get("segment", segmentIndex) || !task.get("mask", mask) ||
+                !task.get("times", @partTimes) || !task.get("modes", @partModes) ||
+                !task.get("colors", @partColors) || !task.get("contents", @partContents) ||
+                !task.get("hashes", @partHashes) || partTimes is null || partModes is null ||
+                partColors is null || partContents is null || partHashes is null) return;
+
+            string param = "type=1&oid=" + taskCid + "&pid=" + taskAid + "&segment_index=" + formatInt(segmentIndex) + "&web_location=1315873";
+            string data = apiPost("/x/v2/dm/wbi/web/seg.so?" + encWbi(param), true, true);
+            if (data.empty() || uint8(data[0]) == 123) return;
+
+            uint pos = 0, dataSize = data.length(), workerHeartbeat = HostGetTickCount(), scanned = 0;
+            uint flags = uint(mask);
+            while (pos < dataSize) {
+                if ((++scanned & 1023) == 0) {
+                    uint now = HostGetTickCount();
+                    if (now != workerHeartbeat) { HostIncTimeOut(int(now - workerHeartbeat)); workerHeartbeat = now; }
+                }
+                uint64 tag = 0, length = 0;
+                uint shift = 0;
+                bool done = false;
+
+                for (uint i = 0; i < 10 && pos < dataSize; i++) {
+                    uint8 b = uint8(data[pos++]); tag |= uint64(b & 127) << shift;
+                    if ((b & 128) == 0) { done = true; break; }
+                    shift += 7;
+                }
+                if (!done || (tag >> 3) == 0) return;
+                uint field = uint(tag >> 3), wire = uint(tag & 7);
+
+                if (wire == 0) {
+                    done = false;
+                    for (uint i = 0; i < 10 && pos < dataSize; i++)
+                        if ((uint8(data[pos++]) & 128) == 0) { done = true; break; }
+                    if (!done) return;
+                    continue;
+                }
+                if (wire == 1 || wire == 5) {
+                    uint size = wire == 1 ? 8 : 4;
+                    if (size > dataSize - pos) return;
+                    pos += size;
+                    continue;
+                }
+                if (wire != 2) return;
+                shift = 0; done = false;
+                for (uint i = 0; i < 10 && pos < dataSize; i++) {
+                    uint8 b = uint8(data[pos++]); length |= uint64(b & 127) << shift;
+                    if ((b & 128) == 0) { done = true; break; }
+                    shift += 7;
+                }
+                if (!done || length > uint64(dataSize - pos)) return;
+                uint end = pos + uint(length);
+                if (field != 1) { pos = end; continue; }
+
+                uint progress = 0, mode = 1, color = 0xFFFFFF;
+                string content, midHash;
+                while (pos < end) {
+                    uint64 innerTag = 0, value = 0;
+                    shift = 0; done = false;
+                    for (uint i = 0; i < 10 && pos < end; i++) {
+                        uint8 b = uint8(data[pos++]); innerTag |= uint64(b & 127) << shift;
+                        if ((b & 128) == 0) { done = true; break; }
+                        shift += 7;
+                    }
+                    if (!done || (innerTag >> 3) == 0) return;
+                    uint innerField = uint(innerTag >> 3), innerWire = uint(innerTag & 7);
+                    if (innerWire == 0 || innerWire == 2) {
+                        shift = 0; done = false;
+                        for (uint i = 0; i < 10 && pos < end; i++) {
+                            uint8 b = uint8(data[pos++]); value |= uint64(b & 127) << shift;
+                            if ((b & 128) == 0) { done = true; break; }
+                            shift += 7;
+                        }
+                        if (!done) return;
+                        if (innerWire == 2) {
+                            if (value > uint64(end - pos)) return;
+                            if (innerField == 6) midHash = data.substr(pos, uint(value));
+                            else if (innerField == 7) content = data.substr(pos, uint(value));
+                            pos += uint(value);
+                        } else {
+                            if (innerField == 2) progress = uint(value);
+                            else if (innerField == 3) mode = uint(value);
+                            else if (innerField == 5) color = uint(value) & 0xFFFFFF;
+                        }
+                    } else if (innerWire == 1 || innerWire == 5) {
+                        uint size = innerWire == 1 ? 8 : 4;
+                        if (size > end - pos) return;
+                        pos += size;
+                    } else return;
+                }
+                if (pos != end) return;
+                if (content.empty() || (mode != 1 && mode != 4 && mode != 5 && mode != 6)) continue;
+                if ((flags & 1) != 0 && mode == 5) continue;
+                if ((flags & 2) != 0 && mode == 4) continue;
+                if ((flags & 4) != 0 && color != 0xFFFFFF) continue;
+
+                partTimes.insertLast(progress); partModes.insertLast(mode); partColors.insertLast(color);
+                partContents.insertLast(content); partHashes.insertLast(midHash);
+            }
+            task.set("ok", true);
+        }, @tasks[slot]);
+
+        if (threads[slot] < 0) return "";
+    }
+
+    if (cloudThread >= 0) {
+        while (!HostWaitThread(cloudThread, 10)) HostIncTimeOut(10);
+
+        string data;
+        if (!cloudTask.get("data", data) || data.empty()) return "";
+
+        JsonReader reader;
+        JsonValue root;
+        if (!reader.parse(data, root) || !root.isObject() || !root["code"].isNumeric() || root["code"].asInt() != 0 || !root["data"].isObject() || !root["data"]["rule"].isArray()) return "";
+
+        JsonValue rules = root["data"]["rule"];
+        for (uint i = 0; i < rules.size(); i++) {
+            JsonValue rule = rules[i];
+            if (!rule.isObject() || !rule["type"].isNumeric() || !rule["filter"].isString()) return "";
+
+            int type = rule["type"].asInt();
+            string filter = rule["filter"].asString();
+            if (type < 0 || type > 2 || filter.empty()) return "";
+
+            blockRuleTypes.insertLast(type); blockRuleFilters.insertLast(filter);
+        }
+    }
+
+    if (order.length() > 10000) HostIncTimeOut(10000);
+    order.sortAsc();
+
+    uint filterStart = HostGetTickCount();
+    bool processRules = !blockRuleTypes.empty();
+    bool processRepeatedUser = ConfigData.danmakuBlockRepeatedUser;
+    bool processMerge = ConfigData.danmakuMergeSame;
+    bool processExtra = processRules || processRepeatedUser || processMerge;
+    array<uint> renderIndices, mergeCounts;
+    dictionary seenUser, mergeGroup;
+    array<string> plainFilters, regexFilters, hashFilters;
+
+    if (processRules) {
+        for (uint i = 0; i < blockRuleTypes.length(); i++) {
+            if (blockRuleTypes[i] == 0) plainFilters.insertLast(blockRuleFilters[i]);
+            else if (blockRuleTypes[i] == 1) regexFilters.insertLast(blockRuleFilters[i]);
+            else if (blockRuleTypes[i] == 2) hashFilters.insertLast(blockRuleFilters[i]);
+        }
+    }
+
+    array<uint8> blockedFlags(order.length(), 0);
+    if (processRules && order.length() > 0) {
+        uint workerCount = order.length() < 4096 ? 1 : 8;
+        if (workerCount > order.length()) workerCount = order.length();
+        array<dictionary@> filterTasks(workerCount);
+        array<int> filterThreads(workerCount, -1);
+        uint launched = 0;
+        bool parallelOk = true;
+
+        for (uint w = 0; w < workerCount; w++) {
+            uint first = uint(uint64(order.length()) * uint64(w) / uint64(workerCount));
+            uint last = uint(uint64(order.length()) * uint64(w + 1) / uint64(workerCount));
+            @filterTasks[w] = dictionary();
+            array<uint8>@ partFlags = array<uint8>(last - first, 0);
+            filterTasks[w].set("first", int64(first));
+            filterTasks[w].set("last", int64(last));
+            filterTasks[w].set("order", @order);
+            filterTasks[w].set("contents", @contents);
+            filterTasks[w].set("hashes", @midHashes);
+            filterTasks[w].set("plain", @plainFilters);
+            filterTasks[w].set("regex", @regexFilters);
+            filterTasks[w].set("hashRules", @hashFilters);
+            filterTasks[w].set("flags", @partFlags);
+
+            filterThreads[w] = HostCreateThread(function(any@ threadParam) {
+                dictionary@ task;
+                if (threadParam is null || !threadParam.retrieve(@task) || task is null) return;
+
+                int64 first = 0, last = 0;
+                array<uint64>@ localOrder;
+                array<string>@ localContents, localHashes, localPlain, localRegex, localHashRules;
+                array<uint8>@ localFlags;
+                if (!task.get("first", first) || !task.get("last", last) ||
+                    !task.get("order", @localOrder) || !task.get("contents", @localContents) ||
+                    !task.get("hashes", @localHashes) || !task.get("plain", @localPlain) ||
+                    !task.get("regex", @localRegex) || !task.get("hashRules", @localHashRules) ||
+                    !task.get("flags", @localFlags) || localOrder is null ||
+                    localContents is null || localHashes is null || localPlain is null ||
+                    localRegex is null || localHashRules is null || localFlags is null) return;
+
+                dictionary blockedHashes;
+                for (uint r = 0; r < localHashRules.length(); r++) blockedHashes.set(localHashRules[r], true);
+                uint workerHeartbeat = HostGetTickCount();
+                for (uint item = uint(first); item < uint(last); item++) {
+                    uint index = uint(localOrder[item] & 0xFFFFFFFF);
+                    string content = localContents[index];
+                    string midHash = localHashes[index];
+                    bool blocked = !midHash.empty() && blockedHashes.exists(midHash);
+                    if (!blocked) {
+                        for (uint r = 0; r < localPlain.length(); r++) {
+                            if (content.findFirst(localPlain[r]) >= 0) { blocked = true; break; }
+                        }
+                    }
+                    if (!blocked) {
+                        for (uint r = 0; r < localRegex.length(); r++) {
+                            if (content.regexFind(localRegex[r]) >= 0) { blocked = true; break; }
+                        }
+                    }
+                    if (blocked) localFlags[item - uint(first)] = 1;
+                    if ((item & 511) == 0) {
+                        uint now = HostGetTickCount();
+                        if (now != workerHeartbeat) { HostIncTimeOut(int(now - workerHeartbeat)); workerHeartbeat = now; }
+                    }
+                }
+                task.set("ok", true);
+            }, @filterTasks[w]);
+
+            if (filterThreads[w] < 0) { parallelOk = false; break; }
+            launched++;
+        }
+
+        for (uint w = 0; w < launched; w++) {
+            while (!HostWaitThread(filterThreads[w], 10)) HostIncTimeOut(10);
+            bool ok = false;
+            array<uint8>@ partFlags;
+            if (!filterTasks[w].get("ok", ok) || !ok ||
+                !filterTasks[w].get("flags", @partFlags) || partFlags is null) {
+                parallelOk = false;
+                continue;
+            }
+            uint first = uint(uint64(order.length()) * uint64(w) / uint64(workerCount));
+            uint last = uint(uint64(order.length()) * uint64(w + 1) / uint64(workerCount));
+            if (partFlags.length() != last - first) { parallelOk = false; continue; }
+            for (uint j = 0; j < partFlags.length(); j++) blockedFlags[first + j] = partFlags[j];
+        }
+
+        if (!parallelOk) {
+            dictionary blockedHashes;
+            for (uint r = 0; r < hashFilters.length(); r++) blockedHashes.set(hashFilters[r], true);
+            uint fallbackHeartbeat = HostGetTickCount();
+            for (uint item = 0; item < order.length(); item++) {
+                uint index = uint(order[item] & 0xFFFFFFFF);
+                string content = contents[index];
+                string midHash = midHashes[index];
+                bool blocked = !midHash.empty() && blockedHashes.exists(midHash);
+                if (!blocked) {
+                    for (uint r = 0; r < plainFilters.length(); r++) {
+                        if (content.findFirst(plainFilters[r]) >= 0) { blocked = true; break; }
+                    }
+                }
+                if (!blocked) {
+                    for (uint r = 0; r < regexFilters.length(); r++) {
+                        if (content.regexFind(regexFilters[r]) >= 0) { blocked = true; break; }
+                    }
+                }
+                blockedFlags[item] = blocked ? 1 : 0;
+                if ((item & 511) == 0) {
+                    uint now = HostGetTickCount();
+                    if (now != fallbackHeartbeat) { HostIncTimeOut(int(now - fallbackHeartbeat)); fallbackHeartbeat = now; }
+                }
+            }
+        }
+    }
+
+    uint mergeWindowMs = uint(stay * 1000 + 0.5);
+    heartbeat = HostGetTickCount();
+    if (processExtra) {
+        for (uint item = 0; item < order.length(); item++) {
+            if ((item & 511) == 0) {
+                uint now = HostGetTickCount();
+                if (now != heartbeat) { HostIncTimeOut(int(now - heartbeat)); heartbeat = now; }
+            }
+            if (blockedFlags[item] != 0) continue;
+            uint index = uint(order[item] & 0xFFFFFFFF);
+            uint progress = times[index];
+            uint mode = modes[index];
+            string content = contents[index];
+            string midHash = midHashes[index];
+            string key;
+            if (processRepeatedUser || processMerge) key = formatUInt(mode) + "|" + content;
+            if (processRepeatedUser && !midHash.empty()) {
+                string userKey = midHash + "|" + key;
+                if (seenUser.exists(userKey)) continue;
+                seenUser.set(userKey, true);
+            }
+            if (processMerge) {
+                int64 groupIndex = -1;
+                if (mergeGroup.get(key, groupIndex)) {
+                    uint firstProgress = times[renderIndices[uint(groupIndex)]];
+                    if (progress >= firstProgress && progress - firstProgress <= mergeWindowMs) {
+                        mergeCounts[uint(groupIndex)]++;
+                        continue;
+                    }
+                }
+                uint newIndex = renderIndices.length();
+                renderIndices.insertLast(index);
+                mergeCounts.insertLast(1);
+                mergeGroup.set(key, int64(newIndex));
+            } else {
+                renderIndices.insertLast(index);
+                mergeCounts.insertLast(1);
+            }
+        }
+    }
+
+    uint filterMs = HostGetTickCount() - filterStart;
+    HostPrintUTF8("[Danmaku] 过滤+去重+合并: " + formatFloat(double(filterMs) / 1000.0, "", 0, 3) + " s\r\n");
+
+    uint renderLength = processExtra ? renderIndices.length() : order.length();
+    uint durationCs = uint(stay * 100 + 0.5);
+    if (durationCs == 0) durationCs = 1;
+    double stayMs = stay * 1000;
+    string fontTag = "\\fs" + formatInt(fontSize) + "\\fn" + font + boldEffect + "\\q2}";
+    string textEffect, backgroundEffect;
+    bool backgroundLayer = ConfigData.danmakuFontEffect >= 3;
+    if (ConfigData.danmakuFontEffect == 0 || ConfigData.danmakuFontEffect == 3) {
+        textEffect = "\\bord0\\shad0\\blur0";
+    } else if (ConfigData.danmakuFontEffect == 1) {
+        textEffect = "\\bord0\\xshad" + ConfigData.danmakuShadowDepth + "\\yshad" + ConfigData.danmakuShadowDepth + "\\4c&H000000&\\blur0";
+    } else {
+        textEffect = "\\bord" + ConfigData.danmakuOutlineWidth + "\\shad0\\3c&H000000&\\blur0";
+    }
+    if (backgroundLayer) backgroundEffect = "\\alpha&H" + alphaHex + "&\\1c&H000000&\\bord0\\shad0\\blur" + ConfigData.danmakuBlurRadius + fontTag;
+    string foregroundPrefix = "\\alpha&H" + alphaHex + "&\\1c&H";
+    string foregroundSuffix = "&\\fs" + formatInt(fontSize) + "\\fn" + font + boldEffect + textEffect + "\\q2}";
+
+    string chunk;
+    heartbeat = HostGetTickCount();
+    for (uint item = 0; item < renderLength; item++) {
+        if ((item & 511) == 0) {
+            uint now = HostGetTickCount();
+            if (now != heartbeat) { HostIncTimeOut(int(now - heartbeat)); heartbeat = now; }
+        }
+        uint index = processExtra ? renderIndices[item] : uint(order[item] & 0xFFFFFFFF);
+        uint progress = times[index], mode = modes[index], color = colors[index];
+        string content = contents[index];
+        if (processMerge && mergeCounts[item] > 1) content += "(" + formatUInt(mergeCounts[item]) + ")";
+
+        uint characters = 0;
+        for (uint i = 0, n = content.length(); i < n; i++)
+            if ((uint8(content[i]) & 0xC0) != 0x80) characters++;
+        if (characters == 0) continue;
+
+        uint width = characters * uint(fontSize), lane = lanes;
+        array<uint>@ lastStart = @scrollStart;
+        array<double>@ entryDelay = @scrollEntryDelay;
+        array<bool>@ used = @scrollUsed;
+        if (mode == 6) { @lastStart = @reverseStart; @entryDelay = @reverseEntryDelay; @used = @reverseUsed; }
+
+        double exitDelay = (mode == 1 || mode == 6) ? stayMs * double(width) / (1920 + double(width)) : 0;
+        uint fallbackLane = 0;
+        double shortestWait = 1.0e100;
+        for (uint i = 0; i < lanes; i++) {
+            if (mode == 5 || mode == 4) {
+                uint ready = mode == 5 ? topReady[i] : bottomReady[i];
+                if (ready <= progress) { lane = i; break; }
+                double wait = double(ready - progress);
+                if (wait < shortestWait) { shortestWait = wait; fallbackLane = i; }
+                continue;
+            }
+            uint elapsed = progress >= lastStart[i] ? progress - lastStart[i] : 0;
+            double required = entryDelay[i] > exitDelay ? entryDelay[i] : exitDelay;
+            if (!used[i] || double(elapsed) >= required) { lane = i; break; }
+            double wait = required - double(elapsed);
+            if (wait < shortestWait) { shortestWait = wait; fallbackLane = i; }
+        }
+        if (lane == lanes) {
+
+            lane = fallbackLane;
+        }
+
+        if (mode == 5) topReady[lane] = progress + durationCs * 10;
+        else if (mode == 4) bottomReady[lane] = progress + durationCs * 10;
+        else {
+            used[lane] = true;
+            lastStart[lane] = progress;
+            entryDelay[lane] = exitDelay;
+        }
+
+        string safeText;
+        uint begin = 0;
+        for (uint i = 0, n = content.length(); i < n; i++) {
+            uint8 b = uint8(content[i]);
+            if (b != 10 && b != 13 && b != 92 && b != 123 && b != 125) continue;
+            if (i > begin) safeText += content.substr(begin, i - begin);
+            if (b == 10 || b == 13) safeText += " ";
+            else if (b == 92) safeText += "＼";
+            else if (b == 123) safeText += "｛";
+            else safeText += "｝";
+            begin = i + 1;
+        }
+        if (begin == 0) safeText = content;
+        else if (begin < content.length()) safeText += content.substr(begin);
+        uint start = (progress + 5) / 10;
+        uint finish = start + durationCs;
+        uint sm = start / 6000 % 60, ss = start / 100 % 60, sc = start % 100;
+        uint em = finish / 6000 % 60, es = finish / 100 % 60, ec = finish % 100;
+        string startTime = formatUInt(start / 360000) + ":" + (sm < 10 ? "0" : "") + formatUInt(sm) +
+            ":" + (ss < 10 ? "0" : "") + formatUInt(ss) + "." + (sc < 10 ? "0" : "") + formatUInt(sc);
+        string endTime = formatUInt(finish / 360000) + ":" + (em < 10 ? "0" : "") + formatUInt(em) +
+            ":" + (es < 10 ? "0" : "") + formatUInt(es) + "." + (ec < 10 ? "0" : "") + formatUInt(ec);
+        string assColor = "FFFFFF";
+        if (color != 0xFFFFFF) {
+            uint red = (color >> 16) & 255, green = (color >> 8) & 255, blue = color & 255;
+            assColor = hex.substr(blue >> 4, 1) + hex.substr(blue & 15, 1) + hex.substr(green >> 4, 1) + hex.substr(green & 15, 1) + hex.substr(red >> 4, 1) + hex.substr(red & 15, 1);
+        }
+
+        uint y = lane * laneHeight;
+        string position;
+        if (mode == 5) position = "\\an8\\pos(960," + formatInt(y) + ")";
+        else if (mode == 4) position = "\\an2\\pos(960," + formatInt(1080 - y) + ")";
+        else {
+            uint right = 1920 + width / 2;
+            int left = -int(width / 2);
+            if (mode == 6) position = "\\move(" + formatInt(left) + "," + formatInt(y) + "," + formatInt(right) + "," + formatInt(y) + ")";
+            else position = "\\move(" + formatInt(right) + "," + formatInt(y) + "," + formatInt(left) + "," + formatInt(y) + ")";
+        }
+
+        string prefix = startTime + "," + endTime + ",Danmaku,,0,0,0,,{" + position;
+        if (backgroundLayer) chunk += "Dialogue: 0," + prefix + backgroundEffect + safeText + "\r\n";
+        chunk += "Dialogue: 1," + prefix + foregroundPrefix + assColor + foregroundSuffix + safeText + "\r\n";
+        if (chunk.length() >= 65536) { ass += chunk; chunk = ""; }
+    }
+    ass += chunk;
+
+    return ass;
 }
 
 string getFixedURL(JsonValue&in data) {
@@ -3539,7 +3713,7 @@ string Bangumi(const string&in path, dictionary& MetaData, array<dictionary>& Qu
 				array<dictionary> chapter = generateChapter(episode["skip"], bvid, float(duration));
 				if (!chapter.empty()) MetaData["chapter"] = chapter;
 
-				array<dictionary> subtitle = generateSubtitle(aid, cid, duration/1000, true);
+				array<dictionary> subtitle = generateSubtitle(aid, cid, duration, true);
 				if (!subtitle.empty()) MetaData["subtitle"] = subtitle;
 
 				res = apiPost("/pgc/season/episode/web/info?ep_id=" + epid);
@@ -3640,9 +3814,6 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 		author = "@" + view["owner"]["name"].asString();
 	}
 
-	bool is360;
-	if (view["rights"]["is_360"].isInt()) is360 = view["rights"]["is_360"].asInt() != 0;
-
 	string chatUrl;
 	string chatScript;
 	if (ConfigData.enableVodChatUrl && HostFileExist(ConfigData.ChatScriptVod)) {
@@ -3655,6 +3826,12 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 		if (jsData.length() >= 3 && jsData[0] == 0xEF && jsData[1] == 0xBB && jsData[2] == 0xBF) jsData = jsData.substr(3);
 		chatScript = jsData;
 	}
+
+	bool is360;
+	if (view["rights"]["is_360"].isInt()) is360 = view["rights"]["is_360"].asInt() != 0;
+
+	bool isSteinGate;
+	if (view["rights"]["is_stein_gate"].isInt()) isSteinGate = view["rights"]["is_stein_gate"].asInt() != 0;
 
 	bool is_upower_exclusive = view["is_upower_exclusive"].asBool();
 	bool is_upower_preview = view["is_upower_preview"].asBool();
@@ -3680,7 +3857,7 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 		array<dictionary> chapter = generateChapter(JsonValue(), bvid, float(duration));
 		if (!chapter.empty()) MetaData["chapter"] = chapter;
 
-		array<dictionary> subtitle = generateSubtitle(aid, cid, duration/1000, false);
+		array<dictionary> subtitle = generateSubtitle(aid, cid, duration, false);
 		if (!subtitle.empty()) MetaData["subtitle"] = subtitle;
 	}
 
@@ -3692,6 +3869,10 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 			if (@MetaData !is null) MetaData["fileExt"] = "jpg";
 			return view["pic"].asString();
 		}
+	}
+
+	if (isSteinGate) {
+		HostMessageBox("该视频为互动视频\n请点击左下角up主名字 "+ author +" 进入网页端观看", "BilibiliPotPlayer", 0, 0);
 	}
 
 	url = AppendVideoQualityList(bvid, aid, cid, QualityList);

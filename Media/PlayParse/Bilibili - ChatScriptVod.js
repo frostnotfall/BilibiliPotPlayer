@@ -8,25 +8,28 @@
     return '';
   };
   if (!pageType()) return;
-  window.bilibiliVideoComments?.destroy();
+  let previousShortcuts = window.bilibiliVideoComments?.destroy() || {};
+  const disposers = [];
+  function listen(types, handler, options) {
+    for (const type of types.split(' ')) {
+      window.addEventListener(type, handler, options);
+      disposers.push(() => window.removeEventListener(type, handler, options));
+    }
+  }
+  function addStyle(root, css) {
+    const style = document.createElement('style');
+    style.textContent = css;
+    root.append(style);
+    return style;
+  }
 
   function disableBilibiliAutoPlay() {
     const el = document.querySelector('input.bui-switch-input[aria-label*="自动开播"]');
-    if (!el) {
-      return false;
-    }
-    if (el.checked) {
-      el.click();
-    }
-    return true;
+    if (el?.checked) el.click();
   }
   function pauseBilibiliVideo(doc = document) {
-    for (const video of doc.querySelectorAll('video')) {
-      if (!video.paused && !video.ended) {
-        video.pause();
-        return true;
-      }
-    }
+    const video = [...doc.querySelectorAll('video')].find(video => !video.paused && !video.ended);
+    if (video) { video.pause(); return true; }
     for (const iframe of doc.querySelectorAll('iframe')) {
       try {
         if (iframe.contentDocument && pauseBilibiliVideo(iframe.contentDocument)) return true;
@@ -41,17 +44,13 @@
       if (danmaku.isDisabled?.()) return false;
       const open = danmaku.isOpen();
       if (typeof open !== 'boolean') return false;
-      if (open) {
-        danmaku.close();
-      }
+      if (open) danmaku.close();
       return true;
     }
     // 兼容旧版播放器：通过官方复选框关闭，不改写其 checked 属性。
     const input = document.querySelector('.bpx-player-dm-switch input.bui-switch-input');
     if (!input || input.disabled || typeof input.checked !== 'boolean') return false;
-    if (input.checked) {
-      input.click();
-    }
+    if (input.checked) input.click();
     return true;
   }
   // 初始化时依次执行一次；不拦截后续手动播放，也不在布局更新时重复暂停。
@@ -62,20 +61,52 @@
   // 点击功能随布局实例安装/卸载；普通浏览器中不改变跳转。
   function installPotPlayerClick() {
     const webview = window.chrome?.webview;
-    if (typeof webview?.postMessage !== 'function') return () => {};
+    if (typeof webview?.postMessage !== 'function') return { prepare() {}, destroy() {} };
     const originalOpen = window.open;
     const clickScope = '.video-tag-container, #bgm-entry #musicApp .videoList :is(.coverWrap, .videoTitle)';
     const commentScope = 'bili-comments, .bb-comment';
     let click = null;
     let timer = 0;
+    const shortLinks = new Map();
 
-    function supportedUrl(value) {
+    function prepare(root) {
+      for (const anchor of root.querySelectorAll('a[href]')) {
+        let url;
+        try { url = new URL(anchor.getAttribute('href'), location.href).href; } catch { continue; }
+        if (!/^https?:\/\/b23\.tv\/[a-z\d]+\/?(?:[?#].*)?$/i.test(url) || shortLinks.has(url)) continue;
+        // 仅提前解析评论短链接；禁用框架脚本，避免目标页自动播放。
+        const iframe = document.createElement('iframe');
+        const entry = { url: '', cancel() {} };
+        shortLinks.set(url, entry);
+        iframe.hidden = true;
+        iframe.setAttribute('sandbox', 'allow-same-origin');
+        const timeout = setTimeout(() => entry.cancel(), 8000);
+        entry.cancel = () => {
+          clearTimeout(timeout);
+          iframe.onload = null;
+          iframe.remove();
+          entry.cancel = () => {};
+        };
+        iframe.onload = () => {
+          try { entry.url = supportedUrl(iframe.contentDocument?.URL, true); } catch { /* 非同源目标保留原链接。 */ }
+          entry.cancel();
+        };
+        iframe.src = url;
+        document.body.append(iframe);
+      }
+    }
+
+    function supportedUrl(value, playbackOnly = false) {
       if (!value) return '';
       try {
         const u = new URL(value, location.href);
         if (!['https:', 'http:'].includes(u.protocol)) return '';
         const host = u.hostname.toLowerCase();
         const path = u.pathname;
+        if (host === 'b23.tv') return shortLinks.get(u.href)?.url || '';
+        if (playbackOnly) return host === 'live.bilibili.com' && /^\/(?:blanc\/)?\d+\/?$/.test(path)
+          || host === 'www.bilibili.com' && /^\/(?:video\/(?:BV[a-z\d]+|av\d+)|bangumi\/play\/(?:ep|ss)\d+)(?:\/|$)/i.test(path)
+          ? u.href : '';
         if (['t.bilibili.com', 'search.bilibili.com', 'live.bilibili.com'].includes(host)
           || (host === 'space.bilibili.com' && /^\/\d+(?:\/|$)/.test(path))
           || (host === 'link.bilibili.com' && path.includes('/user-center/follow'))) return u.href;
@@ -95,18 +126,7 @@
         webview.postMessage({ type: 'potPlayer.video-click', url });
         if (click) click.sent = url;
         return true;
-      } catch (error) {
-        return false;
-      }
-    }
-
-    function playbackUrl(value) {
-      const url = supportedUrl(value);
-      if (!url) return '';
-      const { hostname, pathname } = new URL(url);
-      return hostname === 'live.bilibili.com' && /^\/(?:blanc\/)?\d+\/?$/.test(pathname)
-        || hostname === 'www.bilibili.com' && /^\/(?:video\/(?:BV[a-z\d]+|av\d+)|bangumi\/play\/(?:ep|ss)\d+)(?:\/|$)/i.test(pathname)
-        ? url : '';
+      } catch { return false; }
     }
 
     function onClick(event) {
@@ -118,10 +138,8 @@
       const anchor = path.find(node => node.matches?.('a[href]'));
       const inScope = path.some(node => node.matches?.(clickScope));
       // 评论只接管明确带 href 的播放链接，不启用 window.open 后备处理。
-      const inComments = path.some(node => node.matches?.(commentScope));
-      if (!inScope && !inComments) return;
-      const href = anchor?.getAttribute('href');
-      const url = inScope ? supportedUrl(href) : playbackUrl(href);
+      if (!inScope && !path.some(node => node.matches?.(commentScope))) return;
+      const url = supportedUrl(anchor?.getAttribute('href'), !inScope);
       if (url) {
         if (send(url)) {
           event.preventDefault();
@@ -143,21 +161,24 @@
     }
 
     window.open = open;
-    window.addEventListener('click', onClick, { capture: true, passive: false });
-    window.addEventListener('auxclick', onClick, { capture: true, passive: false });
-    return () => {
+    listen('click auxclick', onClick, { capture: true, passive: false });
+    return { prepare, destroy() {
       clearTimeout(timer);
       click = null;
-      window.removeEventListener('click', onClick, true);
-      window.removeEventListener('auxclick', onClick, true);
+      for (const entry of shortLinks.values()) entry.cancel();
+      shortLinks.clear();
       if (window.open === open) window.open = originalOpen;
-    };
+    } };
   }
-  const destroyPotPlayerClick = installPotPlayerClick();
+  const potPlayerClick = installPotPlayerClick();
 
   const attr = 'data-bilibili-video-comments';
   const html = document.documentElement;
   const previous = html.getAttribute(attr);
+  function setScope(type = previous) {
+    if (type === null) html.removeAttribute(attr);
+    else html.setAttribute(attr, type);
+  }
   // 所有普通 DOM 样式均受此属性约束；不修改原站主题设置。
   const ugc = `html[${attr}="ugc"]`;
   const pgc = `html[${attr}="pgc"]`;
@@ -167,6 +188,25 @@
   const panel = `${scope}[${panelAttr}] #danmukuBox`;
   const panelSide = `${scope}[${panelAttr}]:has(#danmukuBox .bui-collapse-wrap:not(.bui-collapse-wrap-folded)) :is(.right-container, .plp-r-wrap)`;
   const panelPath = ':is(.right-container-inner, .video-pod-above-modules, .video-pod-above-modules__inner, .plp-r)';
+  // 复用声明片段，保留每条规则的选择器、优先级和顺序。
+  const pageSize = `
+    width: 100% !important; min-width: 0 !important; max-width: none !important;
+    margin: 0 !important; padding: 0 !important; box-sizing: border-box !important;
+  `;
+  const panelSize = (width, unit = '%') => `
+    position: fixed !important; inset: 8px 8px auto auto !important;
+    width: min(${width}px, calc(100${unit} - 16px)) !important;
+    height: calc(100vh - 16px) !important; height: calc(100dvh - 16px) !important;
+    min-width: 0 !important; min-height: 0 !important;
+  `;
+  const panelContent = `
+    display: flex; flex-direction: column;
+    width: 100% !important; height: 100% !important; min-width: 0 !important; min-height: 0 !important;
+  `;
+  const panelScroll = `
+    flex: 1 1 auto !important; height: auto !important; min-width: 0 !important; min-height: 0 !important;
+    overflow: auto !important; scrollbar-width: thin;
+  `;
   const css = `
     ${scope} {
       min-width: 0 !important;
@@ -192,18 +232,13 @@
       .float-nav, .fixed-sidenav, .footer, .special-cover) { display: none !important; }
 
     /* UGC：保留播放器壳和操作/评论节点，去掉两栏布局及额外信息。 */
-    ${ugc} :is(#app, .video-container-v1, .video-container-v1 .left-container) {
-      width: 100% !important; min-width: 0 !important; max-width: none !important;
-      margin: 0 !important; padding: 0 !important; box-sizing: border-box !important;
-    }
+    ${ugc} :is(#app, .video-container-v1, .video-container-v1 .left-container) { ${pageSize} }
     ${ugc} .video-container-v1 { display: block !important; }
     ${ugc} .fixed-sidenav-storage { display: none !important; }
     ${ugc} .video-container-v1 .right-container { display: none !important; }
     ${ugc} :is(.video-info-container,
       .video-ai-assistant,
-      .left-container .ad-report, .left-container #slide_ad, .video-page-special-card-small) {
-      display: none !important;
-    }
+      .left-container .ad-report, .left-container #slide_ad, .video-page-special-card-small) { display: none !important; }
     ${ugc} :is(.video-toolbar-container, .video-desc-container, .video-tag-container, #comment, #commentapp) {
       margin-left: 8px !important; margin-right: 8px !important;
       width: auto !important; min-width: 0 !important;
@@ -229,59 +264,26 @@
       max-width: 100% !important; min-height: 0 !important;
       margin-left: auto !important; flex-wrap: wrap !important; gap: 6px 8px;
     }
-    ${ugc} :is(.video-toolbar-left, .video-toolbar-right) > * {
-      flex: 0 0 auto !important; margin-right: 0 !important;
-    }
+    ${ugc} :is(.video-toolbar-left, .video-toolbar-right) > * { flex: 0 0 auto !important; margin-right: 0 !important; }
 
     /* 音乐挂载节点关闭时为空；只给实际打开的官方面板设置窗口尺寸。 */
     ${ugc} #bgm-entry:empty { display: none !important; }
-    ${ugc} #bgm-entry:has(> #musicApp.musicPcDetailPlayer) {
-      position: fixed !important; inset: 8px 8px auto auto !important;
-      width: min(640px, calc(100% - 16px)) !important;
-      height: calc(100vh - 16px) !important;
-      height: calc(100dvh - 16px) !important;
-      min-width: 0 !important; min-height: 0 !important;
-      box-sizing: border-box !important; margin: 0 !important;
-    }
-    ${ugc} #bgm-entry > #musicApp.musicPcDetailPlayer {
-      display: flex; flex-direction: column;
-      width: 100% !important; height: 100% !important;
-      min-width: 0 !important; min-height: 0 !important;
-    }
-    ${ugc} #bgm-entry > #musicApp.musicPcDetailPlayer > .mainWarp {
-      flex: 1 1 auto !important; height: auto !important;
-      min-width: 0 !important; min-height: 0 !important;
-      overflow: auto !important; scrollbar-width: thin;
-    }
+    ${ugc} #bgm-entry:has(> #musicApp.musicPcDetailPlayer) { ${panelSize(640)} box-sizing: border-box !important; margin: 0 !important; }
+    ${ugc} #bgm-entry > #musicApp.musicPcDetailPlayer { ${panelContent} }
+    ${ugc} #bgm-entry > #musicApp.musicPcDetailPlayer > .mainWarp { ${panelScroll} }
 
     /* 笔记不再依赖已压缩的播放器高度；显隐和关闭仍由官方控制。 */
     ${ugc} .note-pc {
-      position: fixed !important; inset: 8px 8px auto auto !important;
-      width: min(640px, calc(100% - 16px)) !important;
-      height: calc(100vh - 16px) !important;
-      height: calc(100dvh - 16px) !important;
-      min-width: 0 !important; min-height: 0 !important;
+      ${panelSize(640)}
       max-width: none !important; max-height: none !important;
       box-sizing: border-box !important; margin: 0 !important;
     }
-    ${ugc} .note-pc .note-container {
-      display: flex; flex-direction: column;
-      width: 100% !important; height: 100% !important;
-      min-width: 0 !important; min-height: 0 !important;
-      box-sizing: border-box !important;
-    }
+    ${ugc} .note-pc .note-container { ${panelContent} box-sizing: border-box !important; }
     ${ugc} .note-pc .note-header { flex: 0 0 auto !important; }
-    ${ugc} .note-pc .note-content {
-      flex: 1 1 auto !important; height: auto !important;
-      min-width: 0 !important; min-height: 0 !important;
-      overflow: auto !important; scrollbar-width: thin;
-    }
+    ${ugc} .note-pc .note-content { ${panelScroll} }
 
     /* PGC：解除播放器高度占位，信息区留在官方父容器内。 */
-    ${pgc} :is(.home-container, .main-container, .plp-l) {
-      width: 100% !important; min-width: 0 !important; max-width: none !important;
-      margin: 0 !important; padding: 0 !important; box-sizing: border-box !important;
-    }
+    ${pgc} :is(.home-container, .main-container, .plp-l) { ${pageSize} }
     ${pgc} .plp-layout { display: block !important; }
     ${pgc} .plp-left-wrap {
       box-sizing: border-box !important; width: 100% !important;
@@ -303,9 +305,7 @@
       left: auto !important; right: 8px !important;
       width: max-content !important; max-width: calc(100% - 16px) !important;
     }
-    ${pgc} [class*="moreTool_popupWrap"] {
-      min-width: 0 !important; max-width: 100% !important;
-    }
+    ${pgc} [class*="moreTool_popupWrap"] { min-width: 0 !important; max-width: 100% !important; }
     ${pgc} [class*="mediainfo_mediaRight"] { min-width: 0; }
     ${pgc} [class*="mediainfo_bottomBar"] { flex-wrap: wrap; gap: 8px; }
     ${pgc} #comment-module { padding-top: 18px !important; }
@@ -336,9 +336,7 @@
       flex: 1 1 280px !important; width: auto !important; min-width: 0 !important;
       height: auto !important;
     }
-    ${scope} :is(.bpx-player-dm-root, .bpx-player-dm-wrap, .bpx-player-dm-input) {
-      min-width: 0 !important; max-width: 100% !important;
-    }
+    ${scope} :is(.bpx-player-dm-root, .bpx-player-dm-wrap, .bpx-player-dm-input) { min-width: 0 !important; max-width: 100% !important; }
     /* 原弹幕浮层向上覆盖视频；改为锚定发送栏下方，显隐仍由官方控制。 */
     ${scope} .bpx-player-dm-setting { position: static !important; }
     ${scope} .bpx-player-dm-setting-wrap {
@@ -360,15 +358,9 @@
     /* 恢复通往 #danmukuBox 的路径，其他推荐内容保持隐藏。 */
     ${panelSide}, ${panelSide} ${panelPath} { display: contents !important; }
     ${panelSide} > :not(:has(#danmukuBox)),
-    ${panelSide} ${panelPath} > :not(#danmukuBox):not(:has(#danmukuBox)) {
-      display: none !important;
-    }
+    ${panelSide} ${panelPath} > :not(#danmukuBox):not(:has(#danmukuBox)) { display: none !important; }
     ${panel} {
-      position: fixed !important; inset: 8px 8px auto auto !important;
-      width: min(350px, calc(100vw - 16px)) !important;
-      height: calc(100vh - 16px) !important;
-      height: calc(100dvh - 16px) !important;
-      min-width: 0 !important; min-height: 0 !important; margin: 0 !important;
+      ${panelSize(350, 'vw')} margin: 0 !important;
       box-sizing: border-box !important; z-index: 1002;
     }
     ${panel} :is(.danmaku-wrap, .bpx-docker-minor,
@@ -377,15 +369,11 @@
       display: flex !important; flex-direction: column;
       width: 100% !important; height: 100% !important; min-height: 0 !important;
     }
-    ${panel} .bui-collapse-header {
-      flex: 0 0 44px; height: 44px !important;
-    }
+    ${panel} .bui-collapse-header { flex: 0 0 44px; height: 44px !important; }
     ${panel} .bui-collapse-body {
       flex: 1 1 auto; min-height: 0 !important; height: auto !important;
     }
-    ${panel} .bpx-player-wraplist {
-      height: 100% !important; min-height: 0 !important;
-    }
+    ${panel} .bpx-player-wraplist { height: 100% !important; min-height: 0 !important; }
     ${panel} .bpx-player-dm > :is(.bpx-player-dm-wrap, .bpx-player-dm-wrap-child) {
       /* 官方表头 32px、底栏 31px、间距 8px；仅修正列表视口高度。 */
       height: calc(100% - 71px) !important; min-height: 0 !important;
@@ -420,32 +408,21 @@
   `;
 
   // 仅补足公共 CSS 变量无法覆盖的窄屏规则；不强制展开官方隐藏节点。
+  const commentInset = 'var(--bilibili-video-comments-content-inset)';
   const shadowCSS = {
     /* 头像左移 20px 后，所有原先 80px 的内容缩进统一减为 60px。 */
     'bili-comments': `
-      #reply-commentbox bili-comment-box {
-        padding-left: var(--bilibili-video-comments-content-inset) !important;
-      }
-      #limit-mask-tip {
-        margin-left: var(--bilibili-video-comments-content-inset) !important;
-        width: calc(100% - var(--bilibili-video-comments-content-inset)) !important;
-      }
+      #reply-commentbox bili-comment-box { padding-left: ${commentInset} !important; }
+      #limit-mask-tip { margin-left: ${commentInset} !important; width: calc(100% - ${commentInset}) !important; }
     `,
     'bili-comment-renderer': `
       #user-avatar { left: 0 !important; }
-      #body { padding-left: var(--bilibili-video-comments-content-inset) !important; }
+      #body { padding-left: ${commentInset} !important; }
     `,
-    'bili-comment-thread-renderer': `
-      #div { margin-left: var(--bilibili-video-comments-content-inset) !important; }
-    `,
-    'bili-comment-replies-renderer': `
-      #expander { padding-left: var(--bilibili-video-comments-content-inset) !important; }
-    `,
+    'bili-comment-thread-renderer': `#div { margin-left: ${commentInset} !important; }`,
+    'bili-comment-replies-renderer': `#expander { padding-left: ${commentInset} !important; }`,
     'bili-comments-header-renderer': `
-      #disabled-commentbox #user-avatar {
-        justify-content: flex-start !important;
-        width: var(--bilibili-video-comments-content-inset) !important;
-      }
+      #disabled-commentbox #user-avatar { justify-content: flex-start !important; width: ${commentInset} !important; }
     `,
     'bili-comment-action-buttons-renderer': `
       :host { flex-wrap: wrap !important; gap: 2px 12px; }
@@ -453,14 +430,8 @@
       #more { margin-left: auto !important; margin-right: 0 !important; }
     `,
     'bili-comment-box': `
-      #user-avatar {
-        justify-content: flex-start !important;
-        width: var(--bilibili-video-comments-content-inset) !important;
-      }
-      #comment-area {
-        min-width: 0;
-        width: calc(100% - var(--bilibili-video-comments-content-inset)) !important;
-      }
+      #user-avatar { justify-content: flex-start !important; width: ${commentInset} !important; }
+      #comment-area { min-width: 0; width: calc(100% - ${commentInset}) !important; }
       #footer { flex-wrap: wrap; gap: 6px 0; }
     `,
     'bili-comment-user-info': `
@@ -482,21 +453,25 @@
     `,
   };
   // 遍历这些开放组件边界，不修改 attachShadow 或官方组件原型。
-  const tags = ['bili-comments-bottom-fixed-wrapper', 'bili-comment-reply-renderer',
+  const tags = ['bili-comments-bottom-fixed-wrapper', 'bili-comment-reply-renderer', 'bili-rich-text',
     ...Object.keys(shadowCSS)];
   const selector = tags.join(',');
   const roots = new Map();
-  const profilePositions = new Map();
   const profileProperties = ['--bilibili-video-comments-profile-left', '--bilibili-video-comments-profile-top'];
-  function restoreProfile(host) {
-    const saved = profilePositions.get(host);
-    if (!saved) return;
-    profileProperties.forEach((key, i) => {
-      const [value, priority] = saved[i];
-      if (value) host.style.setProperty(key, value, priority);
-      else host.style.removeProperty(key);
+  function observe(root) {
+    observer.observe(root, { childList: true, subtree: true });
+    if (root.host?.localName === 'bili-user-profile')
+      observer.observe(root.host, { attributes: true, attributeFilter: ['style'] });
+  }
+  function removeRoot(root) {
+    const { style, position } = roots.get(root);
+    style?.remove();
+    position?.forEach(([value, priority], i) => {
+      const key = profileProperties[i];
+      if (value) root.host.style.setProperty(key, value, priority);
+      else root.host.style.removeProperty(key);
     });
-    profilePositions.delete(host);
+    roots.delete(root);
   }
   function fitProfile(host) {
     const { width, height } = host.getBoundingClientRect();
@@ -511,16 +486,69 @@
       if (host.style.getPropertyValue(key) !== next) host.style.setProperty(key, next);
     });
   }
-  const style = document.createElement('style');
+  const style = addStyle(html, css);
   style.dataset.bilibiliVideoCommentsStyle = '';
-  style.textContent = css;
-  html.append(style);
   let stopped = false;
   let frame = 0;
   let resizeFrame = 0;
   let responsiveRoute = '';
   const responsiveTargets = new Map();
-  const panelClickOptions = { capture: true };
+  let shortcutPlayer = null;
+  let restorePlayerShortcuts = () => {};
+  function syncPlayerShortcuts(type) {
+    const player = type && typeof window.player?.toggleFeature === 'function' ? window.player : null;
+    if (player === shortcutPlayer) return;
+    previousShortcuts = { ...previousShortcuts, ...restorePlayerShortcuts() };
+    shortcutPlayer = player;
+    restorePlayerShortcuts = () => {};
+    if (!player) return;
+    const toggle = player.toggleFeature;
+    let officialShortcut = previousShortcuts.player === player ? previousShortcuts.shortcut : false;
+    function guardedToggle(features) {
+      if (features && Object.prototype.hasOwnProperty.call(features, 'shortcut')) officialShortcut = features.shortcut;
+      return toggle.call(this, pageType() ? { ...features, shortcut: true } : features);
+    }
+    // 官方总开关：覆盖所有播放器快捷键；保留官方对其他功能的设置。
+    player.toggleFeature = guardedToggle;
+    toggle.call(player, { shortcut: true });
+    restorePlayerShortcuts = () => {
+      if (player.toggleFeature !== guardedToggle) return;
+      player.toggleFeature = toggle;
+      toggle.call(player, { shortcut: officialShortcut });
+      return { player, shortcut: officialShortcut };
+    };
+  }
+  function disableMediaShortcuts() {
+    const session = window.navigator?.mediaSession;
+    if (typeof session?.setActionHandler !== 'function') return () => {};
+    const set = session.setActionHandler;
+    const handlers = new Map(previousShortcuts.session === session ? previousShortcuts.handlers : []);
+    const actions = ['play', 'pause', 'stop', 'seekbackward', 'seekforward', 'seekto', 'previoustrack', 'nexttrack'];
+    function guardedSet(action, handler) {
+      if (!actions.includes(action)) return set.call(this, action, handler);
+      handlers.set(action, handler);
+      return set.call(this, action, details => { if (!pageType()) handler?.(details); });
+    }
+    // 媒体键可能绕过 DOM 键盘事件，需同时屏蔽浏览器媒体控制通道。
+    for (const action of actions) {
+      try { guardedSet.call(session, action, handlers.get(action) || null); } catch { /* 浏览器可能不支持该媒体动作。 */ }
+    }
+    session.setActionHandler = guardedSet;
+    return () => {
+      if (session.setActionHandler !== guardedSet) return;
+      session.setActionHandler = set;
+      for (const [action, handler] of handlers) {
+        try { set.call(session, action, handler); } catch { /* 同上。 */ }
+      }
+      return { session, handlers };
+    };
+  }
+  let restoreMediaShortcuts = null;
+  function onMediaKey(event) {
+    if (!pageType() || !/^(?:Media|AudioVolume)/.test(event.key)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
   function onDanmakuPanelClick(event) {
     if (!pageType() || (typeof event.button === 'number' && event.button !== 0)) return;
     const panel = document.querySelector('#danmukuBox');
@@ -546,19 +574,18 @@
   }
   const sizeObserver = new ResizeObserver(entries => {
     for (const { target, contentRect } of entries) {
-      if (!responsiveTargets.has(target)) continue;
-      if (responsiveTargets.get(target) !== contentRect.width) {
+      if (responsiveTargets.has(target) && responsiveTargets.get(target) !== contentRect.width) {
         responsiveTargets.set(target, contentRect.width);
         notifyOfficialResize();
       }
     }
   });
   function syncResponsiveLayout(type) {
-    const targets = type === 'ugc'
-      ? [...document.querySelectorAll('.video-toolbar-container, .video-tag-container')] : [];
+    const targets = new Set(type === 'ugc'
+      ? document.querySelectorAll('.video-toolbar-container, .video-tag-container') : []);
     let added = false;
     for (const target of responsiveTargets.keys()) {
-      if (!targets.includes(target)) {
+      if (!targets.has(target)) {
         sizeObserver.unobserve(target);
         responsiveTargets.delete(target);
       }
@@ -573,7 +600,7 @@
     const route = type === 'ugc' ? location.pathname + (location.search || '') : '';
     if (responsiveRoute !== route) {
       responsiveRoute = route;
-      if (targets.length && !added) notifyOfficialResize();
+      if (targets.size && !added) notifyOfficialResize();
     }
   }
 
@@ -584,28 +611,24 @@
   function schedule() {
     if (!stopped && !frame) frame = requestAnimationFrame(sync);
   }
-  function visit(root) {
+  function visit(root, inComments = false) {
+    inComments ||= root.host?.localName === 'bili-comments';
+    if (inComments && root.host?.localName === 'bili-rich-text') potPlayerClick.prepare(root);
+    if (root === document) for (const comments of root.querySelectorAll('.bb-comment')) potPlayerClick.prepare(comments);
     for (const host of root.querySelectorAll(selector)) {
       const shadow = host.shadowRoot;
       if (!shadow) continue;
       if (!roots.has(shadow)) {
-        let localStyle = null;
-        if (shadowCSS[host.localName]) {
-          localStyle = document.createElement('style');
-          localStyle.textContent = shadowCSS[host.localName];
-          shadow.append(localStyle);
-        }
-        roots.set(shadow, localStyle);
-        observer.observe(shadow, { childList: true, subtree: true });
-        if (host.localName === 'bili-user-profile') {
-          profilePositions.set(host, profileProperties.map(key => [host.style.getPropertyValue(key), host.style.getPropertyPriority(key)]));
-          observer.observe(host, { attributes: true, attributeFilter: ['style'] });
-        }
-      } else {
-        const localStyle = roots.get(shadow);
-        if (localStyle && localStyle.parentNode !== shadow) shadow.append(localStyle);
+        roots.set(shadow, {
+          style: shadowCSS[host.localName] ? addStyle(shadow, shadowCSS[host.localName]) : null,
+          position: host.localName === 'bili-user-profile'
+            ? profileProperties.map(key => [host.style.getPropertyValue(key), host.style.getPropertyPriority(key)]) : null,
+        });
+        observe(shadow);
       }
-      visit(shadow);
+      const localStyle = roots.get(shadow).style;
+      if (localStyle && localStyle.parentNode !== shadow) shadow.append(localStyle);
+      visit(shadow, inComments);
       if (host.localName === 'bili-user-profile') fitProfile(host);
     }
   }
@@ -613,57 +636,50 @@
     frame = 0;
     if (stopped) return;
     const type = pageType();
+    syncPlayerShortcuts(type);
+    if (type && !restoreMediaShortcuts) restoreMediaShortcuts = disableMediaShortcuts();
+    else if (!type && restoreMediaShortcuts) {
+      previousShortcuts = { ...previousShortcuts, ...restoreMediaShortcuts() };
+      restoreMediaShortcuts = null;
+    }
     if (!type || !document.querySelector('#danmukuBox')) html.removeAttribute(panelAttr);
     // 只等首次可用；成功后不在 DOM 更新或手动重新开启时重复关闭。
     if (type && !danmakuInitialized) danmakuInitialized = disableBilibiliDanmaku();
-    if (type) html.setAttribute(attr, type);
-    else if (previous === null) html.removeAttribute(attr);
-    else html.setAttribute(attr, previous);
-    let detached = false;
-    for (const [root, localStyle] of roots) {
-      if (!type || !root.host.isConnected) {
-        restoreProfile(root.host);
-        localStyle?.remove();
-        roots.delete(root);
-        detached = true;
-      }
-    }
-    if (detached) {
+    setScope(type || previous);
+    const detached = [...roots.keys()].filter(root => !type || !root.host.isConnected);
+    detached.forEach(removeRoot);
+    if (detached.length) {
       observer.disconnect();
-      observer.observe(html, { childList: true, subtree: true });
-      for (const root of roots.keys()) observer.observe(root, { childList: true, subtree: true });
-      for (const host of profilePositions.keys()) observer.observe(host, { attributes: true, attributeFilter: ['style'] });
+      observe(html);
+      for (const root of roots.keys()) observe(root);
     }
     if (type) visit(document);
     syncResponsiveLayout(type);
   }
-  observer.observe(html, { childList: true, subtree: true });
-  window.addEventListener('popstate', schedule);
-  window.addEventListener('resize', schedule);
-  window.addEventListener('click', onDanmakuPanelClick, panelClickOptions);
+  observe(html);
+  listen('popstate resize', schedule);
+  listen('click', onDanmakuPanelClick, { capture: true });
+  listen('keydown keyup', onMediaKey, { capture: true, passive: false });
   // 已在 DOM 中但还未升级的组件，定义完成后再检查，不使用轮询。
   for (const tag of tags) customElements.whenDefined(tag).then(schedule);
   const controller = {
     destroy() {
       if (stopped) return;
       stopped = true;
-      destroyPotPlayerClick();
+      const shortcuts = { ...restorePlayerShortcuts(), ...restoreMediaShortcuts?.() };
+      potPlayerClick.destroy();
       cancelAnimationFrame(frame);
       cancelAnimationFrame(resizeFrame);
       sizeObserver.disconnect();
       responsiveTargets.clear();
       observer.disconnect();
-      window.removeEventListener('popstate', schedule);
-      window.removeEventListener('resize', schedule);
-      window.removeEventListener('click', onDanmakuPanelClick, panelClickOptions);
+      for (const dispose of disposers) dispose();
       html.removeAttribute(panelAttr);
-      for (const host of profilePositions.keys()) restoreProfile(host);
-      for (const localStyle of roots.values()) localStyle?.remove();
-      roots.clear();
+      for (const root of roots.keys()) removeRoot(root);
       style.remove();
-      if (previous === null) html.removeAttribute(attr);
-      else html.setAttribute(attr, previous);
+      setScope();
       if (window.bilibiliVideoComments === controller) delete window.bilibiliVideoComments;
+      return shortcuts;
     },
   };
   window.bilibiliVideoComments = controller;
