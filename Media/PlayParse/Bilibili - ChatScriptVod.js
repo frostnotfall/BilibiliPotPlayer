@@ -63,7 +63,10 @@
 
   // 时间文字保留显示；共用开关及拦截器，先于 PotPlayer 点击模块阻止跳转/播放。
   if (BLOCK_VIDEO_SEEK) listen('click auxclick dblclick', event => {
-    if (!pageType() || !event.composedPath().some(node => node.matches?.('[data-type="seek"], .dm-info-time'))) return;
+    // 官方时间 span 禁用指针命中，实际由整行的 dblclick 触发 seek；单击选中仍保留。
+    if (!pageType() || !event.composedPath().some(node =>
+      node.matches?.('[data-type="seek"], .dm-info-time') ||
+      event.type === 'dblclick' && node.matches?.('#danmukuBox .dm-info-row'))) return;
     event.preventDefault();
     event.stopImmediatePropagation();
   }, { capture: true, passive: false });
