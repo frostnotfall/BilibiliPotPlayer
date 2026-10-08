@@ -1,6 +1,9 @@
 (() => {
   'use strict';
 
+  // 统一屏蔽评论和弹幕列表的时间跳转；改为 false 后重新注入可恢复官方行为。
+  const BLOCK_VIDEO_SEEK = true;
+
   const pageType = () => {
     if (location.hostname !== 'www.bilibili.com') return '';
     if (/^\/video\/(?:BV[\w]+|av\d+)(?:\/|$)/i.test(location.pathname)) return 'ugc';
@@ -58,9 +61,9 @@
   pauseBilibiliVideo();
   let danmakuInitialized = disableBilibiliDanmaku();
 
-  // 时间定位链接保留显示；先于 PotPlayer 点击模块阻止官方跳转/播放。
-  listen('click auxclick', event => {
-    if (!pageType() || !event.composedPath().some(node => node.matches?.('[data-type="seek"]'))) return;
+  // 时间文字保留显示；共用开关及拦截器，先于 PotPlayer 点击模块阻止跳转/播放。
+  if (BLOCK_VIDEO_SEEK) listen('click auxclick dblclick', event => {
+    if (!pageType() || !event.composedPath().some(node => node.matches?.('[data-type="seek"], .dm-info-time'))) return;
     event.preventDefault();
     event.stopImmediatePropagation();
   }, { capture: true, passive: false });
