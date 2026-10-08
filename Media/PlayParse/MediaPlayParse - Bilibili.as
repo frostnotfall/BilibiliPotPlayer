@@ -363,7 +363,7 @@ class Config {
 	bool danmakuBold = false;
     int danmakuFontEffect = 2;
     float danmakuShadowDepth = 1.0;
-    float danmakuOutlineWidth = 1.0;
+    float danmakuOutlineWidth = 1.5;
     float danmakuBlurRadius = 5.0;
     bool danmakuBlockTop = false;
     bool danmakuBlockBottom = false;
