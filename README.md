@@ -27,6 +27,8 @@
 
 **_注意：由于登录机制的改变，从上游项目迁移过来的同学， 旧的 Cookie、Header、Referer 一定要删除。参考 [wiki](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/常见问题与故障排查#播放视频时一直转圈右下角画质选项不断跳动)。_**
 
+**_提示：后续Cookie刷新参考 [突然出现账号未登录](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/常见问题与故障排查#2-突然出现账号未登录)_**
+
 ## 其它改进
 
 ### 🔧 整体优化
