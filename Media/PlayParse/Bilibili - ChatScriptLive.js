@@ -1,22 +1,172 @@
+// ==UserScript==
+// @name         Bilibili 直播窄屏聊天
+// @namespace    bilibili-live-chat
+// @version      1.1.18
+// @description  保留原生头部、聊天、礼物、PK 和特效的窄屏布局
+// @match        https://live.bilibili.com/blanc/*
+// @grant        none
+// @run-at       document-idle
+// ==/UserScript==
+
 (() => {
   'use strict';
   if (!/^\/(?:blanc\/)?\d+\/?$/.test(location.pathname)) return;
   window.bilibiliLiveChat?.destroy();
 
-  function pauseVideo(doc = document) {
-    doc.querySelector('video')?.pause();
-    for (const iframe of doc.querySelectorAll('iframe')) {
-      let child;
-      try { child = iframe.contentDocument; } catch { continue; }
-      if (child) pauseVideo(child);
+  // AVATAR_NAVIGATION_START
+  // 页面导航由页面脚本负责；BroadcastListScript 只接收通用 ignoreUrl 规则。
+  function createAvatarNavigation() {
+    const events = new AbortController();
+    let api = null, restoreIgnore = () => {}, active = null, timer = 0, restoreOpen = () => {};
+    function destination(value) {
+      try {
+        const url = new URL(value, location.href);
+        return ['http:', 'https:'].includes(url.protocol) && (url.hostname === 'space.bilibili.com' && /^\/\d+\/?$/.test(url.pathname)
+          || url.hostname === 'link.bilibili.com' && url.pathname === '/p/center/index'
+            && /^#\/?user-center\/my-info(?:\/|$)/.test(url.hash)) ? url : null;
+      } catch { return null; }
     }
+    function control(node) {
+      const link = node instanceof Element ? node.closest('a') : null;
+      return link && (link.closest('.header-avatar-wrap') && (link.matches('.header-entry-mini,.header-entry-avatar') || link.querySelector('.bili-avatar'))
+        || link.closest('.link-navbar') && (link.querySelector('.user-avatar')
+          || link.closest('.user-panel-ctnr,.user-panel') && link.textContent.trim() === '主站空间')
+        || link.closest('.mini-header,.international-header') && link.querySelector('.i-face,.i_face')
+        || link.closest('.charity-header') && link.matches('.user') && link.querySelector('.face')) ? link : null;
+    }
+    function isLink(link) { return Boolean(control(link) && link.hasAttribute('href') && destination(link.href)); }
+    function ignored(url) {
+      return Boolean(active && destination(url.href)) || Array.from(document.querySelectorAll('a[href]'))
+        .some(link => isLink(link) && link.href === url.href);
+    }
+    function sync() {
+      const next = window.__potPlayerBilibiliClick;
+      if (next === api) return;
+      restoreIgnore(); api = next;
+      restoreIgnore = typeof api?.ignoreUrl === 'function' ? api.ignoreUrl(ignored) : () => {};
+    }
+    function clear() {
+      clearTimeout(timer); timer = 0; active = null;
+      restoreOpen(); restoreOpen = () => {};
+    }
+    function onClick(event) {
+      sync(); clear();
+      if (!event.isTrusted || event.button !== 0) return;
+      const link = control(event.target);
+      if (!link) return;
+      const modified = event.ctrlKey || event.metaKey || event.shiftKey || event.altKey;
+      if (isLink(link)) {
+        if (!modified) { event.preventDefault(); event.stopImmediatePropagation(); location.assign(link.href); }
+        return;
+      }
+      // 无 href 的直播卡片保留原生处理器，只在本次点击内转换其 window.open。
+      if (link.hasAttribute('href')) return;
+      active = link;
+      const originalOpen = window.open;
+      function open(...args) {
+        const url = destination(args[0]);
+        if (active === link && url && !modified) { location.assign(url.href); return null; }
+        return Reflect.apply(originalOpen, this, args);
+      }
+      window.open = open;
+      restoreOpen = () => { if (window.open === open) window.open = originalOpen; };
+      timer = setTimeout(clear, 0);
+    }
+    window.addEventListener('pointerdown', sync, { capture:true, signal:events.signal });
+    window.addEventListener('keydown', sync, { capture:true, signal:events.signal });
+    window.addEventListener('click', onClick, { capture:true, signal:events.signal });
+    sync();
+    const poll = setInterval(sync, 500);
+    return { isLink, destroy() { events.abort(); clearInterval(poll); clear(); restoreIgnore(); } };
   }
-  pauseVideo();
+  const avatarNavigation = createAvatarNavigation();
+  // AVATAR_NAVIGATION_END
+
+  function createPkPlayback() {
+    // 判断组件是否挂载，不看可被用户收起的彩色条；惩罚阶段也保持播放。
+    const pkModules = [
+      '#universal-pk-vm .universal-pk-bar-box', '#universal-pk-vm .multi-play-pk-box',
+      '#universal-pk-vm .universal-pk-relay-pk', '#universal-pk-vm .universal-pk-chat-room-six-vs-six-pk',
+      '#awesome-pk-vm.awesome-pk-box-show', '#pk-vm .pk-progress-bar',
+    ].join(',');
+    const attempts = new WeakMap();
+    let state = 'idle', settlingAt = 0, stopped = false;
+
+    function documents(doc = document, result = []) {
+      result.push(doc);
+      for (const iframe of doc.querySelectorAll('iframe')) {
+        try { if (iframe.contentDocument) documents(iframe.contentDocument, result); } catch {}
+      }
+      return result;
+    }
+    function pause(video, player) {
+      if (video.paused) return;
+      // 原生 video.pause() 不会启动官方播放器的停流流程。
+      try { if (player?.getVideoEl?.() === video) player.pause(); } catch {}
+      if (!video.paused) video.pause();
+    }
+    function update() {
+      if (stopped) return;
+      const docs = documents(), now = Date.now();
+      const cards = docs.flatMap(doc => [...doc.querySelectorAll('.anchor-overlay-card')]);
+      const active = docs.some(doc => doc.querySelector(pkModules)) ||
+        cards.some(el => Number(el.getAttribute('data-ispking')) > 0);
+      if (active) {
+        state = 'pk';
+      } else if (cards.length) {
+        // PK 结束后可能继续连麦；保持播放，直到官方移除信息卡。
+        state = 'linked';
+      } else if (state === 'pk' || state === 'linked') {
+        state = 'settling'; settlingAt = now;
+      } else if (state === 'settling' && now - settlingAt >= 500) {
+        state = 'idle';
+      }
+      for (const doc of docs) {
+        // 只控制直播视频，避免暂停 PK 动画和礼物特效中的 MP4。
+        for (const video of doc.querySelectorAll('#live-player > video')) {
+          let player;
+          try {
+            const api = doc.defaultView?.EmbedPlayer?.instance || doc.defaultView?.$P2PLivePlayer;
+            if (api?.getVideoEl?.() === video) player = api;
+          } catch {}
+          // 暂停到官方停流之间也要追缓冲，防止提前排入迟到的 SEI 更新。
+          try {
+            const ranges = video.buffered, index = ranges.length - 1;
+            if (!video.seeking && index >= 0 && ranges.end(index) - video.currentTime > 5) {
+              video.currentTime = Math.max(ranges.start(index), ranges.end(index) - 2);
+            }
+          } catch {}
+          if (state === 'idle') {
+            pause(video, player);
+          } else {
+            video.muted = true;
+            const attempt = attempts.get(video);
+            if (!video.paused || attempt?.pending || (attempt && now - attempt.at < 2000)) continue;
+            const next = { at: now, pending: true };
+            attempts.set(video, next);
+            try { Promise.resolve(player?.play()).catch(() => {}); } catch {}
+            video.play().then(() => {
+              if (!stopped && state === 'idle') pause(video, player);
+            }).catch(() => {}).finally(() => { next.pending = false; });
+          }
+        }
+      }
+    }
+    const timer = setInterval(update, 500);
+    update();
+    return {
+      get state() { return state; },
+      destroy() {
+        stopped = true; clearInterval(timer);
+      },
+    };
+  }
+  const playback = createPkPlayback();
 
   // 页面升级时，只需在这里补充新的弹出层根选择器。
   const popups = [
     '.common-popup-wrap', '.gift-sender-panel', '.gift-panel-box',
-    '.danmaku-menu', '.fansmedal-popover-wrap', '.blive-tooltip',
+    '.danmaku-menu', '.fansmedal-popover-wrap', '.blive-tooltip', '.anchor-info-card',
     '#head-info-vm .more-panel', '#head-info-vm .room-manage-panel',
     '#head-info-vm .head-share-qr-popover', '#game-id',
     '.side-bar-cntr:has(> .side-bar-toggle)', '#sidebar-vm .side-bar-popup-cntr',
@@ -179,6 +329,14 @@
       & #chat-history-list { overflow: auto !important; overscroll-behavior: contain; }
       & #chat-items { overflow-wrap: anywhere; }
       & #gift-screen-animation-vm { overflow: visible !important; pointer-events: none; }
+      /* 只让打开的操作区弹窗进入顶层，保留其 DOM、事件及其他区域层级。 */
+      & #chat-control-panel-vm [data-blc-top-popup] {
+        position: fixed !important; margin: 0 !important;
+        inset: var(--blc-popup-top) auto auto var(--blc-popup-left) !important;
+        width: var(--blc-popup-width) !important; color: inherit;
+      }
+      & #chat-control-panel-vm .like-btn[data-blc-top-popup] { border: 0; padding: 0; background-color: transparent; }
+      & [data-blc-top-popup]::backdrop { background: transparent; pointer-events: none; }
 
       /* 视频画面与业务层是兄弟节点：保留业务注入层和官方动画遮罩。 */
       & .player-section {
@@ -203,6 +361,11 @@
         /* 官方动画画布为 700×410，等比缩放容器，保留内部画布尺寸。 */
         pointer-events: none !important;
         transform: translate(-50%, -50%) scale(var(--blc-pk-scale, 1)) !important;
+      }
+      /* 原生资料卡事件绑在整个连麦画面；仅名字区域接收并冒泡原点击。 */
+      & #interactive-play-vm :is(.grid-template, .grid-item, .grid-item-cell) { pointer-events: none !important; }
+      & #interactive-play-vm :is(.anchor-nickname, .anchor-voice, .pk-number, .anchor-info-card, .relay-capsulev2) {
+        pointer-events: auto !important;
       }
 
       & #fullscreen-container #gift-control-vm {
@@ -317,11 +480,70 @@
   }
   // 只修正越界距离，保留原生 transform（定位、过渡、动画）。
   const shifted = new Map();
+  const raised = new Map();
+  const controlPopups = '#chat-control-panel-vm :is(.common-popup-wrap.emoticons,.common-popup-wrap.superChat,.like-btn .common-popup-wrap,.like-btn.not-clicked:hover)';
+  function lowerPopup(el, saved) {
+    try { el.hidePopover(); } catch {}
+    el.removeAttribute('popover'); el.removeAttribute('data-blc-top-popup');
+    saved.styles.forEach(([name, value, priority]) => {
+      if (value) el.style.setProperty(name, value, priority);
+      else el.style.removeProperty(name);
+    });
+    saved.placeholder?.remove();
+    raised.delete(el);
+  }
+  function syncControlPopups() {
+    const visible = new Set([...document.querySelectorAll(controlPopups)].filter(el =>
+      el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden'));
+    for (const [el, saved] of raised) if (!visible.has(el)) lowerPopup(el, saved);
+    for (const el of visible) {
+      let saved = raised.get(el);
+      if (!saved) {
+        if (!el.showPopover || el.hasAttribute('popover')) continue;
+        const rect = el.getBoundingClientRect(), css = getComputedStyle(el), translate = translateParts(css.translate);
+        // 使用原生布局坐标，避免把进入动画的 transform 位移再补偿一次。
+        const parent = el.offsetParent, origin = css.position === 'absolute' && parent?.getBoundingClientRect();
+        const left = origin ? origin.left + parent.clientLeft - parent.scrollLeft + parseFloat(css.left) + parseFloat(css.marginLeft) : NaN;
+        const top = origin ? origin.top + parent.clientTop - parent.scrollTop + parseFloat(css.top) + parseFloat(css.marginTop) : NaN;
+        // 点赞提示是按钮的伪元素；保留按钮占位，避免临时提升时挤动其他图标。
+        let placeholder;
+        if (el.matches('.like-btn')) {
+          placeholder = document.createElement('span');
+          placeholder.style.cssText = `display:inline-block;width:${css.width};height:${css.height};margin:${css.margin};flex-shrink:0`;
+          el.before(placeholder);
+        }
+        saved = {
+          anchorEl: placeholder || el.parentElement, placeholder,
+          width: css.width,
+          left: Number.isFinite(left) ? left : rect.left - pixels(translate[0], rect.width),
+          top: Number.isFinite(top) ? top : rect.top - pixels(translate[1], rect.height),
+          styles: ['--blc-popup-left', '--blc-popup-top', '--blc-popup-width'].map(name =>
+            [name, el.style.getPropertyValue(name), el.style.getPropertyPriority(name)]),
+        };
+        el.style.setProperty('--blc-popup-width', css.width);
+        raised.set(el, saved);
+        el.setAttribute('data-blc-top-popup', ''); el.setAttribute('popover', 'manual');
+        saved.anchor = saved.anchorEl.getBoundingClientRect();
+      }
+      const anchor = saved.anchorEl.getBoundingClientRect();
+      saved.left += anchor.left - saved.anchor.left; saved.top += anchor.bottom - saved.anchor.bottom;
+      saved.anchor = anchor;
+      const width = el.matches('.bottom-left') ? `${saved.anchorEl.clientWidth}px` : saved.width;
+      if (el.style.getPropertyValue('--blc-popup-width') !== width) el.style.setProperty('--blc-popup-width', width);
+      const left = `${saved.left}px`, top = `${saved.top}px`;
+      if (el.style.getPropertyValue('--blc-popup-left') !== left) el.style.setProperty('--blc-popup-left', left);
+      if (el.style.getPropertyValue('--blc-popup-top') !== top) el.style.setProperty('--blc-popup-top', top);
+      if (!el.matches(':popover-open')) {
+        try { el.showPopover(); } catch { lowerPopup(el, saved); }
+      }
+    }
+  }
   let frame = 0;
   function fitPopups() {
     frame = 0;
     syncSidebars();
     measure();
+    syncControlPopups();
     for (const [el, saved] of shifted) {
       if (!el.isConnected || !el.matches(popups)) {
         restoreTranslate(el, saved);
@@ -373,19 +595,25 @@
   window.addEventListener('resize', schedule);
   window.addEventListener('scroll', schedule, true);
   document.addEventListener('pointerover', schedule, true);
+  document.addEventListener('pointerout', schedule, true);
   document.addEventListener('focusin', schedule, true);
   syncSidebars();
   measure();
   schedule();
   window.bilibiliLiveChat = {
+    get videoState() { return playback.state; },
     destroy() {
+      avatarNavigation.destroy();
+      playback.destroy();
       observer.disconnect();
       sizes.disconnect();
       cancelAnimationFrame(frame);
       window.removeEventListener('resize', schedule);
       window.removeEventListener('scroll', schedule, true);
       document.removeEventListener('pointerover', schedule, true);
+      document.removeEventListener('pointerout', schedule, true);
       document.removeEventListener('focusin', schedule, true);
+      for (const [el, saved] of raised) lowerPopup(el, saved);
       for (const [el, saved] of shifted) restoreTranslate(el, saved);
       for (const state of sidebars.values()) state.destroy();
       sidebars.clear();

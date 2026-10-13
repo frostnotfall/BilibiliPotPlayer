@@ -1,7 +1,18 @@
+// ==UserScript==
+// @name         Bilibili 视频 / 番剧窄屏评论
+// @namespace    bilibili-video-comments
+// @version      1.0.34
+// @description  保留官方简介、标签、番剧信息和评论，支持 480px，将标签、音乐视频、简介及评论播放链接交给 PotPlayer。
+// @match        https://www.bilibili.com/video/BV*
+// @match        https://www.bilibili.com/bangumi/play/ep*
+// @run-at       document-end
+// @grant        none
+// ==/UserScript==
+
 (() => {
   'use strict';
 
-  // 统一屏蔽评论和弹幕列表的时间跳转；改为 false 后重新注入可恢复官方行为。
+  // true 屏蔽评论和弹幕列表的时间跳转；false 将跳转交给 PotPlayer，修改后重新注入。
   const BLOCK_VIDEO_SEEK = true;
 
   const pageType = () => {
@@ -12,6 +23,75 @@
   };
   if (!pageType()) return;
   let previousShortcuts = window.bilibiliVideoComments?.destroy() || {};
+
+  // AVATAR_NAVIGATION_START
+  // 页面导航由页面脚本负责；BroadcastListScript 只接收通用 ignoreUrl 规则。
+  function createAvatarNavigation() {
+    const events = new AbortController();
+    let api = null, restoreIgnore = () => {}, active = null, timer = 0, restoreOpen = () => {};
+    function destination(value) {
+      try {
+        const url = new URL(value, location.href);
+        return ['http:', 'https:'].includes(url.protocol) && (url.hostname === 'space.bilibili.com' && /^\/\d+\/?$/.test(url.pathname)
+          || url.hostname === 'link.bilibili.com' && url.pathname === '/p/center/index'
+            && /^#\/?user-center\/my-info(?:\/|$)/.test(url.hash)) ? url : null;
+      } catch { return null; }
+    }
+    function control(node) {
+      const link = node instanceof Element ? node.closest('a') : null;
+      return link && (link.closest('.header-avatar-wrap') && (link.matches('.header-entry-mini,.header-entry-avatar') || link.querySelector('.bili-avatar'))
+        || link.closest('.link-navbar') && (link.querySelector('.user-avatar')
+          || link.closest('.user-panel-ctnr,.user-panel') && link.textContent.trim() === '主站空间')
+        || link.closest('.mini-header,.international-header') && link.querySelector('.i-face,.i_face')
+        || link.closest('.charity-header') && link.matches('.user') && link.querySelector('.face')) ? link : null;
+    }
+    function isLink(link) { return Boolean(control(link) && link.hasAttribute('href') && destination(link.href)); }
+    function ignored(url) {
+      return Boolean(active && destination(url.href)) || Array.from(document.querySelectorAll('a[href]'))
+        .some(link => isLink(link) && link.href === url.href);
+    }
+    function sync() {
+      const next = window.__potPlayerBilibiliClick;
+      if (next === api) return;
+      restoreIgnore(); api = next;
+      restoreIgnore = typeof api?.ignoreUrl === 'function' ? api.ignoreUrl(ignored) : () => {};
+    }
+    function clear() {
+      clearTimeout(timer); timer = 0; active = null;
+      restoreOpen(); restoreOpen = () => {};
+    }
+    function onClick(event) {
+      sync(); clear();
+      if (!event.isTrusted || event.button !== 0) return;
+      const link = control(event.target);
+      if (!link) return;
+      const modified = event.ctrlKey || event.metaKey || event.shiftKey || event.altKey;
+      if (isLink(link)) {
+        if (!modified) { event.preventDefault(); event.stopImmediatePropagation(); location.assign(link.href); }
+        return;
+      }
+      // 无 href 的直播卡片保留原生处理器，只在本次点击内转换其 window.open。
+      if (link.hasAttribute('href')) return;
+      active = link;
+      const originalOpen = window.open;
+      function open(...args) {
+        const url = destination(args[0]);
+        if (active === link && url && !modified) { location.assign(url.href); return null; }
+        return Reflect.apply(originalOpen, this, args);
+      }
+      window.open = open;
+      restoreOpen = () => { if (window.open === open) window.open = originalOpen; };
+      timer = setTimeout(clear, 0);
+    }
+    window.addEventListener('pointerdown', sync, { capture:true, signal:events.signal });
+    window.addEventListener('keydown', sync, { capture:true, signal:events.signal });
+    window.addEventListener('click', onClick, { capture:true, signal:events.signal });
+    sync();
+    const poll = setInterval(sync, 500);
+    return { isLink, destroy() { events.abort(); clearInterval(poll); clear(); restoreIgnore(); } };
+  }
+  const avatarNavigation = createAvatarNavigation();
+  // AVATAR_NAVIGATION_END
   const disposers = [];
   function listen(types, handler, options) {
     for (const type of types.split(' ')) {
@@ -61,14 +141,55 @@
   pauseBilibiliVideo();
   let danmakuInitialized = disableBilibiliDanmaku();
 
-  // 时间文字保留显示；共用开关及拦截器，先于 PotPlayer 点击模块阻止跳转/播放。
-  if (BLOCK_VIDEO_SEEK) listen('click auxclick dblclick', event => {
+  function seekPotPlayer(seconds) {
+    const ms = Math.round(Number(seconds) * 1000), pid = window.__ppPid;
+    if (!Number.isSafeInteger(ms) || ms < 0 || ms > 2147483647 || !Number.isInteger(pid) || pid <= 0) return;
+    window.potplayerSeek?.(JSON.stringify({ pid, url: location.href, position: ms }));
+  }
+  function seekSeconds(node) {
+    // 评论链接使用官方秒数；弹幕时间文字和旧版评论兼容 mm:ss / hh:mm:ss。
+    const value = node?.getAttribute('data-video-time');
+    if (value != null && value.trim()) return Number(value);
+    const text = node?.textContent?.trim().replace(/^\d+#/, '') || '';
+    if (!/^\d+(?::[0-5]\d){1,2}$/.test(text)) return NaN;
+    return text.split(':').reduce((seconds, part) => seconds * 60 + Number(part), 0);
+  }
+  function seekComment(node) {
+    // 只有明确的 n# 前缀表示分P；无前缀的时间始终在当前视频 seek。
+    const part = node.textContent.trim().match(/^(\d+)#/);
+    if (pageType() === 'ugc' && part) {
+      const targetPart = Number(part[1]);
+      if (!Number.isSafeInteger(targetPart) || targetPart <= 0) return;
+      const url = new URL(location.href);
+      const currentPart = Number(url.searchParams.get('p') || 1);
+      if (targetPart !== currentPart) {
+        url.searchParams.set('p', String(targetPart));
+        // 跨P只打开对应视频，不向当前 PotPlayer 发送该时间的 seek。
+        try {
+          window.chrome?.webview?.postMessage?.({ type: 'potPlayer.video-click', url: url.href });
+        } catch { /* 桥接失败时仍不执行网页跳转或当前视频 seek。 */ }
+        return;
+      }
+    }
+    seekPotPlayer(seekSeconds(node));
+  }
+
+  // 两种状态都先阻止官方跳转/播放；桥接不可用或时间无效时也不恢复网页 seek。
+  listen('click auxclick dblclick', event => {
+    if (!pageType()) return;
+    const path = event.composedPath();
+    const seek = path.find(node => node.matches?.('[data-type="seek"]'));
+    const time = path.find(node => node.matches?.('.dm-info-time'));
     // 官方时间 span 禁用指针命中，实际由整行的 dblclick 触发 seek；单击选中仍保留。
-    if (!pageType() || !event.composedPath().some(node =>
-      node.matches?.('[data-type="seek"], .dm-info-time') ||
-      event.type === 'dblclick' && node.matches?.('#danmukuBox .dm-info-row'))) return;
+    const row = event.type === 'dblclick' && path.find(node => node.matches?.('#danmukuBox .dm-info-row'));
+    if (!seek && !time && !row) return;
     event.preventDefault();
     event.stopImmediatePropagation();
+    if (BLOCK_VIDEO_SEEK || !event.isTrusted || ![0, 1].includes(event.button)) return;
+    // 评论由 click / auxclick 发送，避免 dblclick 再发一次；弹幕仅在左键双击时发送。
+    if (seek && event.type !== 'dblclick') seekComment(seek);
+    else if (!seek && event.type === 'dblclick' && event.button === 0)
+      seekPotPlayer(seekSeconds(time || row?.querySelector('.dm-info-time')));
   }, { capture: true, passive: false });
 
   // 点击功能随布局实例安装/卸载；普通浏览器中不改变跳转。
@@ -682,6 +803,7 @@
   for (const tag of tags) customElements.whenDefined(tag).then(schedule);
   const controller = {
     destroy() {
+      avatarNavigation.destroy();
       if (stopped) return;
       stopped = true;
       const shortcuts = { ...restorePlayerShortcuts(), ...restoreMediaShortcuts?.() };

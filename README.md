@@ -29,6 +29,12 @@
 
 **_提示：后续Cookie刷新参考 [突然出现账号未登录](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/常见问题与故障排查#2-突然出现账号未登录)_**
 
+### 侧边栏网页浏览
+
+适配 Potplayer BroadcastListScript，支持通过 `直播/VOD` 窗口浏览 Bilibili 网页。
+- 支持常用页面(增加窄布局效果)浏览。
+- 点击直播或点播内容使用 Potplayer 打开。
+
 ## 其它改进
 
 ### 🔧 整体优化

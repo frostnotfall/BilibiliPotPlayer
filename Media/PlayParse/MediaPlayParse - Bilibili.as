@@ -95,7 +95,7 @@ string GetTitle() {
 }
 
 string GetVersion() {
-	return "2.7.33";
+	return "3.7.34";
 }
 
 string GetDesc() {
@@ -187,87 +187,16 @@ string GetStatus() {
 
 string GetBroadcastListUrl() {
 	log('GetBroadcastListUrl()');
-	return "https://www.bilibili.com/";
+	return "https://www.bilibili.com/;https://t.bilibili.com";
 }
 
 string GetBroadcastListScript() {
-	log('GetBroadcastListScript()');
+	uintptr fp = HostFileOpen(ConfigData.BroadcastListScript);
+	string jsData = HostFileRead(fp, HostFileLength(fp));
+	HostFileClose(fp);
 
-	return '(() => {\n'
-		'  "use strict";\n'
-		'\n'
-		'  if (window.__potPlayerBilibiliClick) return;\n'
-		'  if (!window.chrome || !chrome.webview) return;\n'
-		'  window.__potPlayerBilibiliClick = true;\n'
-		'\n'
-		'  const messageType = "potPlayer.video-click";\n'
-		'\n'
-		'  function isSupportedUrl(value) {\n'
-		'    try {\n'
-		'      const u = new URL(value, location.href);\n'
-		'      const host = u.hostname.toLowerCase();\n'
-		'      const path = u.pathname;\n'
-		'\n'
-		'      if (host === "t.bilibili.com") return true;\n'
-		'      if (host === "search.bilibili.com") return true;\n'
-		'      if (host === "space.bilibili.com" && /^\\/\\d+(?:\\/|$)/.test(path)) return true;\n'
-		'      if (host === "link.bilibili.com" && path.includes("/user-center/follow")) return true;\n'
-		'      if (host === "live.bilibili.com") return true;\n'
-		'\n'
-		'      if (host === "www.bilibili.com") {\n'
-		'        if (path.startsWith("/v/popular/all")) return true;\n'
-		'        if (path.startsWith("/v/popular/weekly")) return true;\n'
-		'        if (path.startsWith("/v/popular/history")) return true;\n'
-		'        if (path.startsWith("/v/popular/rank")) return true;\n'
-		'        if (path.startsWith("/watchlater")) return true;\n'
-		'        if (path.startsWith("/history")) return true;\n'
-		'        if (path.includes("/medialist/detail/ml")) return true;\n'
-		'        if (path.startsWith("/audio/am")) return true;\n'
-		'        if (/^\\/bangumi\\/media\\/md\\d+/i.test(path)) return true;\n'
-		'        if (/^\\/bangumi\\/play\\/ep\\d+/i.test(path)) return true;\n'
-		'        if (/^\\/bangumi\\/play\\/ss\\d+/i.test(path)) return true;\n'
-		'        if (/^\\/video\\/BV[a-zA-Z0-9]+/i.test(path)) return true;\n'
-		'        if (/^\\/video\\/av\\d+/i.test(path)) return true;\n'
-		'        if (/^\\/audio\\/au\\d+/i.test(path)) return true;\n'
-		'        if (path === "/" || path === "") return true;\n'
-		'      }\n'
-		'\n'
-		'      return false;\n'
-		'    } catch (e) {\n'
-		'      return false;\n'
-		'    }\n'
-		'  }\n'
-		'\n'
-		'  function getSupportedUrl(target) {\n'
-		'    const a = target && target.closest ? target.closest("a[href]") : null;\n'
-		'    if (!a) return "";\n'
-		'\n'
-		'    try {\n'
-		'      const url = new URL(a.getAttribute("href"), location.href).href;\n'
-		'      return isSupportedUrl(url) ? url : "";\n'
-		'    } catch (e) {\n'
-		'      return "";\n'
-		'    }\n'
-		'  }\n'
-		'\n'
-		'  function onClick(e) {\n'
-		'    if (typeof e.button === "number" && e.button === 2) return;\n'
-		'\n'
-		'    const url = getSupportedUrl(e.target);\n'
-		'    if (!url) return;\n'
-		'\n'
-		'    e.preventDefault();\n'
-		'    e.stopPropagation();\n'
-		'    e.stopImmediatePropagation();\n'
-		'\n'
-		'    chrome.webview.postMessage({\n'
-		'      type: messageType,\n'
-		'      url: url\n'
-		'    });\n'
-		'  }\n'
-		'\n'
-		'  window.addEventListener("click", onClick, { capture: true, passive: false });\n'
-		'})();\n';
+	if (jsData.length() >= 3 && jsData[0] == 0xEF && jsData[1] == 0xBB && jsData[2] == 0xBF) jsData = jsData.substr(3);
+	return jsData;
 }
 
 void OnFinalize() {
@@ -360,7 +289,7 @@ class Config {
 	float danmakuOpacity = 0.8;
 	float danmakuDisplayArea = 0.8;
 	float danmakuStayTime = 15.0;
-	bool danmakuBold = false;
+	bool danmakuBold = true;
     int danmakuFontEffect = 2;
     float danmakuShadowDepth = 1.0;
     float danmakuOutlineWidth = 1.5;
@@ -417,6 +346,7 @@ class Config {
 
 	string ChatScriptVod = HostGetScriptFolder() + "Bilibili - ChatScriptVod.js";
 	string ChatScriptLive = HostGetScriptFolder() + "Bilibili - ChatScriptLive.js";
+	string BroadcastListScript = HostGetScriptFolder() + "Bilibili - BroadcastListScript.js";
 }
 
 Config ReadConfigFile(string file) {
@@ -671,6 +601,10 @@ void log(string item, int info) {
 }
 
 void log(string item, int64 info) {
+	log(item + ": " + info);
+}
+
+void log(string item, uint info) {
 	log(item + ": " + info);
 }
 
@@ -2485,7 +2419,7 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
     }
 
     uint filterMs = HostGetTickCount() - filterStart;
-    HostPrintUTF8("[Danmaku] 过滤+去重+合并: " + formatFloat(double(filterMs) / 1000.0, "", 0, 3) + " s\r\n");
+    // log("[Danmaku] 过滤+去重+合并: " + formatFloat(double(filterMs) / 1000.0, "", 0, 3) + " s\r\n");
 
     uint renderLength = processExtra ? renderIndices.length() : order.length();
     uint durationCs = uint(stay * 100 + 0.5);
@@ -5404,7 +5338,7 @@ bool PlaylistCheck(const string&in path) {
 		return true;
 	}
 	if (path.find("space.bilibili.com") >= 0) {
-		if (!HostRegExpParse(path, "/([0-9]+)/[a-zA-Z0-9]").empty()) {
+		if (!HostRegExpParse(path, "/([0-9]+)").empty()) {
 			if (path.find("/upload/video") >= 0) {
 				return true;
 			} else if (path.find("/dynamic") >= 0) {
@@ -5510,7 +5444,7 @@ array<dictionary> PlaylistParse(const string&in url) {
 		return Search(path);
 	}
 	if (path.find("space.bilibili.com") >= 0) {
-		if (!HostRegExpParse(path, "/([0-9]+)/[a-zA-Z0-9]").empty()) {
+		if (!HostRegExpParse(path, "/([0-9]+)").empty()) {
 			if (path.find("/upload/video") >= 0) {
 				return spaceVideo(path);
 			} else if (path.find("/dynamic") >= 0) {
