@@ -736,12 +736,9 @@ void CheckUpdate() {
 			"https://dockerproxy.link",
 			"https://dockerproxy.net",
 			"https://gh-proxy.com",
-			"https://gh.ddlc.top",
-			"https://gh.xmly.dev",
 			"https://ghfast.top",
 			"https://ghproxy.net",
 			"https://mirror.houlang.cloud",
-			"https://proxy.vvvv.ee"
         };
 
         string latestVersion;
