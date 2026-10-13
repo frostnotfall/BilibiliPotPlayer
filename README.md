@@ -107,11 +107,12 @@
 
 1. [安装与快速开始](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E5%AE%89%E8%A3%85%E4%B8%8E%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B)
 2. [使用指南](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97)
+3. [直播VOD窗口与聊天窗口](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/直播-VOD-窗口-与-聊天窗口)
 
 其他文档：
 
-- [使用聊天窗口](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/使用聊天窗口)
 - [常见问题与故障排查](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E5%B8%B8%E8%A7%81%E9%97%AE%E9%A2%98%E4%B8%8E%E6%95%85%E9%9A%9C%E6%8E%92%E6%9F%A5)
+- [使用Bilibili_Danmuji](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/使用Bilibili_Danmuji)
 - [PotPlayer AngelScript 开发参考](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/PotPlayer-AngelScript-%E5%BC%80%E5%8F%91%E5%8F%82%E8%80%83)
 
 ## 🐒 油猴脚本
