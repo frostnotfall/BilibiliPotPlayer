@@ -35,6 +35,8 @@
 - 支持常用页面(增加窄布局效果)浏览。
 - 点击直播或点播内容使用 Potplayer 打开。
 
+> 通过子项目 [BilibiliBroadcastListScript](https://github.com/frostnotfall/BilibiliBroadcastListScript) 生成 Potplayer 所需的 BroadcastListScript。
+
 ## 其它改进
 
 ### 🔧 整体优化
