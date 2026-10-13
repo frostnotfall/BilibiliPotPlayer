@@ -95,7 +95,7 @@ string GetTitle() {
 }
 
 string GetVersion() {
-	return "3.7.34";
+	return "3.7.35";
 }
 
 string GetDesc() {
@@ -286,7 +286,7 @@ class Config {
 	string danmakuServer;
 	string danmakuFont;
 	float danmakuFontSize = 30.0;
-	float danmakuOpacity = 0.8;
+	float danmakuOpacity = 0.9;
 	float danmakuDisplayArea = 0.8;
 	float danmakuStayTime = 15.0;
 	bool danmakuBold = true;
@@ -5038,6 +5038,64 @@ array<dictionary> Ranking(string path) {
 	return videos;
 }
 
+array<dictionary> medialist(const string&in path) {
+	array<dictionary> videos;
+	JsonReader Reader;
+	JsonValue Root;
+
+	string uid = HostRegExpParse(path, "/list/([0-9]+)");
+	string currentOid = parse(path, "oid");
+	string currentBvid = parseBVId(path);
+	string oid = "0";
+
+	string baseurl = "/x/v2/medialist/resource/list?type=1&biz_id=" + uid;
+	baseurl += "&ps=20&desc=true&sort_field=1&tid=" + parse(path, "tid", "0");
+	baseurl += "&otype=2&direction=false&use_pn=false&pn=1";
+
+	while (!uid.empty()) {
+		string url = baseurl + "&oid=" + oid;
+		url += "&with_current=" + (oid == "0" ? "true" : "false");
+		string res = apiPost(url);
+
+		if (!Reader.parse(res, Root) || !Root.isObject()) break;
+		if (Root["code"].asInt() != 0) break;
+
+		JsonValue data = Root["data"];
+		JsonValue list = data["media_list"];
+		if (!list.isArray() || list.size() == 0) break;
+
+		for (int i = 0; i < list.size(); i++) {
+			JsonValue item = list[i];
+			if (!item.isObject()) continue;
+
+			string bvid = item["bv_id"].asString();
+			if (bvid.empty()) continue;
+
+			dictionary video;
+			video["title"] = item["title"].asString();
+			video["duration"] = item["duration"].asInt() * 1000;
+			video["url"] = "https://www.bilibili.com/video/" + bvid;
+			video["thumbnail"] = item["cover"].asString();
+			video["author"] = "@" + item["upper"]["name"].asString();
+			video["date"] = UnixTimeToDateTime(item["pubtime"].asInt64());
+			video["viewCount"] = item["cnt_info"]["play"].asString();
+			video["likeCount"] = item["cnt_info"]["thumb_up"].asString();
+			if (!item["intro"].asString().empty()) video["content"] = item["intro"].asString();
+			if (item["id"].asString() == currentOid || bvid == currentBvid) video["current"] = "1";
+
+			videos.insertLast(video);
+		}
+
+		if (!data["has_more"].asBool()) break;
+
+		string nextOid = list[list.size() - 1]["id"].asString();
+		if (nextOid.empty() || nextOid == oid) break;
+		oid = nextOid;
+	}
+
+	return videos;
+}
+
 array<dictionary> watchlater() {
 	array<dictionary> videos;
 	string res = apiPost("/x/v2/history/toview/web", false);
@@ -5394,6 +5452,9 @@ bool PlaylistCheck(const string&in path) {
 	if (path.find("www.bilibili.com/v/popular/rank") >= 0) {
 		return true;
 	}
+	if (path.find("www.bilibili.com/list/") >= 0) {
+		return !HostRegExpParse(path, "/list/([0-9]+)").empty();
+	}
 	if (path.find("/watchlater") >= 0) {
 		return true;
 	}
@@ -5499,6 +5560,9 @@ array<dictionary> PlaylistParse(const string&in url) {
 	}
 	if (path.find("www.bilibili.com/v/popular/rank") >= 0) {
 		return Ranking(path);
+	}
+	if (path.find("www.bilibili.com/list/") >= 0) {
+		return medialist(path);
 	}
 	if (path.find("/watchlater") >= 0) {
 		return watchlater();

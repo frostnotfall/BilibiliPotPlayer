@@ -1,4 +1,4 @@
-// bilibili-broadcast-list-script v2.0.0
+// bilibili-broadcast-list-script version: 3
 // MIT License
 // 
 // Copyright (c) 2026 BilibiliBroadcastListScript contributors
@@ -101,6 +101,13 @@
       ]
     },
     {
+      id: "Watchlater",
+      host: "www.bilibili.com",
+      paths: [
+        "/watchlater/list"
+      ]
+    },
+    {
       id: "Follow",
       host: "link.bilibili.com",
       paths: ["/p/center/index"],
@@ -118,6 +125,7 @@
         "/all",
         "/video",
         "/bangumi",
+        "/pgc",
         "/live",
         "/article",
         "/upuser"
@@ -230,12 +238,15 @@
     const path = url.pathname;
     if (url.hostname === "live.bilibili.com") return /^\/(?:blanc\/)?\d+\/?$/.test(path);
     if (url.hostname !== "www.bilibili.com") return false;
-    return /^\/video\/(?:BV[a-z\d]+|av\d+)\/?$/i.test(path) || /^\/bangumi\/(?:media\/md|play\/(?:ep|ss))\d+\/?$/i.test(path) || /^\/audio\/(?:am|au)\d+\/?$/i.test(path) || /^\/medialist\/detail\/ml\d+\/?$/i.test(path) || /^\/list\/\d+\/?$/.test(path);
+    return /^\/video\/(?:BV[a-z\d]+|av\d+)\/?$/i.test(path) || /^\/bangumi\/(?:media\/md|play\/(?:ep|ss))\d+\/?$/i.test(path) || /^\/audio\/(?:am|au)\d+\/?$/i.test(path) || /^\/medialist\/detail\/ml\d+\/?$/i.test(path) || /^\/list\/watchlater\/?$/.test(path) || /^\/list\/\d+\/?$/.test(path);
   }
   var isShortUrl = (value) => urlOf(value)?.hostname === "b23.tv";
   function classifyUrl(value) {
     return isShortUrl(value) ? "short" : isMediaUrl(value) ? "media" : isPageUrl(value) ? "page" : "native";
   }
+
+  // src/common/version.js
+  var version = "3";
 
   // src/common/opening.js
   var resultType = "potPlayer.short-link.result";
@@ -433,7 +444,7 @@
       if (!frame) frame = requestAnimationFrame(prepare);
     }
     const controller = {
-      version: "2.0.0",
+      version,
       classifyUrl,
       isSupportedUrl: isMediaUrl,
       resolveUrl,
@@ -729,6 +740,32 @@ ${location.href}`;
     };
   }
 
+  // src/common/horizontal-wheel.js
+  function mountHorizontalWheel() {
+    const events = new AbortController();
+    document.addEventListener("wheel", (event) => {
+      if (!event.cancelable || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || !event.deltaY || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+      for (const element of event.composedPath()) {
+        if (!(element instanceof Element)) continue;
+        if (element === document.body || element === document.documentElement) return;
+        const horizontal = element.scrollWidth > element.clientWidth + 1;
+        const vertical = element.scrollHeight > element.clientHeight + 1;
+        if (!horizontal && !vertical) continue;
+        const style = getComputedStyle(element);
+        if (vertical && /^(auto|scroll|overlay)$/.test(style.overflowY)) return;
+        if (!horizontal || !/^(auto|scroll|overlay)$/.test(style.overflowX)) continue;
+        const unit = event.deltaMode === 1 ? parseFloat(style.lineHeight) || 16 : event.deltaMode === 2 ? element.clientWidth : 1;
+        const direction = style.direction === "rtl" ? -1 : 1;
+        element.scrollBy({ left: event.deltaY * unit * direction, behavior: "instant" });
+        event.preventDefault();
+        return;
+      }
+    }, { passive: false, signal: events.signal });
+    return { destroy() {
+      events.abort();
+    } };
+  }
+
   // src/common/lifecycle.js
   function startDispatcher(modules) {
     if (reportResolverFrame()) return;
@@ -739,7 +776,7 @@ ${location.href}`;
     }
     window.__potPlayerBilibiliClick?.destroy?.();
     const events = new AbortController();
-    let active = null, navigation = null, stopped = false, lastUrl = "";
+    let active = null, navigation = null, horizontalWheel = null, stopped = false, lastUrl = "";
     function unmount() {
       if (!active) return;
       const old = active;
@@ -762,10 +799,13 @@ ${location.href}`;
       }
       if (active && active.ui) {
         navigation ||= mountNavigationBar();
+        horizontalWheel ||= mountHorizontalWheel();
         navigation.sync();
-      } else if (!active && navigation) {
-        navigation.destroy();
+      } else if (!active) {
+        navigation?.destroy();
         navigation = null;
+        horizontalWheel?.destroy();
+        horizontalWheel = null;
       }
       if (active && lastUrl !== location.href) {
         active.module.routeChanged?.();
@@ -788,7 +828,7 @@ ${location.href}`;
     document.addEventListener("DOMContentLoaded", reconcile, { signal: events.signal });
     const poll = setInterval(reconcile, 250);
     const controller = {
-      version: "2.0.0",
+      version,
       get activePage() {
         return active?.id || null;
       },
@@ -801,6 +841,8 @@ ${location.href}`;
         unmount();
         navigation?.destroy();
         navigation = null;
+        horizontalWheel?.destroy();
+        horizontalWheel = null;
         for (const [name, { original, wrapped }] of originals) if (history[name] === wrapped) history[name] = original;
         if (window.__bilibiliBroadcast === controller) delete window.__bilibiliBroadcast;
       }
@@ -819,6 +861,160 @@ ${location.href}`;
     early: () => early,
     mount: () => mount
   });
+
+  // src/common/avatar-submenu-position.js
+  function avatarSubmenuPosition(anchor, width, viewportWidth) {
+    const edge = viewportWidth - 8;
+    const right = Math.max(8, Math.min(anchor.right, edge - width));
+    const opensRight = anchor.right + width <= edge || edge > anchor.right && right > anchor.left;
+    const leftFits = anchor.left - width >= 8;
+    const left = opensRight ? right : leftFits ? anchor.left - width : anchor.right - width;
+    return { left: Math.max(8, Math.min(left, edge - width)), opensLeft: !opensRight };
+  }
+
+  // src/common/main-site/header-controls.js
+  function fitHomeHeader(hidden, fit) {
+    for (const bar of document.querySelectorAll(".bili-header__bar")) {
+      let trim = function(container) {
+        for (const child of container.children) {
+          const retained = keep.some((node) => child.contains(node));
+          fit([child], retained ? 1 : 0);
+          if (retained && !keep.includes(child)) trim(child);
+        }
+      };
+      const keep = Array.from(bar.querySelectorAll('.home-page-entry,.home-page-panel-entry,.header-avatar-wrap,.header-avatar-unlogin-wrap,.favorite-entry,.history-entry,.right-entry__item:has([data-idx="fav"]),.right-entry__item:has([data-idx="history"])'));
+      for (const link of bar.querySelectorAll("a[href]")) {
+        if (link.closest(".v-popover")) continue;
+        const url = new URL(link.href, location.href);
+        const home = url.hostname === "www.bilibili.com" && /^\/(?:index\.html)?$/.test(url.pathname);
+        const personal = url.hostname === "www.bilibili.com" && /^\/history\/?$/.test(url.pathname) || url.hostname === "space.bilibili.com" && /^\/\d+\/(?:favlist|fav)(?:\/|$)/.test(url.pathname);
+        if (home || personal || link.hasAttribute("data-header-fav-entry")) {
+          keep.push(link.closest(".right-entry__item,.v-popover-wrap") || link);
+        }
+      }
+      const form = bar.querySelector("#nav-searchform,#nav_searchform");
+      const search = bar.querySelector(".center-search-container") || form?.closest(".menu-center") || form;
+      if (search) keep.push(search);
+      if (!keep.length) continue;
+      for (const element of hidden) if (bar.contains(element) && keep.some((node) => node.contains(element))) fit([element], 1);
+      trim(bar);
+    }
+  }
+  function createHeaderCards() {
+    const html = document.documentElement;
+    const narrow = matchMedia("(max-width:1099px)");
+    const scope = ".bili-header__bar";
+    const controls = '.favorite-entry,.history-entry,.right-entry__item:has([data-idx="fav"]),.right-entry__item:has([data-idx="history"])';
+    const properties = ["--homepagescript-card-left", "--homepagescript-card-top", "--homepagescript-card-height", "--homepagescript-card-width", "--homepagescript-card-compact-width"];
+    const saved = /* @__PURE__ */ new Map(), observed = /* @__PURE__ */ new Set(), events = new AbortController();
+    let frame = 0, stopped = false;
+    function restore(element, state) {
+      element.classList.remove("homepagescript-header-card");
+      for (const [name, original] of state.original) {
+        if (original.value) element.style.setProperty(name, original.value, original.priority);
+        else element.style.removeProperty(name);
+      }
+    }
+    function update() {
+      frame = 0;
+      const targets = /* @__PURE__ */ new Set(), cards2 = /* @__PURE__ */ new Set();
+      for (const control of document.querySelectorAll(`${scope} :is(${controls})`)) {
+        targets.add(control);
+        const anchor = control.querySelector(".right-entry__item-trigger,a");
+        if (!anchor) continue;
+        targets.add(anchor);
+        const popups = control.querySelectorAll(".v-popover-wrap > .v-popover");
+        for (const popup of popups) {
+          cards2.add(popup);
+          targets.add(popup);
+          if (!narrow.matches) continue;
+          let state = saved.get(popup);
+          if (!state) {
+            state = { original: new Map(properties.map((name) => [name, { value: popup.style.getPropertyValue(name), priority: popup.style.getPropertyPriority(name) }])) };
+            saved.set(popup, state);
+          }
+          const favorite = popup.querySelector(".favorite-panel-popover");
+          if (favorite && !state.nativeCompactWidth) {
+            popup.classList.remove("homepagescript-header-card");
+            const edges = (element) => {
+              const css2 = getComputedStyle(element);
+              return ["paddingLeft", "paddingRight", "borderLeftWidth", "borderRightWidth"].reduce((sum, name) => sum + (parseFloat(css2[name]) || 0), 0);
+            };
+            const content2 = favorite.closest(".v-popover-content");
+            const css = getComputedStyle(favorite);
+            const nativeWidth = (element) => {
+              const style = getComputedStyle(element);
+              return element.offsetWidth || (parseFloat(style.width) || 0) + (style.boxSizing === "border-box" ? 0 : edges(element));
+            };
+            const shellWidth = (content2 ? edges(content2) : 0) + edges(popup);
+            const panelWidth = nativeWidth(favorite);
+            state.nativeWidth = popup.offsetWidth || panelWidth + shellWidth;
+            const list = favorite.querySelector(".favorite-panel-popover__content");
+            const folders = favorite.querySelector(".favorite-panel-popover__nav");
+            const listWidth = list && (nativeWidth(list) || Math.max(0, panelWidth - edges(favorite) - (folders ? nativeWidth(folders) : 0) - (parseFloat(css.columnGap) || 0)));
+            state.nativeCompactWidth = listWidth ? listWidth + edges(favorite) + shellWidth : 0;
+            if (state.nativeWidth > 0) popup.style.setProperty("--homepagescript-card-width", `${state.nativeWidth}px`);
+            if (state.nativeCompactWidth > 0) popup.style.setProperty("--homepagescript-card-compact-width", `${state.nativeCompactWidth}px`);
+          }
+          if (!popup.classList.contains("homepagescript-header-card")) popup.classList.add("homepagescript-header-card");
+          const rect = anchor.getBoundingClientRect();
+          const inset = parseFloat(getComputedStyle(html).getPropertyValue("--broadcast-navigation-height")) || 0;
+          const top = Math.max(inset, Math.min(rect.bottom, innerHeight - 8));
+          const width = popup.getBoundingClientRect().width;
+          const left = Math.max(8, Math.min(rect.right - width, html.clientWidth - width - 8));
+          const scale = width / popup.offsetWidth || 1;
+          const values = [`${left / scale}px`, `${top / scale}px`, `${Math.max(0, innerHeight - top - 8) / scale}px`];
+          properties.slice(0, 3).forEach((name, index) => {
+            if (popup.style.getPropertyValue(name) !== values[index]) popup.style.setProperty(name, values[index]);
+          });
+          state.style = popup.getAttribute("style");
+        }
+      }
+      for (const [element, state] of saved) if (!narrow.matches || !cards2.has(element)) {
+        restore(element, state);
+        saved.delete(element);
+      }
+      if (targets.size !== observed.size || [...targets].some((element) => !observed.has(element))) {
+        attributes.disconnect();
+        resize.disconnect();
+        observed.clear();
+        for (const element of targets) {
+          observed.add(element);
+          resize.observe(element);
+          attributes.observe(element, { attributes: true, attributeFilter: ["class", "style"] });
+        }
+      }
+    }
+    function schedule() {
+      if (!stopped && !frame) frame = requestAnimationFrame(update);
+    }
+    const resize = new ResizeObserver(schedule);
+    const attributes = new MutationObserver((records) => {
+      if (records.some((record) => record.attributeName !== "style" || saved.get(record.target)?.style !== record.target.getAttribute("style"))) schedule();
+    });
+    const children = new MutationObserver((records) => {
+      if (records.some((record) => record.target.closest?.(scope) || [...record.addedNodes, ...record.removedNodes].some((node) => node.nodeType === 1 && (node.matches(scope) || node.querySelector(scope))))) schedule();
+    });
+    children.observe(document.body, { childList: true, subtree: true });
+    narrow.addEventListener("change", schedule, { signal: events.signal });
+    window.addEventListener("resize", schedule, { signal: events.signal });
+    document.addEventListener("scroll", schedule, { capture: true, passive: true, signal: events.signal });
+    for (const type of ["pointerover", "focusin"]) document.addEventListener(type, (event) => {
+      if (event.target.closest?.(scope)) schedule();
+    }, { capture: true, signal: events.signal });
+    update();
+    return { destroy() {
+      stopped = true;
+      events.abort();
+      cancelAnimationFrame(frame);
+      children.disconnect();
+      attributes.disconnect();
+      resize.disconnect();
+      for (const [element, state] of saved) restore(element, state);
+      saved.clear();
+      observed.clear();
+    } };
+  }
 
   // src/common/main-site/header-search-navigation.js
   function createHeaderSearchNavigation() {
@@ -1008,12 +1204,13 @@ ${location.href}`;
   }
 
   // src/common/main-site/home-layout.js
-  function mountHomeLayout(pageStyle9, suppliedMatchesPage) {
+  function mountHomeLayout(pageStyle10, suppliedMatchesPage) {
     "use strict";
     const matchesPage = suppliedMatchesPage;
     if (!matchesPage()) return;
     window.bilibiliHomePageScript?.destroy();
     const headerSearchNavigation = createHeaderSearchNavigation();
+    const headerCards = createHeaderCards();
     const avatarNavigation = createAvatarNavigation();
     const html = document.documentElement;
     const narrow = matchMedia("(max-width: 1099px)");
@@ -1029,7 +1226,7 @@ ${location.href}`;
     let frame = 0, stopped = false, activeMenu = null;
     const style = document.createElement("style");
     style.id = "homepagescript-style";
-    style.textContent = pageStyle9;
+    style.textContent = pageStyle10;
     const panel = document.createElement("div");
     panel.id = "homepagescript-menu";
     panel.setAttribute("aria-label", "全部频道");
@@ -1058,28 +1255,7 @@ ${location.href}`;
       });
     }
     function fitHeader() {
-      for (const bar of document.querySelectorAll(".bili-header__bar")) {
-        let trim = function(container) {
-          for (const child of container.children) {
-            const retained = keep.some((node) => child.contains(node));
-            fit([child], retained ? 1 : 0);
-            if (retained && !keep.includes(child)) trim(child);
-          }
-        };
-        const keep = Array.from(bar.querySelectorAll(".home-page-entry,.home-page-panel-entry,.header-avatar-wrap"));
-        for (const link of bar.querySelectorAll("a[href]")) {
-          if (link.closest(".v-popover")) continue;
-          const url = new URL(link.href, location.href);
-          if (url.hostname === "www.bilibili.com" && /^\/(?:index\.html)?$/.test(url.pathname)) {
-            keep.push(link.closest(".v-popover-wrap") || link);
-          }
-        }
-        const search = bar.querySelector("#nav-searchform");
-        if (search) keep.push(search.closest(".center-search-container,.menu-center") || search);
-        if (!keep.length) continue;
-        for (const element of hidden) if (bar.contains(element) && keep.some((node) => node.contains(element))) fit([element], 1);
-        trim(bar);
-      }
+      fitHomeHeader(hidden, fit);
     }
     function observe(element) {
       if (!observed.has(element)) {
@@ -1214,11 +1390,9 @@ ${location.href}`;
         const zoom = Math.min(1, Math.max(1, html.clientWidth - 16) / width, Math.max(1, innerHeight - (submenu ? minimumTop + 8 : top + 8)) / height2);
         let left;
         if (submenu) {
-          const rightFits = anchorRect.right + width * zoom <= html.clientWidth - 8;
-          const leftFits = anchorRect.left - width * zoom >= 8;
-          element.classList.toggle("homepagescript-avatar-submenu-left", !rightFits);
-          left = rightFits ? anchorRect.right : leftFits ? anchorRect.left - width * zoom : anchorRect.right - width * zoom;
-          left = Math.max(8, Math.min(left, html.clientWidth - width * zoom - 8));
+          const position = avatarSubmenuPosition(anchorRect, width * zoom, html.clientWidth);
+          element.classList.toggle("homepagescript-avatar-submenu-left", position.opensLeft);
+          left = position.left;
           top = Math.max(minimumTop, Math.min((anchorRect.top + anchorRect.bottom - height2 * zoom) / 2, innerHeight - height2 * zoom - 8));
         } else left = Math.max(8, Math.min(anchorRect.right - width * zoom, html.clientWidth - width * zoom - 8));
         const scale = rect.width / element.offsetWidth / saved.zoom * zoom;
@@ -1349,6 +1523,7 @@ ${location.href}`;
       destroy() {
         avatarNavigation.destroy();
         headerSearchNavigation.destroy();
+        headerCards.destroy();
         stopped = true;
         events.abort();
         mutations.disconnect();
@@ -1392,6 +1567,7 @@ ${location.href}`;
     html.homepagescript-active:has(link#__css-map__[href*="/light.css"]) { color-scheme:light!important; }
     html.homepagescript-active:has(link#__css-map__[href*="/dark.css"]) { color-scheme:dark!important; }
     html.homepagescript-active, html.homepagescript-active * { scrollbar-width:thin!important; scrollbar-color:auto!important; }
+    html.homepagescript-active .bili-header__bar :is(.big-logo,.big-logo__logo) { display:none!important; }
     .homepagescript-more, #homepagescript-menu { display:none; }
     @media (max-width:1099px) {
       html.homepagescript-active { --homepagescript-header-height:56px; }
@@ -1420,7 +1596,33 @@ ${location.href}`;
       html.homepagescript-active .bili-header-channel-panel .channel-panel__item { min-width:0!important; }
       html.homepagescript-active .bili-header__bar .center-search-container { display:block!important; flex:1!important; min-width:0!important; }
       html.homepagescript-active .bili-header__bar .center-search__bar { width:100%!important; min-width:0!important; max-width:none!important; }
-      html.homepagescript-active .bili-header__bar .right-entry { flex:0 0 auto!important; }
+      html.homepagescript-active .bili-header__bar .right-entry { flex:0 0 auto!important; width:auto!important; min-width:0!important; }
+      html.homepagescript-active .bili-header__bar .right-entry__main { gap:8px!important; }
+      html.homepagescript-active .bili-header__bar .right-entry__item { min-width:28px!important; margin:0!important; }
+      html.homepagescript-active .bili-header__bar .right-entry__item-trigger .trigger-text { display:block!important; font-size:12px!important; white-space:nowrap!important; }
+      /* 外框留在原生悬停区域内；只调整坐标和尺寸，保留背景、状态及内容事件。 */
+      html.homepagescript-active .bili-header__bar .homepagescript-header-card {
+        position:fixed!important; left:var(--homepagescript-card-left,8px)!important; top:var(--homepagescript-card-top,var(--homepagescript-header-height))!important;
+        right:auto!important; bottom:auto!important; margin:0!important; transform:none!important;
+        box-sizing:border-box!important; min-width:0!important; max-width:calc(100vw - 16px)!important; transition-property:opacity!important;
+      }
+      html.homepagescript-active :is(.favorite-entry,.history-entry) .homepagescript-header-card { padding-top:8px!important; }
+      html.homepagescript-active .history-entry .homepagescript-header-card { width:min(372px,calc(100vw - 16px))!important; }
+      html.homepagescript-active .history-entry .homepagescript-header-card:has(.continuous-history-card) { width:min(302px,calc(100vw - 16px))!important; }
+      html.homepagescript-active .right-entry__item:has(:is([data-idx="fav"],[data-idx="history"])) .homepagescript-header-card { width:min(372px,calc(100vw - 16px))!important; padding-top:8px!important; }
+      /* 收藏卡片先读取原生宽度，仅在视口放不下时收窄。 */
+      html.homepagescript-active .bili-header__bar .homepagescript-header-card:has(.favorite-panel-popover) { width:var(--homepagescript-card-width)!important; }
+      html.homepagescript-active .homepagescript-header-card :is(.continuous-history-card,.right-entry__item-unlogin-panel) { box-sizing:border-box!important; width:100%!important; min-width:0!important; }
+      html.homepagescript-active .homepagescript-header-card > .v-popover-content { box-sizing:border-box!important; width:100%!important; min-width:0!important; max-height:calc(var(--homepagescript-card-height) - 8px)!important; overflow:auto!important; }
+      html.homepagescript-active .homepagescript-header-card :is(.favorite-panel-popover,.history-panel-popover) { box-sizing:border-box!important; width:100%!important; min-width:0!important; height:min(540px,calc(var(--homepagescript-card-height) - 10px))!important; }
+      html.homepagescript-active .homepagescript-header-card .history-panel-popover { display:flex!important; flex-direction:column!important; }
+      html.homepagescript-active .homepagescript-header-card .header-tabs-panel { flex:none!important; }
+      html.homepagescript-active .homepagescript-header-card .header-tabs-panel__content { flex:1!important; min-height:0!important; height:auto!important; overflow-y:auto!important; }
+      html.homepagescript-active .homepagescript-header-card .view-all-history-btn { max-width:calc(100% - 24px)!important; }
+      html.homepagescript-active .homepagescript-header-card .favorite-panel-popover__nav { height:100%!important; }
+      html.homepagescript-active .homepagescript-header-card .favorite-panel-popover__content { display:flex!important; flex-direction:column!important; flex:1!important; min-width:0!important; height:100%!important; }
+      html.homepagescript-active .homepagescript-header-card .content-scroll { flex:1!important; min-height:0!important; height:auto!important; overflow-y:auto!important; }
+      html.homepagescript-active .homepagescript-header-card .content-bottom { position:static!important; flex:none!important; }
       /* 主卡片和二级菜单留在原生父级内，保留悬停开合与点击行为。 */
       html.homepagescript-active :is(.bili-header__bar,.link-navbar) :is(.homepagescript-avatar-menu,.homepagescript-avatar-submenu) {
         position:fixed!important; left:var(--homepagescript-avatar-left,0px)!important; top:var(--homepagescript-avatar-top,0px)!important;
@@ -1481,6 +1683,16 @@ ${location.href}`;
       .homepagescript-more:focus-visible, #homepagescript-menu a:focus-visible { outline:2px solid #00aeec; outline-offset:1px; }
 ${content2}
       html.homepagescript-active .bili-header__bar .offset-center-search { transform:none!important; position:relative!important; left:auto!important; }
+    }
+    @media (max-width:559px) {
+      /* 横排收藏夹不再占左侧宽度，外框仅保留原生视频列表的宽度。 */
+      html.homepagescript-active .bili-header__bar .homepagescript-header-card:has(.favorite-panel-popover) { width:var(--homepagescript-card-compact-width)!important; }
+      html.homepagescript-active .homepagescript-header-card .favorite-panel-popover { flex-direction:column!important; }
+      html.homepagescript-active .homepagescript-header-card .favorite-panel-popover__nav { display:flex!important; align-items:center!important; width:100%!important; height:40px!important; flex:none!important; padding:0!important; border-right:0!important; overflow-x:auto!important; overflow-y:hidden!important; }
+      html.homepagescript-active .homepagescript-header-card .favorite-panel-popover__nav .tab-item { position:relative!important; display:flex!important; align-items:center!important; justify-content:flex-start!important; gap:8px!important; box-sizing:border-box!important; flex:none!important; width:auto!important; min-width:0!important; height:32px!important; margin:0!important; padding:0 12px!important; white-space:nowrap!important; }
+      html.homepagescript-active .homepagescript-header-card .favorite-panel-popover__nav .tab-item > * { flex:none!important; width:auto!important; min-width:0!important; margin:0!important; }
+      html.homepagescript-active .homepagescript-header-card .favorite-panel-popover__nav .tab-item + .tab-item::before { content:""; position:absolute; left:0; top:5px; bottom:5px; border-left:1px solid var(--line_regular,#e3e5e7); pointer-events:none; }
+      html.homepagescript-active .homepagescript-header-card .favorite-panel-popover__content { min-height:0!important; height:auto!important; }
     }
     @media (max-width:399px) {
       html.homepagescript-active .bili-header__channel { grid-template-rows:auto auto 32px!important; }
@@ -1729,11 +1941,9 @@ ${content2}
         const zoom = Math.min(1, Math.max(1, html.clientWidth - 16) / width, Math.max(1, innerHeight - (submenu ? minimumTop + 8 : top + 8)) / height2);
         let left;
         if (submenu) {
-          const rightFits = anchorRect.right + width * zoom <= html.clientWidth - 8;
-          const leftFits = anchorRect.left - width * zoom >= 8;
-          ownClass(element, "homepagescript-avatar-submenu-left", !rightFits);
-          left = rightFits ? anchorRect.right : leftFits ? anchorRect.left - width * zoom : anchorRect.right - width * zoom;
-          left = Math.max(8, Math.min(left, html.clientWidth - width * zoom - 8));
+          const position = avatarSubmenuPosition(anchorRect, width * zoom, html.clientWidth);
+          ownClass(element, "homepagescript-avatar-submenu-left", position.opensLeft);
+          left = position.left;
           top = Math.max(minimumTop, Math.min((anchorRect.top + anchorRect.bottom - height2 * zoom) / 2, innerHeight - height2 * zoom - 8));
         } else left = Math.max(8, Math.min(anchorRect.right - width * zoom, html.clientWidth - width * zoom - 8));
         const scale = rect.width / element.offsetWidth / saved.zoom * zoom;
@@ -2093,7 +2303,7 @@ ${content2}
   var base_default = '    /* 与 FeedScript 一致，原生滚动条配色跟随站点主题；所有宽度和滚动容器均生效。 */\n    html.homepagescript-active { color-scheme:light!important; }\n    html.homepagescript-active.bili_dark { color-scheme:dark!important; }\n    html.homepagescript-active:has(link#__css-map__[href*="/light.css"]) { color-scheme:light!important; }\n    html.homepagescript-active:has(link#__css-map__[href*="/dark.css"]) { color-scheme:dark!important; }\n    html.homepagescript-active, html.homepagescript-active * { scrollbar-width:thin!important; scrollbar-color:auto!important; }\n\n@media(max-width:1099px) {\n  html.homepagescript-active, html.homepagescript-active body {min-width:0!important;overflow-x:clip!important;}\n  html.homepagescript-active .homepagescript-hidden {display:none!important;}\n  html.homepagescript-active :is(.bili-header__bar,.link-navbar) :is(.homepagescript-avatar-menu,.homepagescript-avatar-submenu) {\n    position:fixed!important;left:var(--homepagescript-avatar-left,0px)!important;top:var(--homepagescript-avatar-top,0px)!important;\n    right:auto!important;bottom:auto!important;margin:0!important;transform:none!important;\n    zoom:var(--homepagescript-avatar-zoom,1)!important;transition-property:opacity!important;\n  }\n  html.homepagescript-active .homepagescript-avatar-submenu-left {padding-left:0!important;padding-right:10px!important;}\n}\n';
 
   // src/common/live/live-header.css
-  var live_header_default = "/* Shared compact live header; preserve native search and avatar controls. */\n@media(max-width:1099px) {\n/* Header: title, More, flexible search, avatar. Keep all popup contents intact. */\nhtml.homepagescript-active .link-navbar {box-sizing:border-box!important;display:flex!important;align-items:center!important;gap:6px!important;width:100%!important;min-width:0!important;height:56px!important;padding:0 8px!important;}\nhtml.homepagescript-active .link-navbar :is(#main-ctnr,.left-part,.right-part) {position:relative!important;inset:auto!important;float:none!important;flex:none!important;width:auto!important;min-width:0!important;margin:0!important;padding:0!important;}\nhtml.homepagescript-active .link-navbar .left-part {display:flex!important;align-items:center!important;height:100%!important;}\nhtml.homepagescript-active .link-navbar .left-part > .dp-table-cell {display:flex!important;align-items:center!important;height:100%!important;gap:6px!important;}\nhtml.homepagescript-active .link-navbar :is(.entry-title,.showmore-link) {white-space:nowrap!important;flex:none!important;margin:0!important;}\nhtml.homepagescript-active .link-navbar .entry-title {display:inline-flex!important;align-items:center!important;}\nhtml.homepagescript-active .link-navbar .nav-logo {margin:0!important;line-height:24px!important;}\nhtml.homepagescript-active .link-navbar .tv-logo {display:block!important;top:auto!important;flex:none!important;margin-right:4px!important;}\nhtml.homepagescript-active .link-navbar :is(.entry_logo,.platform-service-ctnr,.shortcuts-ctnr) {display:none!important;}\nhtml.homepagescript-active .link-navbar .showmore-link {display:block!important;position:relative!important;margin-left:6px!important;}\nhtml.homepagescript-active .link-navbar .search-block {position:relative!important;inset:auto!important;flex:1 1 0!important;min-width:0!important;width:auto!important;padding:0!important;margin:0!important;}\nhtml.homepagescript-active .link-navbar :is(.search-bar-ctnr,.nomarl-cell,.search-bar,.nav-search-content) {box-sizing:border-box!important;min-width:0!important;width:100%!important;}\nhtml.homepagescript-active .link-navbar .nav-search-content {padding-right:32px!important;}\nhtml.homepagescript-active .link-navbar .panel-ab {position:static!important;}\nhtml.homepagescript-active .link-navbar .right-part > .user-panel {width:auto!important;min-width:0!important;padding:0!important;margin:0!important;}\nhtml.homepagescript-active .link-navbar .user-panel-ctnr {min-width:0!important;margin:0!important;padding:0!important;}\nhtml.homepagescript-active .link-navbar .user-panel-ctnr > .user-panel {box-sizing:border-box!important;max-width:calc(100vw - 16px)!important;}\n/* New live header: the same native search/avatar, with nav-title entries. */\nhtml.homepagescript-active .live-home-new-header {height:56px!important;min-width:0!important;width:100%!important;}\n/* Keep the native 40px search height instead of stretching it to the 56px header. */\nhtml.homepagescript-active .live-home-new-header .search-block {display:flex!important;align-items:center!important;height:40px!important;}\nhtml.homepagescript-active .live-home-new-header .user-panel-ctnr {display:inline-flex!important;align-items:center!important;}\nhtml.homepagescript-active .link-navbar .live-home-new-nav {display:flex!important;align-items:center!important;gap:6px!important;flex:none!important;width:auto!important;min-width:0!important;margin:0!important;padding:0!important;}\nhtml.homepagescript-active .live-home-new-nav .nav-title:not(.homepagescript-hidden) {display:inline-flex!important;align-items:center!important;gap:4px!important;white-space:nowrap!important;margin:0!important;padding:0!important;line-height:24px!important;}\n}\n";
+  var live_header_default = "/* Shared compact live header; preserve native search and avatar controls. */\n@media(max-width:1099px) {\n/* Header: title, More, flexible search, avatar. Keep all popup contents intact. */\nhtml.homepagescript-active .link-navbar {box-sizing:border-box!important;display:flex!important;align-items:center!important;gap:6px!important;width:100%!important;min-width:0!important;height:56px!important;padding:0 8px!important;}\nhtml.homepagescript-active .link-navbar :is(#main-ctnr,.left-part,.right-part) {position:relative!important;inset:auto!important;float:none!important;flex:none!important;width:auto!important;min-width:0!important;margin:0!important;padding:0!important;}\nhtml.homepagescript-active .link-navbar .left-part {display:flex!important;align-items:center!important;height:100%!important;}\nhtml.homepagescript-active .link-navbar .left-part > .dp-table-cell {display:flex!important;align-items:center!important;height:100%!important;gap:6px!important;}\nhtml.homepagescript-active .link-navbar :is(.entry-title,.showmore-link) {white-space:nowrap!important;flex:none!important;margin:0!important;}\nhtml.homepagescript-active .link-navbar .entry-title {display:inline-flex!important;align-items:center!important;}\nhtml.homepagescript-active .link-navbar .nav-logo {margin:0!important;line-height:24px!important;}\nhtml.homepagescript-active .link-navbar .tv-logo {display:block!important;top:auto!important;flex:none!important;margin-right:4px!important;}\nhtml.homepagescript-active .link-navbar :is(.entry_logo,.platform-service-ctnr,.shortcuts-ctnr) {display:none!important;}\nhtml.homepagescript-active .link-navbar .showmore-link {display:block!important;position:relative!important;margin-left:6px!important;}\nhtml.homepagescript-active .link-navbar .search-block {position:relative!important;inset:auto!important;flex:1 1 0!important;min-width:0!important;width:auto!important;padding:0!important;margin:0!important;}\nhtml.homepagescript-active .link-navbar :is(.search-bar-ctnr,.nomarl-cell,.search-bar,.nav-search-content) {box-sizing:border-box!important;min-width:0!important;width:100%!important;}\nhtml.homepagescript-active .link-navbar .nav-search-content {padding-right:32px!important;}\nhtml.homepagescript-active .link-navbar .panel-ab {position:static!important;}\nhtml.homepagescript-active .link-navbar .right-part > .user-panel {width:auto!important;min-width:0!important;padding:0!important;margin:0!important;}\nhtml.homepagescript-active .link-navbar .user-panel-ctnr {min-width:0!important;margin:0!important;padding:0!important;}\nhtml.homepagescript-active .link-navbar .user-panel-ctnr > .user-panel {box-sizing:border-box!important;max-width:calc(100vw - 16px)!important;}\n/* New live header: the same native search/avatar, with nav-title entries. */\nhtml.homepagescript-active .live-home-new-header {height:56px!important;min-width:0!important;width:100%!important;}\n/* Keep the native 40px search height. The in-flow panel expands the inner table;\n   align its top so opening suggestions cannot lift the input out of the header. */\nhtml.homepagescript-active .live-home-new-header .search-block {display:flex!important;align-items:flex-start!important;height:40px!important;}\nhtml.homepagescript-active .live-home-new-header .user-panel-ctnr {display:inline-flex!important;align-items:center!important;}\nhtml.homepagescript-active .link-navbar .live-home-new-nav {display:flex!important;align-items:center!important;gap:6px!important;flex:none!important;width:auto!important;min-width:0!important;margin:0!important;padding:0!important;}\nhtml.homepagescript-active .live-home-new-nav .nav-title:not(.homepagescript-hidden) {display:inline-flex!important;align-items:center!important;gap:4px!important;white-space:nowrap!important;margin:0!important;padding:0!important;line-height:24px!important;}\n}\n";
 
   // src/common/live/live-list-layout.css
   var live_list_layout_default = '/* Native /all wrappers and room cards. */\n@media(max-width:1099px) {\nhtml.homepagescript-active :is(#app,#main) {min-width:0!important;width:100%!important;}\nhtml.homepagescript-active :is(.all__area-top-ctnr,.all__special-area-recommend-list-ctnr,.all__card-list-ctnr) {box-sizing:border-box!important;min-width:0!important;width:calc(100% - 24px)!important;margin:24px 12px!important;padding:0!important;}\nhtml.homepagescript-active :is(.all__area-top-ctnr,.all__special-area-recommend-list-ctnr,.all__card-list-ctnr:not(#area-tag-list)) :is(.top__header-wrap,.header__wrap,.tab__bar-wrap,.tabs) {display:flex!important;flex-wrap:wrap!important;align-items:center!important;gap:8px!important;min-width:0!important;padding:0!important;}\nhtml.homepagescript-active [class*="index_room-card-list_"] {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(220px,calc((100% - 12px)/2)),1fr))!important;gap:16px 12px!important;padding-bottom:16px!important;min-width:0!important;width:100%!important;}\nhtml.homepagescript-active [class*="index_room-card-list_"] > * {width:100%!important;min-width:0!important;margin:0!important;}\nhtml.homepagescript-active [class*="Item_card-item_"] {height:auto!important;}\nhtml.homepagescript-active [class*="Item_card-item-ctnr_"] {box-sizing:border-box!important;position:relative!important;top:auto!important;left:auto!important;width:100%!important;min-width:0!important;padding:0!important;}\nhtml.homepagescript-active [class*="Item_cover-wrap_"] {width:100%!important;height:auto!important;aspect-ratio:16/9;}\nhtml.homepagescript-active [class*="Item_lowerRow_"] {width:100%!important;min-width:0!important;padding:0!important;}\nhtml.homepagescript-active [class*="Item_right_"] {flex:1!important;min-width:0!important;}\nhtml.homepagescript-active [class*="Item_nickName_"] {min-width:0!important;}\n}\n/* /all uses fixed-width list wrappers and fixed card covers in the native CSS. */\n@media(max-width:1099px) {\nhtml.homepagescript-active #main:has(.all__card-list-ctnr) {box-sizing:border-box!important;min-width:0!important;max-width:100%!important;overflow-x:clip!important;}\nhtml.homepagescript-active #app:has(.all__card-list-ctnr) [class*="app_wrap_"] {box-sizing:border-box!important;min-width:0!important;width:100%!important;max-width:100%!important;}\nhtml.homepagescript-active .all__card-list-ctnr :is(.tab__bar-wrap,.tabs) {height:auto!important;max-width:100%!important;}\nhtml.homepagescript-active .all__card-list-ctnr:not(#area-tag-list) .tabs > * {margin:0!important;max-width:100%!important;}\nhtml.homepagescript-active :is(.all__area-top-ctnr,.all__special-area-recommend-list-ctnr,.all__card-list-ctnr) [class*="Item_cover-wrap_"] {max-width:100%!important;}\nhtml.homepagescript-active .all__card-list-ctnr [class*="Item_roomTitle_"] {min-width:0!important;max-width:100%!important;}\n}\n@media(max-width:399px) {\nhtml.homepagescript-active :is(.all__area-top-ctnr,.all__special-area-recommend-list-ctnr,.all__card-list-ctnr) [class*="index_room-card-list_"] {grid-template-columns:minmax(0,1fr)!important;}\n}\n';
@@ -2460,10 +2670,9 @@ ${content2}
     const matchesPage = () => pageId(location.href) === "Feed";
     if (!matchesPage()) return;
     window.bilibiliFeedScript?.destroy();
-    const headerSearchNavigation = createHeaderSearchNavigation();
-    const avatarNavigation = createAvatarNavigation();
+    const homeLayout = mountHomeLayout(homeStyle(), matchesPage);
     const html = document.documentElement;
-    const narrow = matchMedia("(width < 1100px)");
+    const narrow = matchMedia("(max-width:1099px)");
     const railWidth = 20;
     const railDeadZone = 5;
     const leftWidth = `min(280px,calc(100vw - ${railWidth + 20}px))`;
@@ -2476,11 +2685,7 @@ ${content2}
     let classes = /* @__PURE__ */ new Map();
     const events = new AbortController();
     const profileCSS = "left:var(--feedscript-profile-left)!important; top:var(--feedscript-profile-top)!important; zoom:var(--feedscript-profile-zoom)!important; transition-property:left,top,opacity!important;";
-    const profiles = /* @__PURE__ */ new Map(), avatarMenus = /* @__PURE__ */ new Map();
-    const avatarProperties = ["--feedscript-avatar-left", "--feedscript-avatar-top", "--feedscript-avatar-zoom"];
-    const homeEntry = ".home-page-panel-entry";
-    let homeClick = null, homeClickTimer = 0, potPlayerApi = null, restoreIgnore = () => {
-    };
+    const profiles = /* @__PURE__ */ new Map();
     let main = null, left = null, open = false, stopped = false, frame = 0, layoutPending = false, width = 0;
     let restoreViewport = null, restoreLeft = null;
     const dynamicContent = createDynamicContent({ getRoot: () => main, popup, isActive: () => narrow.matches });
@@ -2496,34 +2701,14 @@ ${content2}
     @media ${narrow.media} { html.feedscript-active {
       &:has(link#__css-map__[href*="/light.css"]) { color-scheme:light!important; }
       &:has(link#__css-map__[href*="/dark.css"]) { color-scheme:dark!important; }
-      &, :is(body,.feedscript-left,.feedscript-scroll,.feedscript-home-menu) { scrollbar-width:thin!important; }
+      &, :is(body,.feedscript-left,.feedscript-scroll) { scrollbar-width:thin!important; }
       &, body { overflow-x:clip!important; scrollbar-gutter:auto!important; }
       .feedscript-hidden, :is(${header}):not(.feedscript-header):not(.feedscript-header *) { display:none!important; }
-      &:has(.feedscript-header) { --feedscript-header-height:56px; }
-      .feedscript-header { position:sticky!important; top:var(--broadcast-navigation-height,0px)!important; height:56px!important; z-index:1300!important; }
-      .feedscript-header, .feedscript-header :is(.bili-header,.bili-header__bar) { width:100%!important; min-width:0!important; max-width:none!important; margin:0!important; height:56px!important; box-sizing:border-box!important; }
-      .feedscript-header .bili-header__bar { position:relative!important; inset:auto!important; padding:0 8px!important; }
-      .feedscript-header :is(.left-entry-main > :not(.home-page-panel-entry),.right-entry__main > :not(.header-avatar-wrap),.right-entry > :not(.right-entry__main)) { display:none!important; }
-      .feedscript-header .left-entry { display:flex!important; flex:0 0 auto!important; min-width:0!important; margin-right:8px!important; }
-      .feedscript-header .home-page-panel-entry { margin:0!important; }
-      .feedscript-header .home-page-panel-entry .big-logo, .feedscript-header .big-logo__logo { width:64px!important; height:30px!important; }
-      .feedscript-header .home-page-panel-entry .trigger-text { font-size:14px!important; }
-      .feedscript-header .center-search-container { display:block!important; flex:1!important; min-width:0!important; }
-      .feedscript-header .center-search__bar { width:100%!important; min-width:0!important; max-width:none!important; }
-      .feedscript-header .right-entry { flex:0 0 auto!important; }
-      /* 与 HomePageScripts 共用处理方式，保留原生父级和悬停连接区。 */
-      .feedscript-header .bili-header__bar :is(.feedscript-avatar-menu,.feedscript-avatar-submenu,.feedscript-home-menu) {
-        position:fixed!important; left:var(--feedscript-avatar-left,0px)!important; top:var(--feedscript-avatar-top,0px)!important;
-        right:auto!important; bottom:auto!important; margin:0!important; transform:none!important;
-        zoom:var(--feedscript-avatar-zoom,1)!important; transition-property:opacity!important;
-      }
-      .feedscript-header .bili-header__bar .feedscript-avatar-submenu-left { padding-left:0!important; padding-right:10px!important; }
-      .feedscript-home-menu { width:min(900px,calc(100vw - 16px))!important; max-height:calc(100vh - var(--broadcast-navigation-height,0px) - 72px)!important; overflow:auto!important; box-sizing:border-box!important; }
-      .feedscript-home-menu :is(.v-popover-content,.bili-header-channel-panel) { width:100%!important; min-width:0!important; box-sizing:border-box!important; }
-      .feedscript-home-menu .bili-header-channel-panel { display:grid!important; grid-template-columns:repeat(auto-fit,minmax(130px,1fr))!important; gap:4px!important; padding:8px!important; }
-      .feedscript-home-menu .channel-panel__column { display:contents!important; }
-      .feedscript-home-menu .channel-panel__item { min-width:0!important; width:auto!important; height:auto!important; min-height:32px!important; padding:6px!important; margin:0!important; gap:8px!important; font-size:14px!important; white-space:nowrap!important; }
-      .feedscript-home-menu .navigation-channel-icon { flex:none!important; }
+      /* 这里只衔接动态页容器与信息栏；顶栏控件和浮层交由首页公共模块。 */
+      &:has(.feedscript-header) { --feedscript-header-height:var(--homepagescript-header-height); }
+      .feedscript-header { position:sticky!important; top:var(--broadcast-navigation-height,0px)!important; height:var(--homepagescript-header-height)!important; z-index:1300!important; }
+      .feedscript-header, .feedscript-header .bili-header { width:100%!important; min-width:0!important; max-width:none!important; margin:0!important; height:var(--homepagescript-header-height)!important; box-sizing:border-box!important; }
+      .feedscript-header .bili-header__bar { position:relative!important; inset:auto!important; }
       :is(.feedscript-path,.feedscript-main,.feedscript-fit,.feedscript-scroll), .feedscript-main > ${pageChild},
       .feedscript-main :is(${fullWidth2},${content2}) { box-sizing:border-box!important; min-width:0!important; max-width:100%!important; }
       :is(.feedscript-path,.feedscript-main) { width:100%!important; }
@@ -2587,83 +2772,6 @@ ${content2}
         if (value) element.style.setProperty(name, value, priority);
         else element.style.removeProperty(name);
       }
-    }
-    function resetAvatarMenu(element, saved) {
-      element.classList.remove("feedscript-avatar-menu", "feedscript-avatar-submenu", "feedscript-avatar-submenu-left", "feedscript-home-menu");
-      restoreStyles(element, saved.original);
-      resize.unobserve(element);
-      avatarMenus.delete(element);
-    }
-    function fitAvatarMenu(element, anchor, submenu, targets, home = false) {
-      let saved = avatarMenus.get(element);
-      if (!saved) {
-        saved = { original: saveStyles(element, avatarProperties), zoom: 1 };
-        avatarMenus.set(element, saved);
-        resize.observe(element);
-      }
-      targets.add(element);
-      element.classList.add(home ? "feedscript-home-menu" : submenu ? "feedscript-avatar-submenu" : "feedscript-avatar-menu");
-      const rect = element.getBoundingClientRect();
-      if (!rect.width || !rect.height) return;
-      const anchorRect = anchor.getBoundingClientRect();
-      const inset = parseFloat(getComputedStyle(html).getPropertyValue("--broadcast-navigation-height")) || 0;
-      const menuTop = inset && submenu ? element.closest(".feedscript-avatar-menu")?.getBoundingClientRect().top || 0 : 0;
-      const minimumTop = Math.max(inset + 8, menuTop);
-      let top = Math.max(minimumTop, Math.min(anchorRect.bottom, innerHeight - 16));
-      const width2 = rect.width / saved.zoom, height2 = rect.height / saved.zoom;
-      const zoom = Math.min(1, Math.max(1, html.clientWidth - 16) / width2, Math.max(1, innerHeight - (submenu ? minimumTop + 8 : top + 8)) / height2);
-      let left2;
-      if (submenu) {
-        const rightFits = anchorRect.right + width2 * zoom <= html.clientWidth - 8;
-        const leftFits = anchorRect.left - width2 * zoom >= 8;
-        element.classList.toggle("feedscript-avatar-submenu-left", !rightFits);
-        left2 = rightFits ? anchorRect.right : leftFits ? anchorRect.left - width2 * zoom : anchorRect.right - width2 * zoom;
-        left2 = Math.max(8, Math.min(left2, html.clientWidth - width2 * zoom - 8));
-        top = Math.max(minimumTop, Math.min((anchorRect.top + anchorRect.bottom - height2 * zoom) / 2, innerHeight - height2 * zoom - 8));
-      } else left2 = Math.max(8, Math.min(home ? anchorRect.left : anchorRect.right - width2 * zoom, html.clientWidth - width2 * zoom - 8));
-      const scale = rect.width / element.offsetWidth / saved.zoom * zoom;
-      const values = [`${left2 / scale}px`, `${top / scale}px`, String(zoom)];
-      avatarProperties.forEach((name, index) => {
-        if (element.style.getPropertyValue(name) !== values[index]) element.style.setProperty(name, values[index]);
-      });
-      saved.zoom = zoom;
-    }
-    function fitAvatarMenus() {
-      const targets = /* @__PURE__ */ new Set();
-      for (const element of document.querySelectorAll(".feedscript-header .bili-header__bar .header-avatar-wrap > .v-popover-wrap > .v-popover")) {
-        const anchor = element.parentElement.querySelector(".header-avatar-wrap--container") || element.closest(".header-avatar-wrap");
-        fitAvatarMenu(element, anchor, false, targets);
-        for (const submenu of element.querySelectorAll(".v-popover-wrap > .v-popover:is(.is-right,.is-left)")) {
-          fitAvatarMenu(submenu, submenu.parentElement, true, targets);
-        }
-      }
-      for (const element of document.querySelectorAll(`.feedscript-header ${homeEntry} > .v-popover`)) {
-        fitAvatarMenu(element, element.parentElement.querySelector(".left-entry__item-trigger"), false, targets, true);
-      }
-      for (const [element, saved] of avatarMenus) if (!targets.has(element)) resetAvatarMenu(element, saved);
-    }
-    function syncPotPlayerIgnore() {
-      const api = window.__potPlayerBilibiliClick;
-      if (api === potPlayerApi) return;
-      restoreIgnore();
-      potPlayerApi = api;
-      restoreIgnore = typeof api?.ignoreUrl === "function" ? api.ignoreUrl((url) => Boolean(homeClick?.isConnected && url.href === homeClick.href && isPageUrl(url))) : () => {
-      };
-    }
-    function prepareHomeClick(event) {
-      homeClick = event.target instanceof Element ? event.target.closest(`${homeEntry} a[href]`) : null;
-      syncPotPlayerIgnore();
-    }
-    function onHomeClick(event) {
-      prepareHomeClick(event);
-      clearTimeout(homeClickTimer);
-      homeClickTimer = setTimeout(() => {
-        homeClick = null;
-      }, 0);
-      if (!homeClick || homeClick.hasAttribute("download") || !isPageUrl(homeClick.href) || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      location.assign(homeClick.href);
     }
     function reconcile(next) {
       for (const [element, names] of classes) for (const name of names) if (!next.get(element)?.has(name)) element.classList.remove(name);
@@ -2791,7 +2899,6 @@ ${content2}
       reconcile(/* @__PURE__ */ new Map());
       dynamicContent.clear();
       for (const host of [...profiles.keys()]) releaseProfile(host);
-      for (const [element, saved] of avatarMenus) resetAvatarMenu(element, saved);
       restoreViewport?.();
       restoreViewport = null;
       style.remove();
@@ -2807,7 +2914,6 @@ ${content2}
         if (narrow.matches) {
           if (layout) syncLayout();
           syncProfiles();
-          fitAvatarMenus();
         } else if (style.isConnected) clearLayout();
       } finally {
         observe();
@@ -2859,30 +2965,20 @@ ${content2}
       [window, "resize", () => schedule(false)],
       [window, "pageshow", schedule],
       [window, "scroll", () => schedule(false), true],
-      [narrow, "change", schedule],
-      [window, "pointerdown", prepareHomeClick, true],
-      [window, "keydown", (event) => {
-        if (event.key === "Enter") prepareHomeClick(event);
-      }, true],
-      [window, "click", onHomeClick, true]
+      [narrow, "change", schedule]
     ]) target.addEventListener(type, handler, { capture, signal: events.signal });
-    syncPotPlayerIgnore();
     refresh();
     window.bilibiliFeedScript = {
-      version: "1.2.16",
+      version,
       refresh,
       destroy() {
         dynamicContent.destroy();
-        avatarNavigation.destroy();
-        headerSearchNavigation.destroy();
+        homeLayout?.destroy();
         stopped = true;
         events.abort();
         observer.disconnect();
         resize.disconnect();
         cancelAnimationFrame(frame);
-        clearTimeout(homeClickTimer);
-        homeClick = null;
-        restoreIgnore();
         clearLayout();
       }
     };
@@ -2897,7 +2993,7 @@ ${content2}
   });
 
   // src/WebPage/History/content.css
-  var content_default3 = "@media(max-width:1099px) {\nhtml.homepagescript-active :is(.history-record,.main-head,.main-content,.breadcrumbs-nav,.history-list,.history-section,.breadcrumbs__top,.breadcrumbs__bottom) {box-sizing:border-box!important;min-width:0!important;width:100%!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;}\nhtml.homepagescript-active .history-record {padding:8px!important;}\nhtml.homepagescript-active :is(.main-head,.breadcrumbs__top,.breadcrumbs__top > *,.breadcrumbs .tabs,.radio-filter,.filters) {flex-wrap:wrap!important;gap:8px!important;height:auto!important;}\nhtml.homepagescript-active .breadcrumbs.fixed {position:static!important;}\nhtml.homepagescript-active .timeline-item {flex-wrap:wrap!important;}\nhtml.homepagescript-active .history-timeline-anchor {display:none!important;}\nhtml.homepagescript-active .section-cards {display:grid!important;grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important;gap:16px 12px!important;}\nhtml.homepagescript-active :is(.history-card,.history-card__left,.history-card__main,.history-card .bili-video-card,.history-card .bili-video-card__wrap) {box-sizing:border-box!important;width:100%!important;min-width:0!important;}\nhtml.homepagescript-active .history-card .bili-video-card__wrap {flex-direction:column!important;}\nhtml.homepagescript-active .history-card .bili-video-card__cover {width:100%!important;}\nhtml.homepagescript-active :is(.fixed-side-menu,.fixed-label-con) {display:none!important;}\n}";
+  var content_default3 = "/* Reflow native History content; the shared main-site module owns the header.\n   Keep controls, cards, selection overlays and native handlers in place. */\n@media (max-width:1099px) {\n  html.homepagescript-active .history-record {\n    box-sizing:border-box!important; min-width:0!important; width:100%!important; padding:16px 12px 28px!important;\n  }\n  /* Remove the desktop space reserved for the timeline and side navigation. */\n  html.homepagescript-active .history-record :is(.main-head,.breadcrumbs-nav,.main-content,.history-list,.history-section) {\n    box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important;\n    margin-left:0!important; margin-right:0!important; padding-left:0!important; padding-right:0!important;\n  }\n  html.homepagescript-active .history-record .main-head { display:flex!important; align-items:center!important; justify-content:space-between!important; flex-wrap:wrap!important; gap:10px 16px!important; margin-bottom:8px!important; }\n  html.homepagescript-active .history-record .main-title { margin:0!important; font-size:22px!important; line-height:32px!important; white-space:nowrap!important; }\n  html.homepagescript-active .history-record .main-title__icon { font-size:24px!important; margin-right:8px!important; }\n  html.homepagescript-active .history-record .main-actions { gap:12px!important; min-width:0!important; }\n  html.homepagescript-active .history-record .main-actions .split-line { margin:0!important; }\n  html.homepagescript-active .history-record .record-switcher { font-size:13px!important; white-space:nowrap!important; }\n  html.homepagescript-active .history-record .lists-view-mode__action { width:32px!important; height:32px!important; }\n\n  /* A tall sticky toolbar would consume most of a short player viewport. */\n  html.homepagescript-active .history-record .main-breadcrumbs { position:static!important; background:transparent!important; box-shadow:none!important; }\n  html.homepagescript-active .history-record .breadcrumbs-nav { padding-top:0!important; padding-bottom:12px!important; }\n  html.homepagescript-active .history-record .breadcrumbs__top { display:flex!important; flex-direction:column!important; align-items:stretch!important; gap:10px!important; }\n  html.homepagescript-active .history-record .breadcrumbs__top > :is(.left,.right) { min-width:0!important; width:100%!important; margin:0!important; }\n  html.homepagescript-active .history-record .breadcrumbs.normal .tabs { display:flex!important; width:100%!important; min-width:0!important; }\n  html.homepagescript-active .history-record .radio-tabs { flex:1!important; min-width:0!important; column-gap:0!important; }\n  html.homepagescript-active .history-record .radio-tabs__item { flex:1!important; min-width:0!important; padding:10px 6px!important; white-space:nowrap!important; }\n  /* An already-mounted page may retain the desktop cursor's measured offset. */\n  html.homepagescript-active .history-record .radio-tabs__cursor { display:none!important; }\n  html.homepagescript-active .history-record .radio-tabs__item--active { position:relative!important; }\n  html.homepagescript-active .history-record .radio-tabs__item--active::after { content:''; position:absolute; bottom:0; left:50%; transform:translateX(-50%); width:26px; height:3px; border-radius:2px; background:var(--history-brand-color,var(--brand_blue,#00aeec)); }\n  html.homepagescript-active .history-record .breadcrumbs.normal .filter-switcher { margin-left:8px!important; white-space:nowrap!important; }\n  html.homepagescript-active .history-record .breadcrumbs.normal .breadcrumbs__top > .right { display:grid!important; grid-template-columns:minmax(0,1fr) auto auto!important; gap:8px!important; }\n  html.homepagescript-active .history-record .breadcrumbs .action-btn { width:auto!important; min-width:0!important; height:34px!important; margin:0!important; padding:0 10px!important; white-space:nowrap!important; transition:none!important; }\n  html.homepagescript-active .history-record .breadcrumbs .action-btn .btn-txt { max-width:none!important; margin-left:4px!important; }\n  /* Unfold the native input visually without changing its focus/search events. */\n  html.homepagescript-active .history-record .search-bar { --search-bar-bg:var(--graph_bg_regular); --search-bar-side-padding:2px; box-sizing:border-box!important; width:100%!important; min-width:0!important; margin:0!important; transition:none!important; }\n  html.homepagescript-active .history-record .search-bar .input-wrap { min-width:0!important; max-width:none!important; }\n  html.homepagescript-active .history-record .search-bar-input { box-sizing:border-box!important; min-width:0!important; }\n  html.homepagescript-active .history-record .filter-item { flex-wrap:wrap!important; gap:8px!important; }\n  html.homepagescript-active .history-record .radio-filter { gap:6px!important; }\n  html.homepagescript-active .history-record .radio-filter__item { min-width:0!important; padding:0 10px!important; height:32px!important; }\n  html.homepagescript-active .history-record .date-picker-filter { margin-left:0!important; min-width:0!important; }\n  html.homepagescript-active .history-record .search-date-picker__trigger { flex-wrap:wrap!important; gap:4px!important; }\n  html.homepagescript-active .history-record .date-trigger { width:126px!important; }\n  html.homepagescript-active .history-record .search-date-picker__menu { box-sizing:border-box!important; min-width:0!important; width:min(322px,calc(100vw - 24px))!important; max-width:calc(100vw - 24px)!important; max-height:calc(100vh - var(--broadcast-navigation-height,0px) - 24px)!important; overflow:auto!important; }\n  html.homepagescript-active .history-record .breadcrumbs.editing .breadcrumbs__top > .left { display:flex!important; flex-wrap:wrap!important; gap:8px 12px!important; }\n  html.homepagescript-active .history-record .breadcrumbs.editing .selected-tips { min-width:0!important; margin:0!important; }\n  html.homepagescript-active .history-record .breadcrumbs.editing .split-line { display:none!important; }\n  html.homepagescript-active .history-record .breadcrumbs.editing .breadcrumbs__top > .right { justify-content:flex-end!important; }\n\n  html.homepagescript-active .history-record .main-content { margin-top:4px!important; }\n  html.homepagescript-active .history-record.empty .main-content { margin-top:24px!important; }\n  /* Dates stay above their group even when native scrolling applies .fixed\n     and inline top/bottom coordinates to the labels. */\n  html.homepagescript-active .history-record .history-timeline-item { display:flex!important; flex-direction:column!important; gap:12px!important; }\n  html.homepagescript-active .history-record :is(.history-timeline-label,.section-label,.section-title) { position:static!important; inset:auto!important; transform:none!important; height:auto!important; width:auto!important; }\n  html.homepagescript-active .history-record .history-timeline-label { display:block!important; }\n  html.homepagescript-active .history-record .section-label { display:flex!important; align-items:center!important; gap:12px!important; }\n  html.homepagescript-active .history-record .section-label::after { content:''; flex:1; height:1px; background:var(--line_regular,#e3e5e7); }\n  html.homepagescript-active .history-record .section-title { font-size:15px!important; line-height:22px!important; font-weight:500!important; }\n  html.homepagescript-active .history-record :is(.history-timeline-anchor,.section-anchor-icon,.timeline-start-track,.timeline-end-track,.fixed-side-menu,.fixed-label-con) { display:none!important; }\n  html.homepagescript-active .history-record .section-cards { display:grid!important; min-width:0!important; gap:20px 12px!important; padding-bottom:28px!important; }\n  html.homepagescript-active .history-record .section-cards.grid-mode { grid-template-columns:repeat(auto-fill,minmax(min(100%,210px),1fr))!important; }\n  html.homepagescript-active .history-record .section-cards.list-mode { grid-template-columns:minmax(0,1fr)!important; gap:14px!important; }\n  html.homepagescript-active .history-record .section-cards.the-last { padding-bottom:0!important; }\n  html.homepagescript-active .history-record :is(.history-card,.history-card__main,.bili-video-card,.bili-video-card__wrap,.bili-video-card__details) { min-width:0!important; }\n  html.homepagescript-active .history-record .history-card.grid-mode .history-card__left { width:100%!important; min-width:0!important; }\n  html.homepagescript-active .history-record .history-card.grid-mode .history-card__main { width:100%!important; }\n  html.homepagescript-active .history-record .bili-video-card { --bili-video-card-title-font-size:14px; --bili-video-card-title-line-height:20px; --bili-video-card-subtitle-font-size:12px; --bili-video-card-subtitle-line-height:18px; --bili-video-card-details-margin-top:8px; }\n  html.homepagescript-active .history-record .bili-video-card__title { text-indent:0!important; }\n  html.homepagescript-active .history-record .bili-video-card__subtitle { display:flex!important; flex-direction:column!important; align-items:flex-start!important; gap:2px!important; height:auto!important; }\n  html.homepagescript-active .history-record .bili-video-card__author { flex:none!important; width:100%!important; min-width:0!important; }\n  html.homepagescript-active .history-record .bili-video-card__corner { height:auto!important; margin-left:0!important; white-space:nowrap!important; }\n  html.homepagescript-active .history-record .bili-card-aside-action { width:26px!important; height:26px!important; display:flex!important; align-items:center!important; justify-content:center!important; }\n\n  /* Preserve the native list toggle as cover/details rows, not another grid. */\n  html.homepagescript-active .history-record .history-card.list-mode { align-items:flex-start!important; gap:12px!important; }\n  html.homepagescript-active .history-record .history-card.list-mode .history-card__left { flex:0 0 clamp(136px,30%,200px)!important; min-width:0!important; }\n  html.homepagescript-active .history-record .history-card.list-mode .history-card__main { width:100%!important; }\n  html.homepagescript-active .history-record .history-card__right { min-width:0!important; margin-left:0!important; }\n  html.homepagescript-active .history-record .info__top { display:grid!important; grid-template-columns:minmax(0,1fr) auto!important; gap:8px!important; }\n  html.homepagescript-active .history-record .info__top .title { margin:0!important; font-size:14px!important; line-height:20px!important; -webkit-line-clamp:2!important; }\n  html.homepagescript-active .history-record .info__top .right-actions { position:static!important; height:auto!important; flex-direction:column-reverse!important; gap:4px!important; align-self:start!important; }\n  html.homepagescript-active .history-record .right-actions .fav-status { margin:0!important; padding:0!important; box-shadow:none!important; font-size:11px!important; white-space:nowrap!important; }\n  html.homepagescript-active .history-record .right-actions .delete-btn { width:26px!important; height:26px!important; }\n  html.homepagescript-active .history-record .info__bottom .meta { max-width:100%!important; min-width:0!important; font-size:12px!important; line-height:18px!important; margin-top:4px!important; }\n  html.homepagescript-active .history-record .info__bottom .new_ep { margin-left:6px!important; padding-left:6px!important; }\n}\n\n@media (max-width:599px) {\n  html.homepagescript-active .history-record .breadcrumbs.normal .breadcrumbs__top > .right { grid-template-columns:repeat(2,minmax(0,1fr))!important; }\n  html.homepagescript-active .history-record .breadcrumbs.normal .search-input { grid-column:1 / -1!important; }\n}\n\n@media (max-width:459px) {\n  html.homepagescript-active .history-record .section-cards.grid-mode { grid-template-columns:minmax(0,1fr)!important; gap:16px!important; }\n  html.homepagescript-active .history-record .history-card.grid-mode .bili-video-card__wrap { flex-direction:row!important; align-items:flex-start!important; gap:10px!important; }\n  html.homepagescript-active .history-record .history-card.grid-mode .bili-video-card__cover { flex:0 0 40%!important; min-width:0!important; max-width:148px!important; }\n  html.homepagescript-active .history-record .history-card.grid-mode .bili-video-card__details { flex:1!important; margin-top:0!important; }\n  html.homepagescript-active .history-record .history-card.list-mode { gap:10px!important; }\n  html.homepagescript-active .history-record .history-card.list-mode .history-card__left { flex-basis:40%!important; max-width:148px!important; }\n}\n\n@media (max-width:399px) {\n  html.homepagescript-active .history-record .main-actions { width:100%!important; justify-content:flex-end!important; }\n  html.homepagescript-active .history-record .record-switcher { margin-right:auto!important; }\n}\n";
 
   // src/WebPage/History/style.js
   var pageStyle2 = homeStyle() + content_default3;
@@ -2906,25 +3002,57 @@ ${content2}
   var early5 = () => createPageOpening();
   var mount5 = () => mountHomeLayout(pageStyle2, () => pageId(location.href) === "History");
 
-  // src/WebPage/Follow/module.js
+  // src/WebPage/Watchlater/module.js
   var module_exports6 = {};
   __export(module_exports6, {
     early: () => early6,
-    mount: () => mount6,
+    mount: () => mount6
+  });
+
+  // src/WebPage/Watchlater/content.css
+  var content_default4 = "/* Native watchlater DOM: /watchlater/list. Wide layout stays with the site.\n   Keep selectors independent of Vue's generated data-v-* scope hashes. */\n@media (max-width:1099px) {\n  html.watchlaterscript-active {\n    --watchlater-columns:1;\n  }\n  html.watchlaterscript-active :is(#app,.watchlater-list) {\n    box-sizing:border-box!important;\n    min-width:0!important;\n    width:100%!important;\n    max-width:100%!important;\n  }\n  html.watchlaterscript-active #biliMainHeader {\n    min-height:var(--homepagescript-header-height,56px)!important;\n  }\n  html.watchlaterscript-active .watchlater-list {\n    --layout-padding:8px!important;\n    --menu-padding:8px!important;\n    padding-top:16px!important;\n  }\n  html.watchlaterscript-active .watchlater-list :is(.watchlater-list-slim,.breadcrums-nav) {\n    box-sizing:border-box!important;\n    min-width:0!important;\n    width:100%!important;\n    max-width:100%!important;\n  }\n  html.watchlaterscript-active .watchlater-list-title {\n    flex-wrap:wrap!important;\n    gap:8px!important;\n    font-size:20px!important;\n    line-height:32px!important;\n  }\n  html.watchlaterscript-active :is(.watchlater-list-title-left,.watchlater-list-title-right) {\n    min-width:0!important;\n    flex-wrap:wrap!important;\n  }\n  html.watchlaterscript-active .watchlater-list-title-right {\n    margin-left:auto!important;\n  }\n  html.watchlaterscript-active .watchlater-list-title__count {\n    font-size:15px!important;\n  }\n  html.watchlaterscript-active .watchlater-list-title-split {\n    margin:0 8px!important;\n  }\n  html.watchlaterscript-active .watchlater-list-nav.fixed {\n    top:var(--broadcast-navigation-height,0px)!important;\n  }\n  html.watchlaterscript-active .list-header {\n    margin-top:0!important;\n    padding:12px 0!important;\n  }\n  html.watchlaterscript-active .list-header-main {\n    flex-direction:column!important;\n    gap:10px!important;\n  }\n  html.watchlaterscript-active :is(.list-header-filter,.list-header-options) {\n    min-width:0!important;\n    max-width:100%!important;\n    flex-wrap:wrap!important;\n    gap:8px!important;\n  }\n  html.watchlaterscript-active .list-header-filter__btn {\n    flex:0 0 auto!important;\n    width:auto!important;\n    max-width:100%!important;\n    padding:10px 12px!important;\n    font-size:14px!important;\n  }\n  html.watchlaterscript-active .list-header-filter__more {\n    margin-left:0!important;\n    padding-left:0!important;\n  }\n  html.watchlaterscript-active .list-header-filter__more::before {\n    display:none!important;\n  }\n  html.watchlaterscript-active .list-header :is(.vui_button,.action-btn) {\n    min-width:0!important;\n    max-width:100%!important;\n    padding:0 10px!important;\n  }\n  /* Keep action labels visible even when the native search is expanded. */\n  html.watchlaterscript-active .list-header .action-btn .btn-txt {\n    max-width:none!important;\n    margin-left:4px!important;\n  }\n  html.watchlaterscript-active .list-header .split-line {\n    display:none!important;\n  }\n  html.watchlaterscript-active .list-header .vui_checkbox {\n    margin-left:0!important;\n  }\n  html.watchlaterscript-active .list-header .search-bar {\n    min-width:0!important;\n    max-width:100%!important;\n  }\n  html.watchlaterscript-active .list-header .search-bar .input-wrap {\n    min-width:0!important;\n  }\n  html.watchlaterscript-active .search-date-picker__trigger {\n    flex-wrap:wrap!important;\n    gap:4px!important;\n  }\n  html.watchlaterscript-active .search-date-picker__trigger .date-trigger {\n    width:125px!important;\n  }\n  html.watchlaterscript-active .search-date-picker__trigger .separator {\n    padding:0!important;\n  }\n  html.watchlaterscript-active .watchlater-list-grid {\n    grid-template-columns:repeat(var(--watchlater-columns),minmax(0,1fr))!important;\n    gap:24px 12px!important;\n  }\n  html.watchlaterscript-active .watchlater-list--vertical .watchlater-list-grid {\n    grid-template-columns:minmax(0,1fr)!important;\n    row-gap:16px!important;\n  }\n  html.watchlaterscript-active .watchlater-list :is(.video-card,.video-skeleton-card,.bili-video-card,.video-card__left,.video-card__right,.video-skeleton-card__left,.video-skeleton-card__right) {\n    min-width:0!important;\n  }\n  html.watchlaterscript-active .video-card--grid .video-card__left {\n    width:100%!important;\n  }\n  html.watchlaterscript-active .video-card--list .video-card__left,\n  html.watchlaterscript-active .video-skeleton-card.list-mode .video-skeleton-card__left {\n    flex:0 0 clamp(96px,36vw,178px)!important;\n    width:clamp(96px,36vw,178px)!important;\n  }\n  html.watchlaterscript-active .video-skeleton-card.list-mode .video-skeleton-card__main {\n    width:100%!important;\n  }\n  html.watchlaterscript-active :is(.video-card__right,.video-skeleton-card__right) {\n    margin-left:8px!important;\n  }\n  html.watchlaterscript-active .video-card__right .title {\n    max-width:calc(100% - 24px)!important;\n    -webkit-line-clamp:2!important;\n    font-size:14px!important;\n    line-height:20px!important;\n    margin-bottom:4px!important;\n  }\n  html.watchlaterscript-active .video-card__right .video-card__stats {\n    min-width:0!important;\n    flex-wrap:wrap!important;\n    gap:4px 8px!important;\n  }\n  html.watchlaterscript-active .video-card__right .video-card__stats .stat {\n    min-width:0!important;\n    max-width:100%!important;\n    margin-right:0!important;\n    font-size:12px!important;\n    line-height:18px!important;\n    overflow-wrap:anywhere!important;\n  }\n  html.watchlaterscript-active .watchlater-list .fixed-side-menu {\n    width:100%!important;\n    max-width:100%!important;\n    padding:0 8px!important;\n  }\n  html.watchlaterscript-active .watchlater-list .fixed-side-menu .right-side {\n    left:auto!important;\n    right:0!important;\n    bottom:12px!important;\n  }\n  html.watchlaterscript-active .watchlater-list-empty {\n    margin:48px 8px!important;\n    line-height:1.5!important;\n  }\n  html.watchlaterscript-active .to-login .decorative-drawing {\n    max-width:100%!important;\n    height:auto!important;\n  }\n  html.watchlaterscript-active .bili-footer {\n    display:none!important;\n  }\n  /* Vue teleports these dialogs outside main. Scope them with the root class. */\n  html.watchlaterscript-active .vui_dialog--content {\n    box-sizing:border-box!important;\n    min-width:0!important;\n    max-width:calc(100vw - 16px)!important;\n    max-height:calc(100vh - var(--broadcast-navigation-height,0px) - 16px)!important;\n    top:calc(50% + var(--broadcast-navigation-height,0px)/2)!important;\n    padding:36px 16px 16px!important;\n    overflow:auto!important;\n  }\n  html.watchlaterscript-active .vui_dialog--footer {\n    height:auto!important;\n    flex-wrap:wrap!important;\n    gap:8px!important;\n  }\n  html.watchlaterscript-active .vui_dialog--footer .vui_button {\n    flex:1 1 80px!important;\n    min-width:0!important;\n    max-width:100%!important;\n    width:auto!important;\n    margin:0!important;\n  }\n  html.watchlaterscript-active .dp__outer_menu_wrap:has(.search-date-picker__menu) {\n    left:8px!important;\n    right:8px!important;\n    width:min(322px,calc(100vw - 16px))!important;\n    max-width:calc(100vw - 16px)!important;\n  }\n  html.watchlaterscript-active .search-date-picker__menu {\n    min-width:0!important;\n    width:min(322px,calc(100vw - 16px))!important;\n    max-width:calc(100vw - 16px)!important;\n  }\n  html.watchlaterscript-active .search-date-picker__calendar {\n    padding:8px!important;\n  }\n  html.watchlaterscript-active .search-date-picker__calendar :is(.dp__calendar_header_item,.dp__calendar_item) {\n    flex:1 1 0!important;\n    min-width:0!important;\n    width:auto!important;\n  }\n  html.watchlaterscript-active .search-date-picker__calendar .dp__cell_inner {\n    width:100%!important;\n  }\n}\n@media (min-width:480px) and (max-width:1099px) {\n  html.watchlaterscript-active { --watchlater-columns:2; }\n}\n@media (min-width:720px) and (max-width:1099px) {\n  html.watchlaterscript-active { --watchlater-columns:3; }\n}\n@media (min-width:960px) and (max-width:1099px) {\n  html.watchlaterscript-active { --watchlater-columns:4; }\n}\r\n";
+
+  // src/WebPage/Watchlater/style.js
+  var pageStyle3 = homeStyle() + content_default4;
+
+  // src/WebPage/Watchlater/module.js
+  var early6 = () => createPageOpening({
+    ignoreClick: (event) => Boolean(event.target?.closest?.(".bili-card-checkbox,.bili-card-checkbox-overlay"))
+  });
+  function mount6() {
+    const layout = mountHomeLayout(pageStyle3, () => pageId(location.href) === "Watchlater");
+    if (!layout) return;
+    let stopped = false;
+    document.documentElement.classList.add("watchlaterscript-active");
+    return {
+      destroy() {
+        if (stopped) return;
+        stopped = true;
+        layout.destroy();
+        document.documentElement.classList.remove("watchlaterscript-active");
+      }
+    };
+  }
+
+  // src/WebPage/Follow/module.js
+  var module_exports7 = {};
+  __export(module_exports7, {
+    early: () => early7,
+    mount: () => mount7,
     routeChanged: () => routeChanged
   });
 
   // src/WebPage/Follow/content.css
-  var content_default4 = "@media (max-width:1099px) {\n  html.follow-script-active .follow-script-hidden {display:none!important;}\n  html.follow-script-active .nav-ctnr:has(.link-navbar) {\n    box-sizing:border-box!important;\n    width:100%!important;\n    min-width:0!important;\n    height:56px!important;\n    overflow:visible!important;\n  }\n  html.follow-script-active .nav-ctnr .link-navbar-wrap {height:56px!important;}\n  /* Native table cells otherwise enforce the search input's desktop minimum. */\n  html.follow-script-active .link-navbar :is(.search-bar-ctnr,.nomarl-cell) {display:block!important;}\n  html.follow-script-active .link-navbar .nav-search-content {padding:0 4px!important;}\n  html.follow-script-active,\n  html.follow-script-active .follow-script-shell {\n    box-sizing:border-box!important;\n    min-width:0!important;\n    width:100%!important;\n    max-width:100%!important;\n    height:auto!important;\n    min-height:0!important;\n    margin:0!important;\n    padding:0!important;\n    float:none!important;\n    overflow:visible!important;\n  }\n  html.follow-script-active .main-ctnr.p-relative.f-right {\n    box-sizing:border-box!important;\n    float:none!important;\n    width:100%!important;\n    min-width:0!important;\n    min-height:0!important;\n    margin:0!important;\n    padding:12px!important;\n  }\n  html.follow-script-active .main-ctnr :is(article,.personal-info,.section-block,.card-ctnr) {\n    box-sizing:border-box!important;\n    width:100%!important;\n    min-width:0!important;\n    max-width:100%!important;\n    min-height:0!important;\n  }\n  html.follow-script-active .main-ctnr .page-title {\n    display:flex!important; flex-wrap:wrap!important; align-items:center!important;\n    gap:6px 10px!important; height:auto!important; margin-bottom:16px!important;\n  }\n  html.follow-script-active .main-ctnr .page-title .liveCount {margin-left:0!important;}\n  html.follow-script-active .main-ctnr .favourite-cards {\n    display:grid!important;\n    grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr))!important;\n    gap:12px!important;\n  }\n  html.follow-script-active .main-ctnr .favourite-card {\n    box-sizing:border-box!important; width:100%!important; min-width:0!important;\n    margin:0!important; height:auto!important; min-height:203px!important;\n    display:flex!important; padding:16px 12px!important; gap:8px!important;\n    float:none!important; vertical-align:top!important;\n  }\n  html.follow-script-active .main-ctnr .favourite-card .avatar {\n    flex:0 0 53px!important; margin:0!important; height:auto!important;\n  }\n  html.follow-script-active .main-ctnr .favourite-card .anchor-info {\n    position:relative!important; top:auto!important; left:auto!important;\n    flex:1!important; width:0!important; min-width:0!important; height:auto!important;\n    display:flex!important; flex-direction:column!important; border:0!important;\n  }\n  html.follow-script-active .main-ctnr .anchor-info :is(.anchor,.title,.live-detail) {\n    box-sizing:border-box!important; width:100%!important; min-width:0!important;\n  }\n  html.follow-script-active .main-ctnr .anchor-info .anchor-name {min-width:0!important;}\n  html.follow-script-active .main-ctnr .anchor-info .top {flex-shrink:0!important;}\n  html.follow-script-active .main-ctnr .anchor-info .live-detail {\n    height:auto!important; aspect-ratio:16/9; flex-shrink:0!important;\n  }\n  html.follow-script-active .main-ctnr .live-detail .content {height:100%!important;}\n  html.follow-script-active .main-ctnr .live-detail .notice {width:100%!important; max-height:100%!important;}\n  html.follow-script-active .main-ctnr .live-detail .block {min-width:0!important; flex:1!important;}\n  html.follow-script-active .main-ctnr .live-detail .views {flex-shrink:0!important;}\n  html.follow-script-active .main-ctnr .spot-mark .isCancel {right:0!important;}\n  html.follow-script-active .main-ctnr .favourite-card:has(> .unlive-anchor) {\n    flex-direction:column!important; justify-content:center!important; align-items:flex-start!important;\n    gap:12px!important;\n  }\n  html.follow-script-active .main-ctnr .favourite-card :is(.surplus-avatars,.unlive-anchor,.all-follow) {\n    position:static!important; inset:auto!important; margin:0!important;\n    box-sizing:border-box!important; max-width:100%!important;\n  }\n  html.follow-script-active .main-ctnr .favourite-card .unlive-anchor {\n    width:100%!important; height:auto!important; overflow-wrap:anywhere!important;\n  }\n  html.follow-script-active .main-ctnr .link-panigation-ctnr {\n    display:flex!important; flex-wrap:wrap!important; justify-content:center!important;\n    align-items:center!important; gap:8px!important; margin:16px 0 0!important;\n  }\n  html.follow-script-active .main-ctnr .link-panigation {\n    display:flex!important; flex-wrap:wrap!important; justify-content:center!important;\n    gap:6px!important;\n  }\n  html.follow-script-active .main-ctnr .panigation {margin:0!important;}\n  html.follow-script-active .main-ctnr .jumping-ctnr {margin:0!important; white-space:nowrap!important;}\n}\n";
+  var content_default5 = "@media (max-width:1099px) {\n  html.follow-script-active .follow-script-hidden {display:none!important;}\n  html.follow-script-active .nav-ctnr:has(.link-navbar) {\n    box-sizing:border-box!important;\n    width:100%!important;\n    min-width:0!important;\n    height:56px!important;\n    overflow:visible!important;\n  }\n  html.follow-script-active .nav-ctnr .link-navbar-wrap {height:56px!important;}\n  /* Native table cells otherwise enforce the search input's desktop minimum. */\n  html.follow-script-active .link-navbar :is(.search-bar-ctnr,.nomarl-cell) {display:block!important;}\n  html.follow-script-active .link-navbar .nav-search-content {padding:0 4px!important;}\n  html.follow-script-active,\n  html.follow-script-active .follow-script-shell {\n    box-sizing:border-box!important;\n    min-width:0!important;\n    width:100%!important;\n    max-width:100%!important;\n    height:auto!important;\n    min-height:0!important;\n    margin:0!important;\n    padding:0!important;\n    float:none!important;\n    overflow:visible!important;\n  }\n  html.follow-script-active .main-ctnr.p-relative.f-right {\n    box-sizing:border-box!important;\n    float:none!important;\n    width:100%!important;\n    min-width:0!important;\n    min-height:0!important;\n    margin:0!important;\n    padding:12px!important;\n  }\n  html.follow-script-active .main-ctnr :is(article,.personal-info,.section-block,.card-ctnr) {\n    box-sizing:border-box!important;\n    width:100%!important;\n    min-width:0!important;\n    max-width:100%!important;\n    min-height:0!important;\n  }\n  html.follow-script-active .main-ctnr .page-title {\n    display:flex!important; flex-wrap:wrap!important; align-items:center!important;\n    gap:6px 10px!important; height:auto!important; margin-bottom:16px!important;\n  }\n  html.follow-script-active .main-ctnr .page-title .liveCount {margin-left:0!important;}\n  html.follow-script-active .main-ctnr .favourite-cards {\n    display:grid!important;\n    grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr))!important;\n    gap:12px!important;\n  }\n  html.follow-script-active .main-ctnr .favourite-card {\n    box-sizing:border-box!important; width:100%!important; min-width:0!important;\n    margin:0!important; height:auto!important; min-height:203px!important;\n    display:flex!important; padding:16px 12px!important; gap:8px!important;\n    float:none!important; vertical-align:top!important;\n  }\n  html.follow-script-active .main-ctnr .favourite-card .avatar {\n    flex:0 0 53px!important; margin:0!important; height:auto!important;\n  }\n  html.follow-script-active .main-ctnr .favourite-card .anchor-info {\n    position:relative!important; top:auto!important; left:auto!important;\n    flex:1!important; width:0!important; min-width:0!important; height:auto!important;\n    display:flex!important; flex-direction:column!important; border:0!important;\n  }\n  html.follow-script-active .main-ctnr .anchor-info :is(.anchor,.title,.live-detail) {\n    box-sizing:border-box!important; width:100%!important; min-width:0!important;\n  }\n  html.follow-script-active .main-ctnr .anchor-info .anchor-name {min-width:0!important;}\n  html.follow-script-active .main-ctnr .anchor-info .top {flex-shrink:0!important;}\n  html.follow-script-active .main-ctnr .anchor-info .live-detail {\n    height:auto!important; aspect-ratio:16/9; flex-shrink:0!important;\n  }\n  html.follow-script-active .main-ctnr .live-detail .content {height:100%!important;}\n  html.follow-script-active .main-ctnr .live-detail .notice {width:100%!important; max-height:100%!important;}\n  html.follow-script-active .main-ctnr .live-detail .block {min-width:0!important; flex:1!important;}\n  html.follow-script-active .main-ctnr .live-detail .views {flex-shrink:0!important;}\n  html.follow-script-active .main-ctnr .spot-mark .isCancel {right:0!important;}\n  html.follow-script-active .main-ctnr .favourite-card:has(> .unlive-anchor) {\n    flex-direction:column!important; justify-content:center!important; align-items:flex-start!important;\n    gap:12px!important;\n  }\n  html.follow-script-active .main-ctnr .favourite-card :is(.surplus-avatars,.unlive-anchor,.all-follow) {\n    position:static!important; inset:auto!important; margin:0!important;\n    box-sizing:border-box!important; max-width:100%!important;\n  }\n  html.follow-script-active .main-ctnr .favourite-card .unlive-anchor {\n    width:100%!important; height:auto!important; overflow-wrap:anywhere!important;\n  }\n  html.follow-script-active .main-ctnr .link-panigation-ctnr {\n    display:flex!important; flex-wrap:wrap!important; justify-content:center!important;\n    align-items:center!important; gap:8px!important; margin:16px 0 0!important;\n  }\n  html.follow-script-active .main-ctnr .link-panigation {\n    display:flex!important; flex-wrap:wrap!important; justify-content:center!important;\n    gap:6px!important;\n  }\n  html.follow-script-active .main-ctnr .panigation {margin:0!important;}\n  html.follow-script-active .main-ctnr .jumping-ctnr {margin:0!important; white-space:nowrap!important;}\n}\n";
 
   // src/WebPage/Follow/style.js
-  var pageStyle3 = content_default4;
+  var pageStyle4 = content_default5;
 
   // src/WebPage/Follow/module.js
-  var early6 = () => createPageOpening();
+  var early7 = () => createPageOpening();
   var current = null;
   var routeChanged = () => current?.refresh();
-  function mount6() {
+  function mount7() {
     if (pageId(location.href) !== "Follow") return;
     window.bilibiliFollowPageScript?.destroy();
     const html = document.documentElement;
@@ -2932,7 +3060,7 @@ ${content2}
     const hidden = /* @__PURE__ */ new Set(), shells = /* @__PURE__ */ new Set();
     const style = document.createElement("style");
     style.id = "follow-script-style";
-    style.textContent = pageStyle3;
+    style.textContent = pageStyle4;
     (document.head || html).append(style);
     html.classList.add("follow-script-active");
     let frame = 0, stopped = false;
@@ -3000,26 +3128,204 @@ ${content2}
   }
 
   // src/WebPage/Space/module.js
-  var module_exports7 = {};
-  __export(module_exports7, {
-    early: () => early7,
-    mount: () => mount7
+  var module_exports8 = {};
+  __export(module_exports8, {
+    early: () => early8,
+    mount: () => mount8
   });
 
   // src/WebPage/Space/content.css
-  var content_default5 = "@media(max-width:1099px) {\nhtml.homepagescript-active :is(#app,.space-main,.header-upinfo,.nav-bar__main) {box-sizing:border-box!important;min-width:0!important;width:100%!important;max-width:100%!important;}\n/* Identity and actions need separate rows; desktop flex bases squeeze the name. */\nhtml.homepagescript-active .space-header {height:auto!important;min-height:240px!important;padding-top:var(--homepagescript-header-height,56px)!important;}\nhtml.homepagescript-active .header-upinfo {display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:16px!important;padding:24px 16px 16px!important;height:auto!important;}\nhtml.homepagescript-active .header-upinfo .upinfo__main {display:flex!important;flex:0 0 auto!important;align-items:center!important;gap:16px!important;min-width:0!important;width:100%!important;margin:0!important;}\nhtml.homepagescript-active .header-upinfo .upinfo-avatar {flex:0 0 64px!important;height:64px!important;margin:0!important;}\nhtml.homepagescript-active .header-upinfo .upinfo-detail {flex:1 1 0!important;min-width:0!important;}\nhtml.homepagescript-active .header-upinfo .upinfo-detail__top {display:flex!important;flex-wrap:wrap!important;align-items:center!important;gap:4px 6px!important;min-width:0!important;}\nhtml.homepagescript-active .header-upinfo .upinfo-detail__top > * {flex-shrink:0!important;margin:0!important;}\nhtml.homepagescript-active .header-upinfo .nickname {flex:0 1 auto!important;max-width:100%!important;font-size:22px!important;line-height:1.35!important;overflow-wrap:anywhere!important;}\nhtml.homepagescript-active .header-upinfo .header-sign {margin-top:6px!important;}\nhtml.homepagescript-active .header-upinfo .operations {align-self:stretch!important;min-width:0!important;}\nhtml.homepagescript-active .header-upinfo .interactions {display:flex!important;flex-wrap:wrap!important;gap:8px!important;min-width:0!important;max-width:100%!important;}\nhtml.homepagescript-active .header-upinfo .interactions > * {margin:0!important;}\nhtml.homepagescript-active .header-upinfo :is(.space-follow-btn,.message-btn) {box-sizing:border-box!important;width:120px!important;max-width:100%!important;height:34px!important;}\n/* Keep space navigation in document flow so a wrapped bar cannot cover cards. */\nhtml.homepagescript-active .space-navbar {position:static!important;}\nhtml.homepagescript-active .nav-bar__main {display:flex!important;flex-wrap:wrap!important;gap:10px 16px!important;padding:8px 16px 12px!important;height:auto!important;}\nhtml.homepagescript-active .nav-bar__main-left {display:flex!important;flex-wrap:wrap!important;align-items:center!important;gap:8px 16px!important;padding:0!important;margin:0!important;}\nhtml.homepagescript-active .nav-bar-search {--search-width:100%;flex:1 1 150px!important;max-width:220px!important;margin:0!important;}\nhtml.homepagescript-active .nav-bar-search .nav-search-input {box-sizing:border-box!important;width:100%!important;}\nhtml.homepagescript-active .nav-statistics {display:flex!important;flex-wrap:wrap!important;gap:8px 16px!important;}\nhtml.homepagescript-active .nav-statistics__item {min-width:0!important;margin:0!important;}\nhtml.homepagescript-active .nav-tab {max-width:100%!important;}\nhtml.homepagescript-active .nav-tab__item {flex-shrink:0!important;}\nhtml.homepagescript-active .space-favlist {box-sizing:border-box!important;flex-direction:column!important;width:100%!important;margin:0!important;padding:8px!important;gap:12px!important;}\nhtml.homepagescript-active :is(.favlist-aside,.favlist-main,.favlist-info-detail) {min-width:0!important;width:100%!important;}\nhtml.homepagescript-active .favlist-aside {max-height:240px!important;overflow:auto!important;}\nhtml.homepagescript-active .favlist-info {flex-wrap:wrap!important;height:auto!important;gap:12px!important;}\nhtml.homepagescript-active :is(.favlist-info-detail__actions,.fav-list-header-filter,.vui_pagenation,.vui_pagenation--btns) {flex-wrap:wrap!important;gap:8px!important;height:auto!important;max-width:100%!important;}\nhtml.homepagescript-active .fav-list-header-filter__right {min-width:0!important;max-width:100%!important;}\nhtml.homepagescript-active .fav-list-main .items {display:grid!important;grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important;gap:16px 12px!important;}\nhtml.homepagescript-active :is(.items__item,.fav-list-main .bili-video-card) {min-width:0!important;width:100%!important;}\n  /* Remove desktop gutters and sidebar occupation after stacking the columns. */\n  html.homepagescript-active .space-main { padding:0!important; }\n  html.homepagescript-active .nav-tab { display:flex!important; flex-wrap:wrap!important; gap:4px 12px!important; height:auto!important; overflow:visible!important; }\n  html.homepagescript-active .nav-tab__item { position:relative!important; height:40px!important; margin:0!important; padding:0 2px!important; }\n  html.homepagescript-active .nav-tab-cursor { display:none!important; }\n  html.homepagescript-active .nav-tab__item.active::after { content:''; position:absolute; left:0; right:0; bottom:0; height:3px; border-radius:2px; background:var(--brand_blue,#00aeec); }\n  html.homepagescript-active :is(.nav-bar__main-left,.nav-bar__main-right) { box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important; }\n  html.homepagescript-active :is(.fav-list-header-filter__left,.fav-list-header-filter__right) { min-width:0!important; width:100%!important; max-width:100%!important; flex:1 1 100%!important; }\n  html.homepagescript-active .fav-list-header-filter :is(.vui_input,.vui_input-wrapper,.radio-filter) { box-sizing:border-box!important; min-width:0!important; max-width:100%!important; }\n  html.homepagescript-active :is(.space-home,.space-dynamic,.space-upload,.space-lists,.space-subscribe) {\n    box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important;\n    margin:0!important; padding:16px!important; gap:16px!important;\n  }\n  html.homepagescript-active :is(.space-home,.space-dynamic,.space-upload,.space-subscribe) { flex-direction:column!important; }\n  html.homepagescript-active :is(.space-home > .content,.space-home > .aside,.space-dynamic__left,.space-dynamic__content,.space-dynamic__right,.space-dynamic-inner,.upload-sidenav,.upload-content,.subscribe-sidebar,.subscribe-content) {\n    box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important; flex:auto!important; margin:0!important;\n  }\n  html.homepagescript-active :is(.space-main .side-nav,.section-wrap__header,.space-main .breadcrumb,.space-main .radio-filter,.lists-header,.video-list__header,.video-list__actions,.space-home .home-empty-content,.space-home .top-video) {\n    flex-wrap:wrap!important; gap:8px!important; height:auto!important; min-width:0!important; max-width:100%!important;\n  }\n  html.homepagescript-active .space-main .side-nav { display:flex!important; }\n  html.homepagescript-active :is(.space-dynamic__left,.upload-sidenav,.subscribe-sidebar) { position:static!important; inset:auto!important; height:auto!important; min-height:0!important; max-height:none!important; flex:0 0 auto!important; }\n  html.homepagescript-active .space-main .side-nav__item { box-sizing:border-box!important; width:auto!important; flex:0 1 auto!important; margin:0!important; padding:10px 16px!important; }\n  html.homepagescript-active .favlist-aside { position:static!important; inset:auto!important; height:auto!important; margin:0!important; padding:0!important; }\n  html.homepagescript-active .favlist-aside .fav-collapse-wrap { max-height:none!important; overflow:visible!important; }\n  html.homepagescript-active :is(.space-home .section-wrap,.space-home .section-wrap__content,.space-home .wrap,.space-home .home-empty-content__right,.space-home .top-video__right,.space-main .video-list__title,.space-main .lists-content,.space-main .contet-list) { min-width:0!important; max-width:100%!important; }\n  html.homepagescript-active .space-home :is(.section-wrap__title,.video-list__title) { font-size:20px!important; line-height:1.4!important; }\n  html.homepagescript-active .space-home .section-wrap__header { align-items:center!important; gap:8px!important; margin-bottom:16px!important; }\n  html.homepagescript-active .space-home .section-wrap .radio-filter { margin:0!important; }\n  html.homepagescript-active .space-home :is(.btns,.video-list__btns) { display:flex!important; flex-wrap:wrap!important; gap:8px!important; margin:0!important; }\n  html.homepagescript-active .space-home :is(.btns,.video-list__btns) .vui_button { margin:0!important; }\n  html.homepagescript-active .space-home .video-list__header { display:flex!important; flex-direction:column!important; align-items:stretch!important; gap:12px!important; }\n  html.homepagescript-active .space-home .video-list__title { display:flex!important; align-items:baseline!important; gap:6px!important; }\n  html.homepagescript-active .space-home .video-list__title .title { min-width:0!important; -webkit-line-clamp:2!important; overflow-wrap:anywhere!important; }\n  html.homepagescript-active .space-home .video-list__title .amount { flex-shrink:0!important; margin:0!important; }\n  html.homepagescript-active :is(.space-home .items,.space-home .article-list,.space-home .video-list__content,.space-upload .video-list.grid-mode,.space-lists .video-list__content,.space-lists .lists-content > .grid-mode,.space-upload .opus-collection-list) {\n    display:grid!important; grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important; gap:16px 12px!important; width:100%!important;\n  }\n  html.homepagescript-active :is(.space-main .bili-video-card,.space-home .fav-card,.space-home .article-list__item,.space-home .article-card,.space-upload .upload-video-card,.space-upload .upload-video-card__left,.space-upload .upload-video-card__main,.space-lists .video-list__item) { min-width:0!important; width:100%!important; max-width:100%!important; }\n  html.homepagescript-active .space-upload .upload-video-card.list-mode { flex-wrap:wrap!important; gap:8px!important; }\n  /* Native masonry writes absolute positions and a fixed container height inline.\n     Override only in narrow mode; widening and destroy reveal those native values. */\n  html.homepagescript-active .space-upload :is(.opus,.opus-body,.opus-feed,.masonry_grid_v2) { min-width:0!important; max-width:100%!important; width:100%!important; }\n  html.homepagescript-active .space-upload .opus-header__top .content-filter { flex-wrap:wrap!important; gap:8px 0!important; }\n  html.homepagescript-active .space-upload .opus-header__top .content-tab { font-size:18px!important; }\n  html.homepagescript-active .space-upload .opus-header__bottom { margin-top:12px!important; }\n  html.homepagescript-active .space-upload .opus-body { margin-top:16px!important; }\n  html.homepagescript-active .space-upload .opus .masonry_grid_v2 > .container { box-sizing:border-box!important; display:grid!important; grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important; align-items:start!important; gap:16px 12px!important; width:100%!important; height:auto!important; margin:0!important; }\n  html.homepagescript-active .space-upload .opus .masonry_grid_v2 > .container > .item { position:static!important; inset:auto!important; transform:none!important; box-sizing:border-box!important; width:100%!important; height:auto!important; min-width:0!important; margin:0!important; }\n  html.homepagescript-active .space-upload .opus :is(.opus-card,.upload-opus-collection-card) { min-width:0!important; max-width:100%!important; }\n  html.homepagescript-active :is(.space-home .bangumi-section .items,.space-subscribe .bangumi-items) { display:grid!important; grid-template-columns:minmax(0,1fr)!important; gap:16px!important; }\n  html.homepagescript-active :is(.space-main .bangumi-item,.space-main .bili-bangumi-card) { min-width:0!important; width:100%!important; max-width:100%!important; }\n  html.homepagescript-active .space-main .bili-bangumi-card__cover { flex:0 0 35%!important; width:35%!important; max-width:154px!important; }\n  html.homepagescript-active .space-main .bili-bangumi-card__details { flex:1!important; min-width:0!important; width:auto!important; }\n  html.homepagescript-active :is(.space-dynamic .bili-dyn-item,.space-dynamic .bili-dyn-item__main,.space-dynamic .bili-dyn-item__header,.space-dynamic .bili-dyn-item__body,.space-dynamic .bili-dyn-item__footer) { box-sizing:border-box!important; min-width:0!important; max-width:100%!important; }\n  html.homepagescript-active .space-dynamic .bili-dyn-item__main { padding:12px!important; }\n  html.homepagescript-active .space-dynamic .bili-dyn-item__avatar { position:absolute!important; left:12px!important; top:12px!important; width:48px!important; height:48px!important; margin:0!important; }\n  html.homepagescript-active .space-dynamic .bili-dyn-item__header { padding:0 32px 0 60px!important; min-height:48px!important; }\n  html.homepagescript-active .space-dynamic .bili-dyn-item__ornament { display:none!important; }\n  html.homepagescript-active :is(.space-dynamic .bili-dyn-item__header,.space-dynamic .bili-dyn-item__body,.space-dynamic .bili-dyn-item__footer) { margin-left:0!important; }\n  html.homepagescript-active :is(.space-dynamic .bili-dyn-card-video__header,.space-dynamic .bili-dyn-card-ugc) { box-sizing:border-box!important; max-width:100%!important; }\n  html.homepagescript-active .space-dynamic .bili-dyn-card-ugc__detail { min-width:0!important; flex:1!important; }\n  html.homepagescript-active :is(.space-main .vui_pagenation-go,.space-main .nav-statistics,.space-main .upinfo-detail__bottom) { min-width:0!important; max-width:100%!important; }\n}\n";
+  var content_default6 = "@media(max-width:1099px) {\nhtml.homepagescript-active :is(#app,.space-main,.header-upinfo,.nav-bar__main) {box-sizing:border-box!important;min-width:0!important;width:100%!important;max-width:100%!important;}\n/* Identity and actions need separate rows; desktop flex bases squeeze the name. */\nhtml.homepagescript-active .space-header {height:auto!important;min-height:240px!important;padding-top:var(--homepagescript-header-height,56px)!important;}\nhtml.homepagescript-active .header-upinfo {display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:16px!important;padding:24px 16px 16px!important;height:auto!important;}\nhtml.homepagescript-active .header-upinfo .upinfo__main {display:flex!important;flex:0 0 auto!important;align-items:center!important;gap:16px!important;min-width:0!important;width:100%!important;margin:0!important;}\nhtml.homepagescript-active .header-upinfo .upinfo-avatar {flex:0 0 64px!important;height:64px!important;margin:0!important;}\nhtml.homepagescript-active .header-upinfo .upinfo-detail {flex:1 1 0!important;min-width:0!important;}\nhtml.homepagescript-active .header-upinfo .upinfo-detail__top {display:flex!important;flex-wrap:wrap!important;align-items:center!important;gap:4px 6px!important;min-width:0!important;}\nhtml.homepagescript-active .header-upinfo .upinfo-detail__top > * {flex-shrink:0!important;margin:0!important;}\nhtml.homepagescript-active .header-upinfo .nickname {flex:0 1 auto!important;max-width:100%!important;font-size:22px!important;line-height:1.35!important;overflow-wrap:anywhere!important;}\nhtml.homepagescript-active .header-upinfo .header-sign {margin-top:6px!important;}\nhtml.homepagescript-active .header-upinfo .operations {align-self:stretch!important;min-width:0!important;}\nhtml.homepagescript-active .header-upinfo .interactions {display:flex!important;flex-wrap:wrap!important;gap:8px!important;min-width:0!important;max-width:100%!important;}\nhtml.homepagescript-active .header-upinfo .interactions > * {margin:0!important;}\nhtml.homepagescript-active .header-upinfo :is(.space-follow-btn,.message-btn) {box-sizing:border-box!important;width:120px!important;max-width:100%!important;height:34px!important;}\n/* Keep space navigation in document flow so a wrapped bar cannot cover cards. */\nhtml.homepagescript-active .space-navbar {position:static!important;}\nhtml.homepagescript-active .nav-bar__main {display:flex!important;flex-wrap:wrap!important;gap:10px 16px!important;padding:8px 16px 12px!important;height:auto!important;}\nhtml.homepagescript-active .nav-bar__main-left {display:flex!important;flex-wrap:wrap!important;align-items:center!important;gap:8px 16px!important;padding:0!important;margin:0!important;}\nhtml.homepagescript-active .nav-bar-search {--search-width:100%;flex:1 1 150px!important;max-width:220px!important;margin:0!important;}\nhtml.homepagescript-active .nav-bar-search .nav-search-input {box-sizing:border-box!important;width:100%!important;}\nhtml.homepagescript-active .nav-statistics {display:flex!important;flex-wrap:wrap!important;gap:8px 16px!important;}\nhtml.homepagescript-active .nav-statistics__item {min-width:0!important;margin:0!important;}\nhtml.homepagescript-active .nav-tab {max-width:100%!important;}\nhtml.homepagescript-active .nav-tab__item {flex-shrink:0!important;}\nhtml.homepagescript-active .space-favlist {box-sizing:border-box!important;flex-direction:column!important;width:100%!important;margin:0!important;padding:8px!important;gap:12px!important;}\nhtml.homepagescript-active :is(.favlist-aside,.favlist-main,.favlist-info-detail) {min-width:0!important;width:100%!important;}\nhtml.homepagescript-active .favlist-aside {max-height:240px!important;overflow:auto!important;}\nhtml.homepagescript-active .favlist-info {flex-wrap:wrap!important;height:auto!important;gap:12px!important;}\nhtml.homepagescript-active :is(.favlist-info-detail__actions,.fav-list-header-filter,.vui_pagenation,.vui_pagenation--btns) {flex-wrap:wrap!important;gap:8px!important;height:auto!important;max-width:100%!important;}\nhtml.homepagescript-active .fav-list-header-filter__right {min-width:0!important;max-width:100%!important;}\nhtml.homepagescript-active .fav-list-main .items {display:grid!important;grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important;gap:16px 12px!important;}\nhtml.homepagescript-active :is(.items__item,.fav-list-main .bili-video-card) {min-width:0!important;width:100%!important;}\n  /* Remove desktop gutters and sidebar occupation after stacking the columns. */\n  html.homepagescript-active .space-main { padding:0!important; }\n  html.homepagescript-active .nav-tab { display:flex!important; flex-wrap:wrap!important; gap:4px 12px!important; height:auto!important; overflow:visible!important; }\n  html.homepagescript-active .nav-tab__item { position:relative!important; height:40px!important; margin:0!important; padding:0 2px!important; }\n  html.homepagescript-active .nav-tab-cursor { display:none!important; }\n  html.homepagescript-active .nav-tab__item.active::after { content:''; position:absolute; left:0; right:0; bottom:0; height:3px; border-radius:2px; background:var(--brand_blue,#00aeec); }\n  html.homepagescript-active :is(.nav-bar__main-left,.nav-bar__main-right) { box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important; }\n  html.homepagescript-active :is(.fav-list-header-filter__left,.fav-list-header-filter__right) { min-width:0!important; width:100%!important; max-width:100%!important; flex:1 1 100%!important; }\n  html.homepagescript-active .fav-list-header-filter :is(.vui_input,.vui_input-wrapper,.radio-filter) { box-sizing:border-box!important; min-width:0!important; max-width:100%!important; }\n  html.homepagescript-active :is(.space-home,.space-dynamic,.space-upload,.space-lists,.space-subscribe) {\n    box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important;\n    margin:0!important; padding:16px!important; gap:16px!important;\n  }\n  html.homepagescript-active :is(.space-home,.space-dynamic,.space-upload,.space-subscribe) { flex-direction:column!important; }\n  html.homepagescript-active :is(.space-home > .content,.space-home > .aside,.space-dynamic__left,.space-dynamic__content,.space-dynamic__right,.space-dynamic-inner,.upload-sidenav,.upload-content,.subscribe-sidebar,.subscribe-content) {\n    box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important; flex:auto!important; margin:0!important;\n  }\n  html.homepagescript-active :is(.space-main .side-nav,.section-wrap__header,.space-main .breadcrumb,.space-main .radio-filter,.lists-header,.video-list__header,.video-list__actions,.space-home .home-empty-content,.space-home .top-video) {\n    flex-wrap:wrap!important; gap:8px!important; height:auto!important; min-width:0!important; max-width:100%!important;\n  }\n  html.homepagescript-active .space-main .side-nav { display:flex!important; }\n  html.homepagescript-active :is(.space-dynamic__left,.upload-sidenav,.subscribe-sidebar) { position:static!important; inset:auto!important; height:auto!important; min-height:0!important; max-height:none!important; flex:0 0 auto!important; }\n  html.homepagescript-active .space-main .side-nav__item { box-sizing:border-box!important; width:auto!important; flex:0 1 auto!important; margin:0!important; padding:10px 16px!important; }\n  html.homepagescript-active .favlist-aside { position:static!important; inset:auto!important; height:auto!important; margin:0!important; padding:0!important; }\n  html.homepagescript-active .favlist-aside .fav-collapse-wrap { max-height:none!important; overflow:visible!important; }\n  html.homepagescript-active :is(.space-home .section-wrap,.space-home .section-wrap__content,.space-home .wrap,.space-home .home-empty-content__right,.space-home .top-video__right,.space-main .video-list__title,.space-main .lists-content,.space-main .contet-list) { min-width:0!important; max-width:100%!important; }\n  html.homepagescript-active .space-home :is(.section-wrap__title,.video-list__title) { font-size:20px!important; line-height:1.4!important; }\n  html.homepagescript-active .space-home .section-wrap__header { align-items:center!important; gap:8px!important; margin-bottom:16px!important; }\n  html.homepagescript-active .space-home .section-wrap .radio-filter { margin:0!important; }\n  html.homepagescript-active .space-home :is(.btns,.video-list__btns) { display:flex!important; flex-wrap:wrap!important; gap:8px!important; margin:0!important; }\n  html.homepagescript-active .space-home :is(.btns,.video-list__btns) .vui_button { margin:0!important; }\n  html.homepagescript-active .space-home .video-list__header { display:flex!important; flex-direction:column!important; align-items:stretch!important; gap:12px!important; }\n  html.homepagescript-active .space-home .video-list__title { display:flex!important; align-items:baseline!important; gap:6px!important; }\n  html.homepagescript-active .space-home .video-list__title .title { min-width:0!important; -webkit-line-clamp:2!important; overflow-wrap:anywhere!important; }\n  html.homepagescript-active .space-home .video-list__title .amount { flex-shrink:0!important; margin:0!important; }\n  html.homepagescript-active :is(.space-home .items,.space-home .article-list,.space-home .video-list__content,.space-upload .video-list.grid-mode,.space-lists .video-list__content,.space-lists .lists-content > .grid-mode,.space-upload .opus-collection-list) {\n    display:grid!important; grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important; gap:16px 12px!important; width:100%!important;\n  }\n  html.homepagescript-active :is(.space-main .bili-video-card,.space-home .fav-card,.space-home .article-list__item,.space-home .article-card,.space-upload .upload-video-card,.space-upload .upload-video-card__left,.space-upload .upload-video-card__main,.space-lists .video-list__item) { min-width:0!important; width:100%!important; max-width:100%!important; }\n  html.homepagescript-active .space-upload .upload-video-card.list-mode { flex-wrap:wrap!important; gap:8px!important; }\n  /* Native masonry writes absolute positions and a fixed container height inline.\n     Override only in narrow mode; widening and destroy reveal those native values. */\n  html.homepagescript-active .space-upload :is(.opus,.opus-body,.opus-feed,.masonry_grid_v2) { min-width:0!important; max-width:100%!important; width:100%!important; }\n  html.homepagescript-active .space-upload .opus-header__top .content-filter { flex-wrap:wrap!important; gap:8px 0!important; }\n  html.homepagescript-active .space-upload .opus-header__top .content-tab { font-size:18px!important; }\n  html.homepagescript-active .space-upload .opus-header__bottom { margin-top:12px!important; }\n  html.homepagescript-active .space-upload .opus-body { margin-top:16px!important; }\n  html.homepagescript-active .space-upload .opus .masonry_grid_v2 > .container { box-sizing:border-box!important; display:grid!important; grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important; align-items:start!important; gap:16px 12px!important; width:100%!important; height:auto!important; margin:0!important; }\n  html.homepagescript-active .space-upload .opus .masonry_grid_v2 > .container > .item { position:static!important; inset:auto!important; transform:none!important; box-sizing:border-box!important; width:100%!important; height:auto!important; min-width:0!important; margin:0!important; }\n  html.homepagescript-active .space-upload .opus :is(.opus-card,.upload-opus-collection-card) { min-width:0!important; max-width:100%!important; }\n  html.homepagescript-active :is(.space-home .bangumi-section .items,.space-subscribe .bangumi-items) { display:grid!important; grid-template-columns:minmax(0,1fr)!important; gap:16px!important; }\n  html.homepagescript-active :is(.space-main .bangumi-item,.space-main .bili-bangumi-card) { min-width:0!important; width:100%!important; max-width:100%!important; }\n  html.homepagescript-active .space-main .bili-bangumi-card__cover { flex:0 0 35%!important; width:35%!important; max-width:154px!important; }\n  html.homepagescript-active .space-main .bili-bangumi-card__details { flex:1!important; min-width:0!important; width:auto!important; }\n  html.homepagescript-active :is(.space-dynamic .bili-dyn-item,.space-dynamic .bili-dyn-item__main,.space-dynamic .bili-dyn-item__header,.space-dynamic .bili-dyn-item__body,.space-dynamic .bili-dyn-item__footer) { box-sizing:border-box!important; min-width:0!important; max-width:100%!important; }\n  html.homepagescript-active .space-dynamic .bili-dyn-item__main { padding:12px!important; }\n  html.homepagescript-active .space-dynamic .bili-dyn-item__avatar { position:absolute!important; left:12px!important; top:12px!important; width:48px!important; height:48px!important; margin:0!important; }\n  html.homepagescript-active .space-dynamic .bili-dyn-item__header { padding:0 32px 0 60px!important; min-height:48px!important; }\n  html.homepagescript-active .space-dynamic .bili-dyn-item__ornament { display:none!important; }\n  html.homepagescript-active :is(.space-dynamic .bili-dyn-item__header,.space-dynamic .bili-dyn-item__body,.space-dynamic .bili-dyn-item__footer) { margin-left:0!important; }\n  html.homepagescript-active :is(.space-dynamic .bili-dyn-card-video__header,.space-dynamic .bili-dyn-card-ugc) { box-sizing:border-box!important; max-width:100%!important; }\n  html.homepagescript-active .space-dynamic .bili-dyn-card-ugc__detail { min-width:0!important; flex:1!important; }\n  html.homepagescript-active :is(.space-main .vui_pagenation-go,.space-main .nav-statistics,.space-main .upinfo-detail__bottom) { min-width:0!important; max-width:100%!important; }\n}\n";
+
+  // src/WebPage/Space/favorites.css
+  var favorites_default = '/* Favorites-only rules. Keep the native palette, folder nodes and action buttons. */\n@media(max-width:1099px) {\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] {padding:16px!important;gap:12px!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] :is(.favlist-aside,.favlist-main) {box-sizing:border-box!important;min-width:0!important;width:100%!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-aside {max-height:none!important;overflow:visible!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-main {margin-top:0!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .fav-collapse-wrap {max-height:220px!important;overflow-x:hidden!important;overflow-y:auto!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] :is(.vui_collapse,.vui_collapse_item,.vui_collapse_item_content,.fav-collapse,.fav-collapse-wrap,.vui_sidebar,.fav-sortable-list,.fav-sidebar-item,.vui_sidebar-item) {box-sizing:border-box!important;min-width:0!important;max-width:100%!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .vui_sidebar-item {width:100%!important;height:auto!important;min-height:48px!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .vui_sidebar-item-title {flex:1 1 0!important;min-width:0!important;width:0!important;text-align:left!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .vui_sidebar-item-title .vui_ellipsis {display:block!important;flex:1 1 0!important;min-width:0!important;width:auto!important;max-width:none!important;height:auto!important;white-space:normal!important;overflow:visible!important;overflow-wrap:anywhere!important;text-overflow:clip!important;-webkit-line-clamp:unset!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .vui_sidebar-item-right {flex:none!important;margin-left:8px!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .fav-collapse-create {display:none!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] [data-broadcast-fav-group="hidden"],\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] [data-broadcast-fav-group] .vui_collapse_item_header {display:none!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] [data-broadcast-fav-group="selected"] .vui_collapse_item_content {display:block!important;padding-bottom:0!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] [data-broadcast-fav-open="false"] [data-broadcast-fav-group="selected"] {display:none!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-navigation {display:grid;grid-template-columns:minmax(0,1fr);align-items:start;gap:4px 16px;border-bottom:1px solid var(--line_regular,#e3e5e7);margin-bottom:12px;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-categories {display:flex;flex:1;min-width:0;flex-wrap:wrap;gap:4px 16px;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-shortcuts {grid-column:1/-1;display:flex;align-items:center;justify-content:flex-end;gap:16px;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] :is(.broadcast-fav-categories button,.broadcast-fav-create,.broadcast-fav-shortcuts a,.broadcast-fav-directory-toggle) {box-sizing:border-box;font:inherit;color:var(--text1,#18191c);background:transparent;border:0;cursor:pointer;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] button.broadcast-fav-create {display:inline-flex;flex:none;align-items:center;justify-content:flex-start;gap:6px;margin:0 auto 0 0!important;padding:9px 0!important;white-space:nowrap;color:var(--brand_blue,#00aeec);}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-create :is(svg,.vui_icon) {display:block!important;flex:none;width:20px;height:20px;margin:0!important;color:var(--brand_blue,#00aeec);}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-create[hidden] {display:none;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-categories button {padding:9px 0;border-bottom:2px solid transparent;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-categories button[aria-pressed="true"] {color:var(--brand_blue,#00aeec);border-bottom-color:var(--brand_blue,#00aeec);}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-shortcuts a {padding:9px 0;white-space:nowrap;text-decoration:none;color:var(--text2,#61666d);}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-directory-toggle {display:flex;align-items:center;justify-content:space-between;width:100%;text-align:left;padding:8px 0;margin-bottom:8px;}\n  /* Keep the native cover and detail column. Only relocate the social actions;\n     playback stays underneath the title in the original detail column. */\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info {display:flex!important;flex-wrap:nowrap!important;align-items:flex-start!important;gap:0!important;height:auto!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-detail {display:grid!important;flex:1 1 0!important;min-width:0!important;width:auto!important;grid-template-columns:minmax(0,1fr) auto!important;grid-template-rows:auto auto auto!important;gap:4px 12px!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-detail__actions {display:contents!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-detail__title {grid-area:1/1/3/2!important;min-width:0!important;align-self:start!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-detail__title-row {min-width:0!important;max-width:100%!important;flex-wrap:wrap!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-detail__actions > .vui_button {display:inline-flex!important;flex-direction:row!important;align-items:center!important;justify-content:center!important;flex-wrap:nowrap!important;white-space:nowrap!important;margin:0!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .playall-btn {grid-area:3/1!important;justify-self:start!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-batch {grid-area:3/2!important;justify-self:end!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-action {grid-column:2!important;justify-self:end!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-action:nth-child(2) {grid-row:1!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-action:nth-child(3) {grid-row:2!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .fav-list-header-filter {display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:12px!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] :is(.fav-list-header-filter__left,.fav-list-header-filter__right) {margin:0!important;flex:none!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .fav-list-header-filter__right > .vui_input {display:flex!important;min-width:0!important;width:100%!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .fav-list-header-filter .vui_input__prepend {flex:none!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .fav-list-header-filter .vui_input-wrapper {flex:1!important;min-width:0!important;width:auto!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .fav-list-header-filter input {flex:1!important;min-width:0!important;width:0!important;}\n}\n@media(max-width:600px) {\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-navigation {gap:12px;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-categories {gap:4px 12px;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-categories button {min-width:0;max-width:100%;text-align:left;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-shortcuts {gap:10px;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-shortcuts a {font-size:12px;}\n}\n@media(max-width:463px) {\n  /* When the native-size cover plus two action columns cannot fit, wrap the\n     whole detail column instead of shrinking the native cover or its buttons. */\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info {flex-wrap:wrap!important;gap:12px!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-detail {flex:1 1 100%!important;margin-left:0!important;}\n}\n';
+
+  // src/WebPage/Space/favorites.js
+  function createFavoritesLayout() {
+    let state = null;
+    const groupAttribute = "data-broadcast-fav-group";
+    function clear() {
+      if (!state) return;
+      state.iconObserver.disconnect();
+      state.events.abort();
+      state.navigation.remove();
+      state.toggle.remove();
+      state.root.removeAttribute("data-broadcast-fav-layout");
+      state.root.removeAttribute("data-broadcast-fav-open");
+      state.page.removeAttribute("data-broadcast-favorites-active");
+      for (const group of state.groups) {
+        if (group.original === null) group.element.removeAttribute(groupAttribute);
+        else group.element.setAttribute(groupAttribute, group.original);
+      }
+      state = null;
+    }
+    function syncCreateIcon() {
+      if (!state) return;
+      const markup = state.iconSource?.outerHTML || "";
+      if (markup === state.iconMarkup) return;
+      state.iconMarkup = markup;
+      state.createIcon?.remove();
+      state.createIcon = state.iconSource?.cloneNode(true) || null;
+      if (state.createIcon) {
+        state.createIcon.setAttribute("aria-hidden", "true");
+        state.create.prepend(state.createIcon);
+      }
+    }
+    function render() {
+      for (const group of state.groups) {
+        const selected = group === state.selected;
+        group.element.setAttribute(groupAttribute, selected ? "selected" : "hidden");
+        group.button?.setAttribute("aria-pressed", String(selected));
+      }
+      state.root.setAttribute("data-broadcast-fav-open", String(state.open));
+      state.create.hidden = !state.createGroup || state.selected !== state.createGroup;
+      state.toggle.setAttribute("aria-expanded", String(state.open));
+      const arrow = state.open ? "▴" : "▾";
+      if (state.arrow.textContent !== arrow) state.arrow.textContent = arrow;
+    }
+    function refresh(active) {
+      const root = active ? document.querySelector(".space-favlist .favlist-aside") : null;
+      if (!root) {
+        clear();
+        return;
+      }
+      const elements = Array.from(root.querySelectorAll(":scope > .vui_collapse > .fav-collapse"));
+      const sources = elements.map((element) => ({
+        element,
+        header: element.querySelector(".vui_collapse_item_header"),
+        content: element.querySelector(".vui_collapse_item_content")
+      })).filter((group) => group.header);
+      if (!sources.some((group) => group.content)) {
+        clear();
+        return;
+      }
+      if (state && (state.root !== root || sources.length !== state.groups.length || sources.some((group, index) => group.element !== state.groups[index].element || group.header !== state.groups[index].header))) clear();
+      if (!state) {
+        const events = new AbortController();
+        const navigation = document.createElement("div");
+        navigation.className = "broadcast-fav-navigation";
+        const categories = document.createElement("nav");
+        categories.className = "broadcast-fav-categories";
+        categories.setAttribute("aria-label", "收藏分类");
+        const shortcuts = document.createElement("nav");
+        shortcuts.className = "broadcast-fav-shortcuts";
+        shortcuts.setAttribute("aria-label", "收藏快捷入口");
+        const create = document.createElement("button");
+        create.type = "button";
+        create.className = "broadcast-fav-create";
+        create.hidden = true;
+        const createLabel = document.createElement("span");
+        create.append(createLabel);
+        shortcuts.append(create);
+        create.addEventListener("click", () => {
+          root.querySelector(".fav-collapse-create")?.click();
+        }, { signal: events.signal });
+        navigation.append(categories, shortcuts);
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "broadcast-fav-directory-toggle";
+        const label = document.createElement("span");
+        label.textContent = "收藏夹目录";
+        const arrow = document.createElement("span");
+        arrow.setAttribute("aria-hidden", "true");
+        toggle.append(label, arrow);
+        const groups = sources.map((group) => ({ ...group, original: group.element.getAttribute(groupAttribute) }));
+        const page = root.closest(".space-favlist");
+        state = {
+          root,
+          page,
+          navigation,
+          categories,
+          shortcuts,
+          create,
+          createLabel,
+          createGroup: null,
+          iconSource: null,
+          iconMarkup: "",
+          createIcon: null,
+          iconObserver: new MutationObserver(syncCreateIcon),
+          toggle,
+          arrow,
+          groups,
+          events,
+          selected: groups.find((group) => group.content && group.element.querySelector(".vui_sidebar-item--active")) || groups.find((group) => group.content),
+          open: true,
+          activeItem: null
+        };
+        for (const group of groups) {
+          if (group.content) {
+            const button = document.createElement("button");
+            button.type = "button";
+            group.button = button;
+            categories.append(button);
+            button.addEventListener("click", () => {
+              state.selected = group;
+              state.open = true;
+              render();
+            }, { signal: events.signal });
+          } else if (group.header instanceof HTMLAnchorElement) {
+            group.link = document.createElement("a");
+            shortcuts.append(group.link);
+          }
+        }
+        toggle.addEventListener("click", () => {
+          state.open = !state.open;
+          render();
+        }, { signal: events.signal });
+        root.setAttribute("data-broadcast-fav-layout", "");
+        page.setAttribute("data-broadcast-favorites-active", "");
+        root.prepend(navigation, toggle);
+      }
+      const nativeCreate = root.querySelector(".fav-collapse-create");
+      state.createGroup = nativeCreate ? state.groups.find((group) => group.element.contains(nativeCreate)) : null;
+      if (nativeCreate && state.createLabel.textContent !== nativeCreate.textContent.trim()) {
+        state.createLabel.textContent = nativeCreate.textContent.trim();
+      }
+      const nativeIcon = nativeCreate?.querySelector("svg,.vui_icon") || null;
+      if (nativeIcon !== state.iconSource) {
+        state.iconObserver.disconnect();
+        state.iconSource = nativeIcon;
+        if (nativeIcon) state.iconObserver.observe(nativeIcon, { childList: true, subtree: true, attributes: true });
+      }
+      syncCreateIcon();
+      for (const group of state.groups) {
+        const label = group.header.textContent.trim();
+        const control = group.button || group.link;
+        if (control && control.textContent !== label) control.textContent = label;
+        if (group.link) for (const name of ["href", "target", "rel", "title"]) {
+          const value = group.header.getAttribute(name);
+          if (value === null) {
+            if (group.link.hasAttribute(name)) group.link.removeAttribute(name);
+          } else if (group.link.getAttribute(name) !== value) group.link.setAttribute(name, value);
+        }
+      }
+      const activeItem = root.querySelector(".vui_sidebar-item--active");
+      if (activeItem !== state.activeItem) {
+        const group = state.groups.find((group2) => group2.content && group2.element.contains(activeItem));
+        if (group) {
+          state.selected = group;
+          state.open = true;
+        }
+        state.activeItem = activeItem;
+      }
+      render();
+    }
+    return { refresh, destroy: clear };
+  }
 
   // src/WebPage/Space/module.js
-  var early7 = () => createPageOpening();
-  function mount7() {
+  var early8 = () => createPageOpening();
+  function mount8() {
     "use strict";
     const matchesPage = () => pageId(location.href) === "Space";
     if (!matchesPage()) return;
     window.bilibiliHomePageScript?.destroy();
     const headerSearchNavigation = createHeaderSearchNavigation();
+    const headerCards = createHeaderCards();
     const avatarNavigation = createAvatarNavigation();
     const html = document.documentElement;
     const narrow = matchMedia("(max-width: 1099px)");
+    const favorites = createFavoritesLayout();
     const dynamicContent = createDynamicContent({ getRoot: () => document.querySelector(".space-dynamic"), isActive: () => narrow.matches });
     const navigationScope = ".bili-header,.bili-header__bar,#homepagescript-menu,.header-channel,.channel-entry-popover,.bili-header-channel-panel,.link-navbar,.charity-header";
     const navigationLinks = navigationScope.split(",").map((selector) => `${selector} a[href]`).join(",");
@@ -3034,7 +3340,8 @@ ${content2}
     const style = document.createElement("style");
     style.id = "homepagescript-style";
     style.textContent = homeStyle();
-    style.textContent += content_default5;
+    style.textContent += content_default6;
+    style.textContent += favorites_default;
     style.textContent += `@media(max-width:1099px) { ${dynamicContentStyle("html.homepagescript-active .space-dynamic")} }`;
     const panel = document.createElement("div");
     panel.id = "homepagescript-menu";
@@ -3064,28 +3371,7 @@ ${content2}
       });
     }
     function fitHeader() {
-      for (const bar of document.querySelectorAll(".bili-header__bar")) {
-        let trim = function(container) {
-          for (const child of container.children) {
-            const retained = keep.some((node) => child.contains(node));
-            fit([child], retained ? 1 : 0);
-            if (retained && !keep.includes(child)) trim(child);
-          }
-        };
-        const keep = Array.from(bar.querySelectorAll(".home-page-entry,.home-page-panel-entry,.header-avatar-wrap"));
-        for (const link of bar.querySelectorAll("a[href]")) {
-          if (link.closest(".v-popover")) continue;
-          const url = new URL(link.href, location.href);
-          if (url.hostname === "www.bilibili.com" && /^\/(?:index\.html)?$/.test(url.pathname)) {
-            keep.push(link.closest(".v-popover-wrap") || link);
-          }
-        }
-        const search = bar.querySelector("#nav-searchform");
-        if (search) keep.push(search.closest(".center-search-container,.menu-center") || search);
-        if (!keep.length) continue;
-        for (const element of hidden) if (bar.contains(element) && keep.some((node) => node.contains(element))) fit([element], 1);
-        trim(bar);
-      }
+      fitHomeHeader(hidden, fit);
     }
     function observe(element) {
       if (!observed.has(element)) {
@@ -3220,11 +3506,9 @@ ${content2}
         const zoom = Math.min(1, Math.max(1, html.clientWidth - 16) / width, Math.max(1, innerHeight - (submenu ? minimumTop + 8 : top + 8)) / height2);
         let left;
         if (submenu) {
-          const rightFits = anchorRect.right + width * zoom <= html.clientWidth - 8;
-          const leftFits = anchorRect.left - width * zoom >= 8;
-          element.classList.toggle("homepagescript-avatar-submenu-left", !rightFits);
-          left = rightFits ? anchorRect.right : leftFits ? anchorRect.left - width * zoom : anchorRect.right - width * zoom;
-          left = Math.max(8, Math.min(left, html.clientWidth - width * zoom - 8));
+          const position = avatarSubmenuPosition(anchorRect, width * zoom, html.clientWidth);
+          element.classList.toggle("homepagescript-avatar-submenu-left", position.opensLeft);
+          left = position.left;
           top = Math.max(minimumTop, Math.min((anchorRect.top + anchorRect.bottom - height2 * zoom) / 2, innerHeight - height2 * zoom - 8));
         } else left = Math.max(8, Math.min(anchorRect.right - width * zoom, html.clientWidth - width * zoom - 8));
         const scale = rect.width / element.offsetWidth / saved.zoom * zoom;
@@ -3265,6 +3549,7 @@ ${content2}
         window.bilibiliHomePageScript?.destroy();
         return;
       }
+      favorites.refresh(narrow.matches && /^\/\d+\/(?:favlist|fav(?:\/video)?)\/?$/.test(location.pathname));
       if (narrow.matches) dynamicContent.refresh();
       else dynamicContent.clear();
       fitAvatarMenus();
@@ -3305,7 +3590,7 @@ ${content2}
       }
       for (const container of document.querySelectorAll('.feed2 .recommended-container_floor-aside > .container,.head-cards,.loading-cards,.channel-feed,.popular-list .card-list,.fav-list-main .items,.space-home .items,.space-home .article-list,.space-home .video-list__content,.space-upload .opus-collection-list,.space-upload .opus .masonry_grid_v2 > .container,.space-upload .video-list.grid-mode,.space-lists .video-list__content,.space-lists .lists-content > .grid-mode,.section-cards,#room-card-list,main [class~="grid"],.items-container')) {
         observe(container);
-        const count = innerWidth < 400 ? 1 : Math.max(2, Math.floor((container.clientWidth + 12) / 232));
+        const count = container.matches(".space-favlist[data-broadcast-favorites-active] .fav-list-main .items") ? Math.max(1, Math.floor((container.clientWidth + 12) / 220)) : innerWidth < 400 ? 1 : Math.max(2, Math.floor((container.clientWidth + 12) / 232));
         setColumns(container, count);
       }
     }
@@ -3356,9 +3641,11 @@ ${content2}
     }, { capture: true, signal: events.signal });
     window.bilibiliHomePageScript = {
       destroy() {
+        favorites.destroy();
         dynamicContent.destroy();
         avatarNavigation.destroy();
         headerSearchNavigation.destroy();
+        headerCards.destroy();
         stopped = true;
         events.abort();
         mutations.disconnect();
@@ -3391,23 +3678,24 @@ ${content2}
   }
 
   // src/WebPage/Search/module.js
-  var module_exports8 = {};
-  __export(module_exports8, {
-    early: () => early8,
-    mount: () => mount8
+  var module_exports9 = {};
+  __export(module_exports9, {
+    early: () => early9,
+    mount: () => mount9
   });
 
   // src/WebPage/Search/layout.css
   var layout_default = '/* Search shares the native header and keeps every result/control in its original DOM. */\n@media (max-width:1099px) {\n  html.homepagescript-active :is(#app,.search-layout,.search-header,.search-content,.search-page-wrapper,.search-page) {\n    box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important;\n  }\n  html.homepagescript-active .search-layout .i_wrapper {\n    box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important;\n    padding-left:8px!important; padding-right:8px!important; margin-left:0!important; margin-right:0!important;\n  }\n  /* The page has its own search field; the native header search remains hidden. */\n  html.homepagescript-active .bili-header__bar .center-search-container { display:none!important; }\n  html.homepagescript-active .bili-header__bar .right-entry { margin-left:auto!important; }\n  /* The automatic login tip covers the search field on narrow screens. Keep it available on hover/focus. */\n  html.homepagescript-active .header-avatar-unlogin-wrap:not(:hover):not(:focus-within) .v-popover {\n    visibility:hidden!important; opacity:0!important; pointer-events:none!important;\n  }\n  html.homepagescript-active .search-layout .search-input { padding:0 8px!important; margin:16px 0!important; }\n  html.homepagescript-active .search-layout .search-input-container {\n    --search_input_width:100%!important; min-width:0!important; width:100%!important;\n  }\n  html.homepagescript-active .search-layout .search-input-wrap {\n    box-sizing:border-box!important; min-width:0!important; max-width:640px!important; width:100%!important;\n  }\n  html.homepagescript-active .search-layout .search-input-el {\n    flex:1 1 0!important; min-width:0!important; width:0!important; margin-right:8px!important; font-size:16px!important;\n  }\n  html.homepagescript-active .search-layout .search-button { flex:none!important; width:72px!important; }\n  html.homepagescript-active .search-layout .search-input-wrap .clear-icon { right:85px!important; }\n  html.homepagescript-active .search-layout .search-panel-popover {\n    box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important;\n  }\n  /* Preserve the native sticky search activation and back button. */\n  html.homepagescript-active .search-layout .search-fixed-header {\n    display:flex!important; gap:8px!important; box-sizing:border-box!important; min-width:0!important;\n    width:100%!important; max-width:100%!important; left:0!important; transform:none!important; padding:0 8px!important;\n  }\n  html.homepagescript-active .search-layout .search-fixed-header :is(.search-logo,.back-button) {\n    position:static!important; transform:none!important; flex:none!important;\n  }\n  html.homepagescript-active .search-layout .search-fixed-header .search-input-wrap { flex:1!important; margin:0 auto!important; }\n  html.homepagescript-active .search-layout .search-tabs .vui_tabs--navbar {\n    min-width:0!important; max-width:100%!important; overflow-x:auto!important; overscroll-behavior-x:contain;\n  }\n  html.homepagescript-active .search-layout .search-tabs .vui_tabs--nav { width:max-content!important; }\n  html.homepagescript-active .search-layout .search-tabs .vui_tabs--nav-item { flex:none!important; }\n  html.homepagescript-active .search-layout .search-tabs .vui_tabs--nav-link { padding-left:12px!important; padding-right:12px!important; white-space:nowrap!important; }\n  html.homepagescript-active .search-layout :is(.conditions-order,.search-condition-row,.condition-row,.room-header,.room-order,.live-user > .b_text) {\n    min-width:0!important; flex-wrap:wrap!important; gap:6px 0!important;\n  }\n  html.homepagescript-active .search-layout :is(.search-conditions,.more-conditions,.live-condition) { min-width:0!important; max-width:100%!important; }\n  html.homepagescript-active .search-layout .search-channel-item .search-sub-wrapper {\n    left:0!important; transform:none!important; max-width:calc(100vw - 32px)!important;\n  }\n  html.homepagescript-active .search-layout .search-sub-channel { flex-wrap:wrap!important; gap:8px!important; }\n  /* Native columns and negative row margins otherwise leave the cards overflowing. */\n  html.homepagescript-active .search-layout .row {\n    display:grid!important; grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr))!important;\n    gap:24px 12px!important; margin-left:0!important; margin-right:0!important;\n  }\n  html.homepagescript-active .search-layout .row > [class*="col_"] {\n    box-sizing:border-box!important; float:none!important; min-width:0!important; width:100%!important;\n    max-width:100%!important; padding-left:0!important; padding-right:0!important; margin:0!important;\n  }\n  html.homepagescript-active .search-layout .row > :is(.to_hide_xs,.to_hide_md,.to_hide_xl) { display:block!important; }\n  html.homepagescript-active .search-layout :is(.video-list,.live-room-cards) {\n    grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important;\n  }\n  html.homepagescript-active .search-layout :is(.live-user-cards,.search-page-upuser .media-list) {\n    grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr))!important;\n  }\n  html.homepagescript-active .search-layout :is(.bili-video-card,.bili-live-card,.bili-video-card__info--right,.bili-live-card__info--text) { min-width:0!important; max-width:100%!important; }\n  html.homepagescript-active .search-layout .search-page-live .live-room .video-list-item { padding-bottom:0!important; }\n  html.homepagescript-active .search-layout .media-card {\n    --image-width:clamp(90px,24vw,148px); --image-height:auto; --image-mg-r:12px;\n    min-width:0!important; margin-right:0!important;\n  }\n  html.homepagescript-active .search-layout .media-card-image { flex:none!important; height:auto!important; aspect-ratio:3/4; align-self:flex-start; }\n  html.homepagescript-active .search-layout .media-card-image > .v-img { width:100%!important; height:100%!important; }\n  html.homepagescript-active .search-layout .media-card-content { min-width:0!important; gap:8px!important; }\n  html.homepagescript-active .search-layout .media-card-content-head-title { min-width:0!important; flex-wrap:wrap!important; }\n  html.homepagescript-active .search-layout .media-card-content-head-title a { min-width:0!important; max-width:100%!important; }\n  html.homepagescript-active .search-layout .media-card-content-footer-btns { height:auto!important; flex-wrap:wrap!important; gap:6px!important; }\n  html.homepagescript-active .search-layout .media-footer { min-width:0!important; gap:6px 0!important; }\n  html.homepagescript-active .search-layout :is(.media-footer-select,.media-card-btn) { max-width:100%!important; }\n  html.homepagescript-active .search-layout :is(.b-user-video-card .user-info,.b-user-video-card .info-card) { width:100%!important; min-width:0!important; height:auto!important; }\n  html.homepagescript-active .search-layout :is(.user-content,.live-content) { flex:1!important; min-width:0!important; }\n  html.homepagescript-active .search-layout :is(.b-user-video-card .i_card_title,.b-user-info-card .i_card_title,.b-user-live-card .i_card_title) {\n    display:flex!important; flex-wrap:wrap!important; align-items:center!important; gap:6px!important; height:auto!important;\n  }\n  html.homepagescript-active .search-layout .b-user-video-card .user-actions { margin-left:0!important; }\n  html.homepagescript-active .search-layout .b-user-video-card .user-video-info { position:relative!important; margin-top:12px!important; }\n  html.homepagescript-active .search-layout .live-user-cards .live-user-card { margin-bottom:0!important; }\n  html.homepagescript-active .search-layout .live-desc { min-width:0!important; flex-wrap:wrap!important; white-space:normal!important; }\n  html.homepagescript-active .search-layout .b-article-card { display:flex!important; min-width:0!important; }\n  html.homepagescript-active .search-layout .b-article-card .article-banner { flex:none!important; width:clamp(90px,24vw,154px)!important; height:auto!important; aspect-ratio:4/3; }\n  html.homepagescript-active .search-layout .b-article-card .article-banner :is(.cover-img,img) { height:100%!important; }\n  html.homepagescript-active .search-layout .b-article-card .article-content { flex:1!important; min-width:0!important; width:auto!important; }\n  html.homepagescript-active .search-layout .vui_pagenation { flex-wrap:wrap!important; justify-content:center!important; gap:12px!important; max-width:100%!important; white-space:normal!important; }\n  html.homepagescript-active .search-layout .vui_pagenation--btns { flex-wrap:wrap!important; justify-content:center!important; gap:6px!important; margin-right:0!important; }\n  html.homepagescript-active .search-layout .vui_pagenation--btns > * { margin-right:0!important; }\n  html.homepagescript-active .search-layout .side-buttons { right:8px!important; }\n  html.homepagescript-active :is(.bili-footer,.b-footer-wrap,.footer) { box-sizing:border-box!important; min-width:0!important; width:100%!important; padding:12px!important; }\n  html.homepagescript-active :is(.link-box,.other-link,.link-item__right) { flex-wrap:wrap!important; gap:12px!important; width:100%!important; }\n  html.homepagescript-active :is(.link-item,.text-con,.text-con__line) { min-width:0!important; width:100%!important; white-space:normal!important; overflow-wrap:anywhere!important; }\n}\n@media (max-width:399px) {\n  html.homepagescript-active .search-layout :is(.video-list,.live-room-cards) { grid-template-columns:minmax(0,1fr)!important; }\n  html.homepagescript-active .search-layout .search-fixed-header .search-logo { width:40px!important; }\n  html.homepagescript-active .search-layout .search-fixed-header .back-button { width:48px!important; }\n}\n';
 
   // src/WebPage/Search/module.js
-  var early8 = () => createPageOpening();
-  function mount8() {
+  var early9 = () => createPageOpening();
+  function mount9() {
     "use strict";
     const matchesPage = () => pageId(location.href) === "Search";
     if (!matchesPage()) return;
     window.bilibiliHomePageScript?.destroy();
     const headerSearchNavigation = createHeaderSearchNavigation();
+    const headerCards = createHeaderCards();
     const html = document.documentElement;
     const narrow = matchMedia("(max-width: 1099px)");
     const navigationScope = ".bili-header,.bili-header__bar,#homepagescript-menu,.header-channel,.channel-entry-popover,.bili-header-channel-panel,.link-navbar,.charity-header";
@@ -3452,28 +3740,7 @@ ${content2}
       });
     }
     function fitHeader() {
-      for (const bar of document.querySelectorAll(".bili-header__bar")) {
-        let trim = function(container) {
-          for (const child of container.children) {
-            const retained = keep.some((node) => child.contains(node));
-            fit([child], retained ? 1 : 0);
-            if (retained && !keep.includes(child)) trim(child);
-          }
-        };
-        const keep = Array.from(bar.querySelectorAll(".home-page-entry,.home-page-panel-entry,.header-avatar-wrap,.header-avatar-unlogin-wrap"));
-        for (const link of bar.querySelectorAll("a[href]")) {
-          if (link.closest(".v-popover")) continue;
-          const url = new URL(link.href, location.href);
-          if (url.hostname === "www.bilibili.com" && /^\/(?:index\.html)?$/.test(url.pathname)) {
-            keep.push(link.closest(".v-popover-wrap") || link);
-          }
-        }
-        const search = bar.querySelector("#nav-searchform");
-        if (search) keep.push(search.closest(".center-search-container,.menu-center") || search);
-        if (!keep.length) continue;
-        for (const element of hidden) if (bar.contains(element) && keep.some((node) => node.contains(element))) fit([element], 1);
-        trim(bar);
-      }
+      fitHomeHeader(hidden, fit);
     }
     function observe(element) {
       if (!observed.has(element)) {
@@ -3612,11 +3879,9 @@ ${content2}
         const zoom = Math.min(1, Math.max(1, html.clientWidth - 16) / width, Math.max(1, innerHeight - (submenu ? minimumTop + 8 : top + 8)) / height2);
         let left;
         if (submenu) {
-          const rightFits = anchorRect.right + width * zoom <= html.clientWidth - 8;
-          const leftFits = anchorRect.left - width * zoom >= 8;
-          element.classList.toggle("homepagescript-avatar-submenu-left", !rightFits);
-          left = rightFits ? anchorRect.right : leftFits ? anchorRect.left - width * zoom : anchorRect.right - width * zoom;
-          left = Math.max(8, Math.min(left, html.clientWidth - width * zoom - 8));
+          const position = avatarSubmenuPosition(anchorRect, width * zoom, html.clientWidth);
+          element.classList.toggle("homepagescript-avatar-submenu-left", position.opensLeft);
+          left = position.left;
           top = Math.max(minimumTop, Math.min((anchorRect.top + anchorRect.bottom - height2 * zoom) / 2, innerHeight - height2 * zoom - 8));
         } else left = Math.max(8, Math.min(anchorRect.right - width * zoom, html.clientWidth - width * zoom - 8));
         const scale = rect.width / element.offsetWidth / saved.zoom * zoom;
@@ -3746,6 +4011,7 @@ ${content2}
     window.bilibiliHomePageScript = {
       destroy() {
         headerSearchNavigation.destroy();
+        headerCards.destroy();
         stopped = true;
         events.abort();
         mutations.disconnect();
@@ -3778,18 +4044,19 @@ ${content2}
   }
 
   // src/WebPage/Popular/module.js
-  var module_exports9 = {};
-  __export(module_exports9, {
-    early: () => early9,
-    mount: () => mount9
+  var module_exports10 = {};
+  __export(module_exports10, {
+    early: () => early10,
+    mount: () => mount10
   });
-  var early9 = () => createPageOpening();
-  function mount9() {
+  var early10 = () => createPageOpening();
+  function mount10() {
     "use strict";
     const matchesPage = () => pageId(location.href) === "Popular";
     if (!matchesPage()) return;
     window.bilibiliHomePageScript?.destroy();
     const headerSearchNavigation = createHeaderSearchNavigation();
+    const headerCards = createHeaderCards();
     const avatarNavigation = createAvatarNavigation();
     const html = document.documentElement;
     const narrow = matchMedia("(max-width: 1099px)");
@@ -3879,28 +4146,7 @@ ${content2}
       });
     }
     function fitHeader() {
-      for (const bar of document.querySelectorAll(".bili-header__bar")) {
-        let trim = function(container) {
-          for (const child of container.children) {
-            const retained = keep.some((node) => child.contains(node));
-            fit([child], retained ? 1 : 0);
-            if (retained && !keep.includes(child)) trim(child);
-          }
-        };
-        const keep = Array.from(bar.querySelectorAll(".home-page-entry,.home-page-panel-entry,.header-avatar-wrap"));
-        for (const link of bar.querySelectorAll("a[href]")) {
-          if (link.closest(".v-popover")) continue;
-          const url = new URL(link.href, location.href);
-          if (url.hostname === "www.bilibili.com" && /^\/(?:index\.html)?$/.test(url.pathname)) {
-            keep.push(link.closest(".v-popover-wrap") || link);
-          }
-        }
-        const search = bar.querySelector("#nav-searchform");
-        if (search) keep.push(search.closest(".center-search-container,.menu-center") || search);
-        if (!keep.length) continue;
-        for (const element of hidden) if (bar.contains(element) && keep.some((node) => node.contains(element))) fit([element], 1);
-        trim(bar);
-      }
+      fitHomeHeader(hidden, fit);
     }
     function observe(element) {
       if (!observed.has(element)) {
@@ -4032,11 +4278,9 @@ ${content2}
         const zoom = Math.min(1, Math.max(1, html.clientWidth - 16) / width, Math.max(1, innerHeight - (submenu ? 16 : top + 8)) / height2);
         let left;
         if (submenu) {
-          const rightFits = anchorRect.right + width * zoom <= html.clientWidth - 8;
-          const leftFits = anchorRect.left - width * zoom >= 8;
-          element.classList.toggle("homepagescript-avatar-submenu-left", !rightFits);
-          left = rightFits ? anchorRect.right : leftFits ? anchorRect.left - width * zoom : anchorRect.right - width * zoom;
-          left = Math.max(8, Math.min(left, html.clientWidth - width * zoom - 8));
+          const position = avatarSubmenuPosition(anchorRect, width * zoom, html.clientWidth);
+          element.classList.toggle("homepagescript-avatar-submenu-left", position.opensLeft);
+          left = position.left;
           top = Math.max(8, Math.min((anchorRect.top + anchorRect.bottom - height2 * zoom) / 2, innerHeight - height2 * zoom - 8));
         } else left = Math.max(8, Math.min(anchorRect.right - width * zoom, html.clientWidth - width * zoom - 8));
         const scale = rect.width / element.offsetWidth / saved.zoom * zoom;
@@ -4167,6 +4411,7 @@ ${content2}
       destroy() {
         avatarNavigation.destroy();
         headerSearchNavigation.destroy();
+        headerCards.destroy();
         stopped = true;
         events.abort();
         mutations.disconnect();
@@ -4199,20 +4444,20 @@ ${content2}
   }
 
   // src/WebPage/Anime/module.js
-  var module_exports10 = {};
-  __export(module_exports10, {
-    early: () => early10,
-    mount: () => mount10
+  var module_exports11 = {};
+  __export(module_exports11, {
+    early: () => early11,
+    mount: () => mount11
   });
 
   // src/WebPage/Anime/content.css
-  var content_default6 = "\n@media(max-width:1099px) {\n html.homepagescript-active .home-v3-app-container {min-width:0!important;width:100%!important;}\n html.homepagescript-active .inner-content-wrapper {box-sizing:border-box!important;width:100%!important;max-width:100%!important;min-width:0!important;margin-left:0!important;margin-right:0!important;padding-left:8px!important;padding-right:8px!important;}\n html.homepagescript-active .home-banner-wrapper {height:auto!important;min-height:0!important;padding-top:56px!important;}\n html.homepagescript-active .banner-item-ratio-scale-container {padding-top:0!important;height:auto!important;aspect-ratio:16/9;}\n html.homepagescript-active .banner-item-ratio-scale-inner {position:relative!important;inset:auto!important;width:100%!important;height:100%!important;}\n html.homepagescript-active .banner-hover-group {position:relative!important;inset:auto!important;width:100%!important;padding:8px!important;box-sizing:border-box!important;}\n html.homepagescript-active .banner-hover-group-title {width:100%!important;padding:0!important;}\n html.homepagescript-active .banner-hover-group-body {box-sizing:border-box!important;width:100%!important;height:auto!important;min-height:0!important;max-height:none!important;gap:8px!important;overflow-x:auto!important;overflow-y:hidden!important;align-items:start!important;padding:8px 0!important;}\n html.homepagescript-active .banner-hover-group-item {flex:0 0 140px!important;width:140px!important;}\n html.homepagescript-active .home-index-wrapper .inner-content-body {display:grid!important;grid-template-columns:1fr!important;gap:8px!important;}\n html.homepagescript-active .inner-content-item-index {width:100%!important;margin:0!important;}\n html.homepagescript-active :is(.home-page-switch-wrapper .inner-content-body,.feenline-vcard-wrapper) {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr))!important;gap:16px 12px!important;}\n html.homepagescript-active :is(.home-page-switch-wrapper .inner-content-body,.feenline-vcard-wrapper) > * {box-sizing:border-box!important;min-width:0!important;width:100%!important;max-width:100%!important;margin:0!important;}\n html.homepagescript-active .section-title-v2-wrapper {align-items:flex-start!important;gap:8px!important;flex-wrap:wrap!important;}\n html.homepagescript-active .title-right {min-width:0!important;max-width:100%!important;overflow-x:auto!important;}\n html.homepagescript-active .home-page-switch-wrapper :is(.next-page,.prev-page) {position:static!important;transform:none!important;margin:8px auto!important;}\n html.homepagescript-active .content-wrap {display:flex!important;flex-direction:column!important;min-width:0!important;width:100%!important;height:auto!important;}\n html.homepagescript-active .info-wrap {position:relative!important;inset:auto!important;width:100%!important;height:auto!important;min-height:0!important;}\n html.homepagescript-active .info-content-wrap {box-sizing:border-box!important;width:100%!important;height:auto!important;padding:12px!important;}\n html.homepagescript-active .video-wrap {position:relative!important;inset:auto!important;width:100%!important;height:auto!important;aspect-ratio:16/9;}\n html.homepagescript-active .carousel-wrap {width:100%!important;overflow-x:auto!important;position:relative!important;inset:auto!important;}\n html.homepagescript-active .feed-line-rank-body-container {flex-direction:column!important;gap:12px!important;}\n html.homepagescript-active .feed-line-rank-body-inner {min-width:0!important;width:100%!important;max-width:100%!important;}\n /* 电影/电视剧等页面采用 inner-c + grid 的另一套 PGC 模板。 */\n html.homepagescript-active .inner-c {box-sizing:border-box!important;min-width:0!important;width:100%!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;padding-left:8px!important;padding-right:8px!important;}\n html.homepagescript-active .banner-wrapper {min-width:0!important;height:auto!important;padding-top:56px!important;}\n html.homepagescript-active .banner-wrapper .bg-container {position:relative!important;inset:auto!important;width:100%!important;height:240px!important;}\n html.homepagescript-active .banner-wrapper .inner-c {height:auto!important;}\n html.homepagescript-active .side-list-wrp {position:relative!important;inset:auto!important;width:100%!important;height:auto!important;}\n html.homepagescript-active .side-list {flex-direction:row!important;width:100%!important;overflow-x:auto!important;gap:8px!important;padding:8px 0!important;}\n html.homepagescript-active .side-item {flex:0 0 150px!important;width:150px!important;}\n html.homepagescript-active .index-module > .inner-c {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr))!important;gap:12px!important;}\n html.homepagescript-active .index-item {width:100%!important;margin:0!important;}\n html.homepagescript-active .grid {grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr))!important;grid-template-rows:none!important;grid-auto-rows:auto!important;gap:16px 12px!important;}\n html.homepagescript-active .grid > * {box-sizing:border-box!important;grid-column:auto!important;grid-row:auto!important;min-width:0!important;width:100%!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;}\n html.homepagescript-active .hot-module > .left {grid-column:1/-1!important;aspect-ratio:16/9;height:auto!important;}\n html.homepagescript-active .hot-item .cover {width:100%!important;height:auto!important;aspect-ratio:3/4;}\n}\n\n@media(max-width:1099px) {\n /* 可收起的浮动导航，不压缩页面内容。 */\n html.homepagescript-active .nav-tool-container {z-index:40!important;}\n html.homepagescript-active .anime-sidebar {\n  position:fixed;right:8px;bottom:12px;width:44px;pointer-events:auto;\n  transform:translateX(calc(100% + 8px));transition:transform .18s ease;z-index:30;\n }\n html.homepagescript-active .anime-sidebar[data-open] {transform:none;}\n html.homepagescript-active .anime-sidebar-toggle {\n  position:absolute;right:100%;top:0;width:24px;height:44px;padding:0;border:1px solid var(--line_light,#444);\n  border-radius:6px 0 0 6px;background:var(--bg1_float,#252627);color:var(--text1,#eee);font-size:24px;cursor:pointer;\n }\n html.homepagescript-active .anime-sidebar-toggle:focus-visible {outline:2px solid #00aeec;outline-offset:2px;}\n html.homepagescript-active .anime-sidebar .nav-tool {\n  position:relative!important;box-sizing:border-box!important;inset:auto!important;\n  transform:none!important;max-height:calc(100vh - 80px)!important;max-height:calc(100dvh - 80px)!important;\n  overflow-y:auto!important;overflow-x:hidden!important;\n }\n html.homepagescript-active .nav-tool-container .section {box-sizing:border-box!important;opacity:1!important;}\n html.homepagescript-active .nav-tool-container .top:not(.show) {opacity:0!important;pointer-events:none!important;}\n\n /* 原布局依赖视频撑高信息区；纵向排列后，文字及缩略图必须自行撑高。 */\n html.homepagescript-active .new-hot-wrap .content-wrap {gap:12px!important;padding-bottom:0!important;}\n html.homepagescript-active .new-hot-wrap .info-wrap {flex:none!important;justify-content:flex-start!important;}\n html.homepagescript-active .new-hot-wrap .info-content-wrap {min-width:0!important;justify-content:flex-start!important;gap:12px!important;padding:16px!important;}\n html.homepagescript-active .new-hot-wrap .info-content-wrap > :not(.season-cover) {flex-shrink:0!important;margin:0!important;}\n html.homepagescript-active .new-hot-wrap .info-content-wrap > .season-cover {pointer-events:none!important;}\n html.homepagescript-active .new-hot-wrap .info-content-wrap > .title {\n  height:auto!important;min-height:0!important;padding:0!important;font-size:clamp(20px,3vw,28px)!important;\n  line-height:1.4!important;white-space:normal!important;overflow-wrap:anywhere!important;\n }\n html.homepagescript-active .new-hot-wrap .rating-wrap {height:auto!important;min-height:40px!important;padding:0!important;}\n html.homepagescript-active .new-hot-wrap .rating-wrap .right-wrap {min-width:0!important;width:auto!important;flex:1!important;}\n html.homepagescript-active .new-hot-wrap .info-content-wrap > .desc {\n  display:-webkit-box!important;height:auto!important;max-height:none!important;padding:0!important;\n  line-height:1.5!important;white-space:normal!important;overflow-wrap:anywhere!important;-webkit-line-clamp:3!important;\n }\n html.homepagescript-active .new-hot-wrap .button-group {gap:12px!important;}\n html.homepagescript-active .new-hot-wrap .button-group .button {flex-shrink:0!important;margin-right:0!important;}\n html.homepagescript-active .new-hot-wrap .carousel-wrap {\n  display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:8px!important;\n  height:auto!important;min-width:0!important;overflow:visible!important;\n }\n html.homepagescript-active .new-hot-wrap .carousel-item-wrap {\n  position:relative!important;inset:auto!important;width:100%!important;min-width:0!important;\n  transform:none!important;transition:none!important;border-width:3px!important;\n }\n html.homepagescript-active .new-hot-wrap .video-wrap {flex:none!important;aspect-ratio:auto!important;}\n html.homepagescript-active .new-hot-wrap .video-area {height:0!important;padding-bottom:56.25%!important;}\n\n /* 首页横幅、索引及时间表同样存在原生定高或定宽的内部节点。 */\n html.homepagescript-active .home-banner-wrapper {margin-top:0!important;}\n html.homepagescript-active .home-index-wrapper .index-categary-content-container {height:auto!important;overflow:visible!important;}\n html.homepagescript-active .home-index-wrapper .vertical-items-group {height:auto!important;gap:8px!important;margin-right:16px!important;}\n html.homepagescript-active .home-index-wrapper .index-background-icon {pointer-events:none!important;}\n html.homepagescript-active .section-title-v2-wrapper .title-left {min-width:0!important;max-width:100%!important;flex-wrap:wrap!important;gap:8px!important;}\n html.homepagescript-active .section-title-v2-wrapper .week-day-wrapper {max-width:100%!important;margin-left:0!important;overflow-x:auto!important;}\n html.homepagescript-active .section-title-v2-wrapper .week-day-item {flex-shrink:0!important;}\n html.homepagescript-active .time-line-body .timeline-common-content {box-sizing:border-box!important;width:100%!important;min-width:0!important;margin:0!important;padding:8px!important;display:grid!important;grid-template-columns:1fr 1fr!important;}\n html.homepagescript-active .time-line-body .timeline-common-content-list-container {grid-column:1/-1!important;}\n html.homepagescript-active .time-line-wrapper .time-line-body {overflow:visible!important;}\n html.homepagescript-active .time-line-body .timeline-weekday-item {min-width:0!important;width:100%!important;}\n /* 日期标签伸出卡片顶部，展开时一并遮住相邻卡片的标签。 */\n html.homepagescript-active .time-line-body .timeline-weekday-item.is-hover-active::before {content:'';position:absolute;inset:-12px 0 0;background:var(--bg1,#171819);z-index:-1;}\n html.homepagescript-active .time-line-body :is(.timeline-special-content-left,.timeline-special-content-right) {display:none!important;}\n html.homepagescript-active .time-line-body :is(.next-page,.prev-page) {position:static!important;transform:none!important;margin:8px auto!important;}\n html.homepagescript-active .recommend-feed-line-rank-wrapper .subject-titles {position:relative!important;inset:auto!important;width:100%!important;}\n html.homepagescript-active .recommend-feed-line-rank-wrapper .subject-picture {pointer-events:none!important;}\n html.homepagescript-active .recommend-feed-line-rank-wrapper .feed-line-rank-body-inner {flex:none!important;}\n}\n\n/* 宽屏保留原生导航的位置和可访问性。 */\n@media(min-width:1100px) {\n html.homepagescript-active .anime-sidebar {display:contents;}\n html.homepagescript-active .anime-sidebar-toggle {display:none;}\n}\n\n@media(max-width:1099px) {\n /* 独立时间表：日期行切换对应日程，标题与条目不再挤在三列固定宽度内。 */\n html.homepagescript-active #app :is(.bread-crumb,.timeline-container) {box-sizing:border-box!important;width:100%!important;min-width:0!important;margin:0!important;padding-left:8px!important;padding-right:8px!important;}\n html.homepagescript-active #app .timeline-container {padding-top:0!important;}\n html.homepagescript-active #app .timeline-header {position:sticky!important;inset:auto!important;top:56px!important;box-sizing:border-box!important;width:100%!important;height:76px!important;margin:0!important;}\n html.homepagescript-active #app .timeline-header :is(.arrow-left,.arrow-right) {display:none!important;}\n html.homepagescript-active #app .tl-weeks {height:76px!important;overflow-x:auto!important;overflow-y:hidden!important;}\n html.homepagescript-active #app .tl-head-list {display:flex!important;width:max-content!important;transform:none!important;transition:none!important;}\n html.homepagescript-active #app .tl-head {float:none!important;flex:0 0 130px!important;width:130px!important;animation:none!important;cursor:pointer;}\n html.homepagescript-active #app .tl-head .tl-day {left:0!important;}\n html.homepagescript-active #app .tl-head[data-anime-selected] .indicator {background:var(--brand_blue,#00aeec)!important;}\n html.homepagescript-active #app .tl-head:focus-visible {outline:2px solid #00aeec;outline-offset:-2px;}\n html.homepagescript-active #app .timeline-wrapper {width:100%!important;overflow:visible!important;}\n html.homepagescript-active #app .tl-body-list {width:100%!important;transform:none!important;transition:none!important;}\n html.homepagescript-active #app .season-timeline {box-sizing:border-box!important;float:none!important;width:100%!important;animation:none!important;}\n html.homepagescript-active #app .season-timeline:not([data-anime-selected]) {display:none!important;}\n html.homepagescript-active #app .season-group {box-sizing:border-box!important;left:12px!important;padding-right:20px!important;}\n html.homepagescript-active #app .season-item .season-body {min-height:72px!important;}\n html.homepagescript-active #app .season-item .season-desc {position:relative!important;width:auto!important;max-width:100%!important;margin-top:8px!important;}\n html.homepagescript-active #app .bread-crumb ul {display:flex!important;gap:16px!important;flex-wrap:wrap!important;}\n html.homepagescript-active #app .bread-crumb li {float:none!important;margin-left:0!important;}\n\n /* 索引：筛选控件先于结果，保持原生筛选、排序和翻页。 */\n html.homepagescript-active .bangumi-index-wrapper {box-sizing:border-box!important;width:100%!important;min-width:0!important;padding:0 8px!important;margin:0!important;}\n html.homepagescript-active .bangumi-index-body {display:grid!important;grid-template-columns:minmax(0,1fr)!important;}\n html.homepagescript-active .bangumi-index-body :is(.filter-wrapper,.filter-body) {float:none!important;width:100%!important;min-width:0!important;}\n html.homepagescript-active .bangumi-index-body .filter-wrapper {grid-row:1;}\n html.homepagescript-active .bangumi-index-body .filter-body {grid-row:2;}\n html.homepagescript-active .bangumi-index-wrapper .filter-list {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr))!important;gap:0 16px!important;align-items:start!important;}\n html.homepagescript-active .bangumi-index-wrapper .filter-block {display:grid!important;grid-template-columns:52px minmax(0,1fr)!important;align-items:start!important;}\n html.homepagescript-active .bangumi-index-wrapper .filter-item-wrapper {position:relative!important;float:none!important;width:100%!important;min-width:0!important;height:var(--anime-filter-height,auto)!important;transition:none!important;}\n html.homepagescript-active .bangumi-index-wrapper .btn-expand {right:0!important;}\n html.homepagescript-active .bangumi-index-wrapper .btn-expand::after {display:none!important;}\n html.homepagescript-active .bangumi-index-wrapper .btn-expand[data-anime-filter-toggle=hidden] {display:none!important;}\n html.homepagescript-active .bangumi-index-wrapper .sort-banner {height:auto!important;display:flex!important;flex-wrap:wrap!important;gap:16px 8px!important;margin-bottom:16px!important;}\n html.homepagescript-active .bangumi-index-wrapper .sort-item {float:none!important;margin-right:0!important;flex:0 0 80px!important;}\n html.homepagescript-active .bangumi-index-wrapper .bangumi-list {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(140px,100%),1fr))!important;gap:20px 12px!important;}\n html.homepagescript-active .bangumi-index-wrapper .bangumi-item {box-sizing:border-box!important;width:100%!important;height:auto!important;margin-right:0!important;min-width:0!important;}\n html.homepagescript-active .bangumi-index-wrapper .cover-wrapper {height:auto!important;aspect-ratio:3/4;}\n html.homepagescript-active .bangumi-index-wrapper .cover-wrapper img {object-fit:cover;}\n html.homepagescript-active .bangumi-index-wrapper .pagelistbox {display:flex!important;flex-wrap:wrap!important;gap:4px!important;height:auto!important;padding-right:0!important;margin:20px 0!important;}\n html.homepagescript-active .bangumi-index-wrapper .pagelistbox :is(.p,strong,.custom-right) {float:none!important;margin-right:0!important;}\n html.homepagescript-active .bangumi-index-crumb ul {display:flex!important;flex-wrap:wrap!important;gap:16px!important;}\n html.homepagescript-active .bangumi-index-crumb li {padding:0!important;float:none!important;}\n}\n\n@media(max-width:479px) {\n html.homepagescript-active .new-hot-wrap .carousel-wrap {grid-template-columns:repeat(2,minmax(0,1fr))!important;}\n}\n";
+  var content_default7 = "\n@media(max-width:1099px) {\n html.homepagescript-active .home-v3-app-container {min-width:0!important;width:100%!important;}\n html.homepagescript-active .inner-content-wrapper {box-sizing:border-box!important;width:100%!important;max-width:100%!important;min-width:0!important;margin-left:0!important;margin-right:0!important;padding-left:8px!important;padding-right:8px!important;}\n html.homepagescript-active .home-banner-wrapper {height:auto!important;min-height:0!important;padding-top:56px!important;}\n html.homepagescript-active .banner-item-ratio-scale-container {padding-top:0!important;height:auto!important;aspect-ratio:16/9;}\n html.homepagescript-active .banner-item-ratio-scale-inner {position:relative!important;inset:auto!important;width:100%!important;height:100%!important;}\n html.homepagescript-active .banner-hover-group {position:relative!important;inset:auto!important;width:100%!important;padding:8px!important;box-sizing:border-box!important;}\n html.homepagescript-active .banner-hover-group-title {width:100%!important;padding:0!important;}\n html.homepagescript-active .banner-hover-group-body {box-sizing:border-box!important;width:100%!important;height:auto!important;min-height:0!important;max-height:none!important;gap:8px!important;overflow-x:auto!important;overflow-y:hidden!important;align-items:start!important;padding:8px 0!important;}\n html.homepagescript-active .banner-hover-group-item {flex:0 0 140px!important;width:140px!important;}\n html.homepagescript-active .home-index-wrapper .inner-content-body {display:grid!important;grid-template-columns:1fr!important;gap:8px!important;}\n html.homepagescript-active .inner-content-item-index {width:100%!important;margin:0!important;}\n html.homepagescript-active :is(.home-page-switch-wrapper .inner-content-body,.feenline-vcard-wrapper) {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr))!important;gap:16px 12px!important;}\n html.homepagescript-active :is(.home-page-switch-wrapper .inner-content-body,.feenline-vcard-wrapper) > * {box-sizing:border-box!important;min-width:0!important;width:100%!important;max-width:100%!important;margin:0!important;}\n html.homepagescript-active .section-title-v2-wrapper {align-items:flex-start!important;gap:8px!important;flex-wrap:wrap!important;}\n html.homepagescript-active .title-right {min-width:0!important;max-width:100%!important;overflow-x:auto!important;}\n html.homepagescript-active .home-page-switch-wrapper :is(.next-page,.prev-page) {position:static!important;transform:none!important;margin:8px auto!important;}\n html.homepagescript-active .content-wrap {display:flex!important;flex-direction:column!important;min-width:0!important;width:100%!important;height:auto!important;}\n html.homepagescript-active .info-wrap {position:relative!important;inset:auto!important;width:100%!important;height:auto!important;min-height:0!important;}\n html.homepagescript-active .info-content-wrap {box-sizing:border-box!important;width:100%!important;height:auto!important;padding:12px!important;}\n html.homepagescript-active .video-wrap {position:relative!important;inset:auto!important;width:100%!important;height:auto!important;aspect-ratio:16/9;}\n html.homepagescript-active .carousel-wrap {width:100%!important;overflow-x:auto!important;position:relative!important;inset:auto!important;}\n html.homepagescript-active .feed-line-rank-body-container {flex-direction:column!important;gap:12px!important;}\n html.homepagescript-active .feed-line-rank-body-inner {min-width:0!important;width:100%!important;max-width:100%!important;}\n /* 电影/电视剧等页面采用 inner-c + grid 的另一套 PGC 模板。 */\n html.homepagescript-active .inner-c {box-sizing:border-box!important;min-width:0!important;width:100%!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;padding-left:8px!important;padding-right:8px!important;}\n html.homepagescript-active .banner-wrapper {min-width:0!important;height:auto!important;padding-top:56px!important;}\n html.homepagescript-active .banner-wrapper .bg-container {position:relative!important;inset:auto!important;width:100%!important;height:240px!important;}\n html.homepagescript-active .banner-wrapper .inner-c {height:auto!important;}\n html.homepagescript-active .side-list-wrp {position:relative!important;inset:auto!important;width:100%!important;height:auto!important;}\n html.homepagescript-active .side-list {flex-direction:row!important;width:100%!important;overflow-x:auto!important;gap:8px!important;padding:8px 0!important;}\n html.homepagescript-active .side-item {flex:0 0 150px!important;width:150px!important;}\n html.homepagescript-active .index-module > .inner-c {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr))!important;gap:12px!important;}\n html.homepagescript-active .index-item {width:100%!important;margin:0!important;}\n html.homepagescript-active .grid {grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr))!important;grid-template-rows:none!important;grid-auto-rows:auto!important;gap:16px 12px!important;}\n html.homepagescript-active .grid > * {box-sizing:border-box!important;grid-column:auto!important;grid-row:auto!important;min-width:0!important;width:100%!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;}\n html.homepagescript-active .hot-module > .left {grid-column:1/-1!important;aspect-ratio:16/9;height:auto!important;}\n html.homepagescript-active .hot-item .cover {width:100%!important;height:auto!important;aspect-ratio:3/4;}\n}\n\n@media(max-width:1099px) {\n /* 可收起的浮动导航，不压缩页面内容。 */\n html.homepagescript-active .nav-tool-container {z-index:40!important;}\n html.homepagescript-active .anime-sidebar {\n  position:fixed;right:8px;bottom:12px;width:44px;pointer-events:auto;\n  transform:translateX(calc(100% + 8px));transition:transform .18s ease;z-index:30;\n }\n html.homepagescript-active .anime-sidebar[data-open] {transform:none;}\n html.homepagescript-active .anime-sidebar-toggle {\n  position:absolute;right:100%;top:0;width:24px;height:44px;padding:0;border:1px solid var(--line_light,#444);\n  border-radius:6px 0 0 6px;background:var(--bg1_float,#252627);color:var(--text1,#eee);font-size:24px;cursor:pointer;\n }\n html.homepagescript-active .anime-sidebar-toggle:focus-visible {outline:2px solid #00aeec;outline-offset:2px;}\n html.homepagescript-active .anime-sidebar .nav-tool {\n  position:relative!important;box-sizing:border-box!important;inset:auto!important;\n  transform:none!important;max-height:calc(100vh - 80px)!important;max-height:calc(100dvh - 80px)!important;\n  overflow-y:auto!important;overflow-x:hidden!important;\n }\n html.homepagescript-active .nav-tool-container .section {box-sizing:border-box!important;opacity:1!important;}\n html.homepagescript-active .nav-tool-container .top:not(.show) {opacity:0!important;pointer-events:none!important;}\n\n /* 原布局依赖视频撑高信息区；纵向排列后，文字及缩略图必须自行撑高。 */\n html.homepagescript-active .new-hot-wrap .content-wrap {gap:12px!important;padding-bottom:0!important;}\n html.homepagescript-active .new-hot-wrap .info-wrap {flex:none!important;justify-content:flex-start!important;}\n html.homepagescript-active .new-hot-wrap .info-content-wrap {min-width:0!important;justify-content:flex-start!important;gap:12px!important;padding:16px!important;}\n html.homepagescript-active .new-hot-wrap .info-content-wrap > :not(.season-cover) {flex-shrink:0!important;margin:0!important;}\n html.homepagescript-active .new-hot-wrap .info-content-wrap > .season-cover {pointer-events:none!important;}\n html.homepagescript-active .new-hot-wrap .info-content-wrap > .title {\n  height:auto!important;min-height:0!important;padding:0!important;font-size:clamp(20px,3vw,28px)!important;\n  line-height:1.4!important;white-space:normal!important;overflow-wrap:anywhere!important;\n }\n html.homepagescript-active .new-hot-wrap .rating-wrap {height:auto!important;min-height:40px!important;padding:0!important;}\n html.homepagescript-active .new-hot-wrap .rating-wrap .right-wrap {min-width:0!important;width:auto!important;flex:1!important;}\n html.homepagescript-active .new-hot-wrap .info-content-wrap > .desc {\n  display:-webkit-box!important;height:auto!important;max-height:none!important;padding:0!important;\n  line-height:1.5!important;white-space:normal!important;overflow-wrap:anywhere!important;-webkit-line-clamp:3!important;\n }\n html.homepagescript-active .new-hot-wrap .button-group {gap:12px!important;}\n html.homepagescript-active .new-hot-wrap .button-group .button {flex-shrink:0!important;margin-right:0!important;}\n html.homepagescript-active .new-hot-wrap .carousel-wrap {\n  display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:8px!important;\n  height:auto!important;min-width:0!important;overflow:visible!important;\n }\n html.homepagescript-active .new-hot-wrap .carousel-item-wrap {\n  position:relative!important;inset:auto!important;width:100%!important;min-width:0!important;\n  transform:none!important;transition:none!important;border-width:3px!important;\n }\n html.homepagescript-active .new-hot-wrap .video-wrap {flex:none!important;aspect-ratio:auto!important;}\n html.homepagescript-active .new-hot-wrap .video-area {height:0!important;padding-bottom:56.25%!important;}\n\n /* 首页横幅、索引及时间表同样存在原生定高或定宽的内部节点。 */\n html.homepagescript-active .home-banner-wrapper {margin-top:0!important;}\n html.homepagescript-active .home-index-wrapper .index-categary-content-container {height:auto!important;overflow:visible!important;}\n html.homepagescript-active .home-index-wrapper .vertical-items-group {height:auto!important;gap:8px!important;margin-right:16px!important;}\n html.homepagescript-active .home-index-wrapper .index-background-icon {pointer-events:none!important;}\n html.homepagescript-active .section-title-v2-wrapper .title-left {min-width:0!important;max-width:100%!important;flex-wrap:wrap!important;gap:8px!important;}\n html.homepagescript-active .section-title-v2-wrapper .week-day-wrapper {max-width:100%!important;margin-left:0!important;overflow-x:auto!important;}\n html.homepagescript-active .section-title-v2-wrapper .week-day-item {flex-shrink:0!important;}\n html.homepagescript-active .time-line-body .timeline-common-content {box-sizing:border-box!important;width:100%!important;min-width:0!important;margin:0!important;padding:8px!important;display:grid!important;grid-template-columns:1fr 1fr!important;}\n html.homepagescript-active .time-line-body .timeline-common-content-list-container {grid-column:1/-1!important;}\n html.homepagescript-active .time-line-wrapper .time-line-body {overflow:visible!important;}\n html.homepagescript-active .time-line-body .timeline-weekday-item {min-width:0!important;width:100%!important;}\n /* 日期标签伸出卡片顶部，展开时一并遮住相邻卡片的标签。 */\n html.homepagescript-active .time-line-body .timeline-weekday-item.is-hover-active::before {content:'';position:absolute;inset:-12px 0 0;background:var(--bg1,#171819);z-index:-1;}\n html.homepagescript-active .time-line-body :is(.timeline-special-content-left,.timeline-special-content-right) {display:none!important;}\n html.homepagescript-active .time-line-body :is(.next-page,.prev-page) {position:static!important;transform:none!important;margin:8px auto!important;}\n html.homepagescript-active .recommend-feed-line-rank-wrapper .subject-titles {position:relative!important;inset:auto!important;width:100%!important;}\n html.homepagescript-active .recommend-feed-line-rank-wrapper .subject-picture {pointer-events:none!important;}\n html.homepagescript-active .recommend-feed-line-rank-wrapper .feed-line-rank-body-inner {flex:none!important;}\n}\n\n/* 宽屏保留原生导航的位置和可访问性。 */\n@media(min-width:1100px) {\n html.homepagescript-active .anime-sidebar {display:contents;}\n html.homepagescript-active .anime-sidebar-toggle {display:none;}\n}\n\n@media(max-width:1099px) {\n /* 独立时间表：日期行切换对应日程，标题与条目不再挤在三列固定宽度内。 */\n html.homepagescript-active #app :is(.bread-crumb,.timeline-container) {box-sizing:border-box!important;width:100%!important;min-width:0!important;margin:0!important;padding-left:8px!important;padding-right:8px!important;}\n html.homepagescript-active #app .timeline-container {padding-top:0!important;}\n html.homepagescript-active #app .timeline-header {position:sticky!important;inset:auto!important;top:56px!important;box-sizing:border-box!important;width:100%!important;height:76px!important;margin:0!important;}\n html.homepagescript-active #app .timeline-header :is(.arrow-left,.arrow-right) {display:none!important;}\n html.homepagescript-active #app .tl-weeks {height:76px!important;overflow-x:auto!important;overflow-y:hidden!important;}\n html.homepagescript-active #app .tl-head-list {display:flex!important;width:max-content!important;transform:none!important;transition:none!important;}\n html.homepagescript-active #app .tl-head {float:none!important;flex:0 0 130px!important;width:130px!important;animation:none!important;cursor:pointer;}\n html.homepagescript-active #app .tl-head .tl-day {left:0!important;}\n html.homepagescript-active #app .tl-head[data-anime-selected] .indicator {background:var(--brand_blue,#00aeec)!important;}\n html.homepagescript-active #app .tl-head:focus-visible {outline:2px solid #00aeec;outline-offset:-2px;}\n html.homepagescript-active #app .timeline-wrapper {width:100%!important;overflow:visible!important;}\n html.homepagescript-active #app .tl-body-list {width:100%!important;transform:none!important;transition:none!important;}\n html.homepagescript-active #app .season-timeline {box-sizing:border-box!important;float:none!important;width:100%!important;animation:none!important;}\n html.homepagescript-active #app .season-timeline:not([data-anime-selected]) {display:none!important;}\n html.homepagescript-active #app .season-group {box-sizing:border-box!important;left:12px!important;padding-right:20px!important;}\n html.homepagescript-active #app .season-item .season-body {min-height:72px!important;}\n html.homepagescript-active #app .season-item .season-desc {position:relative!important;width:auto!important;max-width:100%!important;margin-top:8px!important;}\n html.homepagescript-active #app .bread-crumb ul {display:flex!important;gap:16px!important;flex-wrap:wrap!important;}\n html.homepagescript-active #app .bread-crumb li {float:none!important;margin-left:0!important;}\n\n /* 索引：筛选控件先于结果，保持原生筛选、排序和翻页。 */\n html.homepagescript-active .bangumi-index-wrapper {box-sizing:border-box!important;width:100%!important;min-width:0!important;padding:0 8px!important;margin:0!important;}\n html.homepagescript-active .bangumi-index-body {display:grid!important;grid-template-columns:minmax(0,1fr)!important;}\n html.homepagescript-active .bangumi-index-body :is(.filter-wrapper,.filter-body) {float:none!important;width:100%!important;min-width:0!important;}\n html.homepagescript-active .bangumi-index-body .filter-wrapper {grid-row:1;}\n html.homepagescript-active .bangumi-index-body .filter-body {grid-row:2;}\n html.homepagescript-active .bangumi-index-wrapper .filter-list {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr))!important;gap:0 16px!important;align-items:start!important;}\n html.homepagescript-active .bangumi-index-wrapper .filter-block {display:grid!important;grid-template-columns:52px minmax(0,1fr)!important;align-items:start!important;}\n html.homepagescript-active .bangumi-index-wrapper .filter-item-wrapper {position:relative!important;float:none!important;width:100%!important;min-width:0!important;height:var(--anime-filter-height,auto)!important;transition:none!important;}\n html.homepagescript-active .bangumi-index-wrapper .btn-expand {right:0!important;}\n html.homepagescript-active .bangumi-index-wrapper .btn-expand::after {display:none!important;}\n html.homepagescript-active .bangumi-index-wrapper .btn-expand[data-anime-filter-toggle=hidden] {display:none!important;}\n html.homepagescript-active .bangumi-index-wrapper .sort-banner {height:auto!important;display:flex!important;flex-wrap:wrap!important;gap:16px 8px!important;margin-bottom:16px!important;}\n html.homepagescript-active .bangumi-index-wrapper .sort-item {float:none!important;margin-right:0!important;flex:0 0 80px!important;}\n html.homepagescript-active .bangumi-index-wrapper .bangumi-list {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(140px,100%),1fr))!important;gap:20px 12px!important;}\n html.homepagescript-active .bangumi-index-wrapper .bangumi-item {box-sizing:border-box!important;width:100%!important;height:auto!important;margin-right:0!important;min-width:0!important;}\n html.homepagescript-active .bangumi-index-wrapper .cover-wrapper {height:auto!important;aspect-ratio:3/4;}\n html.homepagescript-active .bangumi-index-wrapper .cover-wrapper img {object-fit:cover;}\n html.homepagescript-active .bangumi-index-wrapper .pagelistbox {display:flex!important;flex-wrap:wrap!important;gap:4px!important;height:auto!important;padding-right:0!important;margin:20px 0!important;}\n html.homepagescript-active .bangumi-index-wrapper .pagelistbox :is(.p,strong,.custom-right) {float:none!important;margin-right:0!important;}\n html.homepagescript-active .bangumi-index-crumb ul {display:flex!important;flex-wrap:wrap!important;gap:16px!important;}\n html.homepagescript-active .bangumi-index-crumb li {padding:0!important;float:none!important;}\n}\n\n@media(max-width:479px) {\n html.homepagescript-active .new-hot-wrap .carousel-wrap {grid-template-columns:repeat(2,minmax(0,1fr))!important;}\n}\n";
 
   // src/common/card-hover-layout.css
   var card_hover_layout_default = "@media(max-width:1099px) {\n html.homepagescript-active :is(.feenline-vcard-wrapper,.home-page-switch-wrapper .inner-content-body:has(> .hot-ranking-cell-wrapper),.time-line-body .timeline-common-content-list-container:not(.is-empty),.module .list-c:has(> .hover-c)) {display:grid!important;grid-template-columns:repeat(var(--pgc-card-columns,2),minmax(0,1fr))!important;gap:16px 12px!important;overflow:visible!important;}\n html.homepagescript-active :is(.hot-ranking-cell-wrapper,.time-line-body .timeline-weekday-item,.module .list-c > .hover-c) {position:relative!important;left:0!important;min-width:0!important;width:100%!important;max-width:none!important;margin-right:0!important;transition:none!important;}\n html.homepagescript-active :is(.hot-ranking-cell-wrapper.is-hover-active-play,.time-line-body .timeline-weekday-item.is-hover-active,.module .list-c > .hover-c.hoverShow) {width:var(--pgc-hover-width,100%)!important;left:var(--pgc-hover-offset,0px)!important;z-index:20!important;}\n /* Cover the full expanded caption as well as the preview so neighbours cannot show through. */\n html.homepagescript-active :is(.hot-ranking-cell-wrapper.is-hover-active-play,.module .list-c > .hover-c.hoverShow) {background:var(--bg1,#171819)!important;border-radius:8px 8px 0 0!important;}\n html.homepagescript-active :is(.hot-ranking-cell-wrapper .ranking-ratio-item-container,.time-line-body .img-cover-ratio-item-container,.module .list-c > .hover-c .hover-item,.module .list-c > .hover-c .season-cover-c) {height:var(--pgc-card-height,200px)!important;}\n html.homepagescript-active .module .list-c > .hover-c .hover-item {border-radius:8px;overflow:hidden;}\n html.homepagescript-active .module .list-c > .hover-c .season-cover {height:100%!important;aspect-ratio:auto!important;}\n html.homepagescript-active .hot-ranking-cell-wrapper .ranking-cell-desc {box-sizing:border-box!important;min-width:0!important;}\n html.homepagescript-active .hot-ranking-cell-wrapper .ranking-cell-index {flex-shrink:0!important;}\n html.homepagescript-active .hot-ranking-cell-wrapper .hotranking-content-item-desc {min-width:0!important;}\n}\n";
 
   // src/WebPage/Anime/style.js
-  var pageStyle4 = homeStyle() + content_default6 + card_hover_layout_default;
+  var pageStyle5 = homeStyle() + content_default7 + card_hover_layout_default;
 
   // src/common/card-hover-layout.js
   function mountCardHoverLayout({ rowSelector, cardSelector }) {
@@ -4450,9 +4695,9 @@ ${content2}
   }
 
   // src/WebPage/Anime/module.js
-  var early10 = () => createPageOpening();
-  var mount10 = () => {
-    const layout = mountHomeLayout(pageStyle4, () => pageId(location.href) === "Anime");
+  var early11 = () => createPageOpening();
+  var mount11 = () => {
+    const layout = mountHomeLayout(pageStyle5, () => pageId(location.href) === "Anime");
     if (!layout) return;
     const content2 = mountAnimeContent();
     const instance = { destroy() {
@@ -4464,22 +4709,22 @@ ${content2}
   };
 
   // src/WebPage/PGC/module.js
-  var module_exports11 = {};
-  __export(module_exports11, {
-    early: () => early11,
-    mount: () => mount11
+  var module_exports12 = {};
+  __export(module_exports12, {
+    early: () => early12,
+    mount: () => mount12
   });
 
   // src/WebPage/PGC/content.css
-  var content_default7 = "\n@media(max-width:1099px) {\n html.homepagescript-active .home-v3-app-container {min-width:0!important;width:100%!important;}\n html.homepagescript-active .inner-content-wrapper {box-sizing:border-box!important;width:100%!important;max-width:100%!important;min-width:0!important;margin-left:0!important;margin-right:0!important;padding-left:8px!important;padding-right:8px!important;}\n html.homepagescript-active .home-banner-wrapper {height:auto!important;min-height:0!important;padding-top:56px!important;}\n html.homepagescript-active .banner-item-ratio-scale-container {padding-top:0!important;height:auto!important;aspect-ratio:16/9;}\n html.homepagescript-active .banner-item-ratio-scale-inner {position:relative!important;inset:auto!important;width:100%!important;height:100%!important;}\n html.homepagescript-active .banner-hover-group {position:relative!important;inset:auto!important;width:100%!important;padding:8px!important;box-sizing:border-box!important;}\n html.homepagescript-active .banner-hover-group-title {width:100%!important;padding:0!important;}\n html.homepagescript-active .banner-hover-group-body {width:100%!important;gap:8px!important;overflow-x:auto!important;align-items:start!important;padding:8px 0!important;}\n html.homepagescript-active .banner-hover-group-item {flex:0 0 140px!important;width:140px!important;}\n html.homepagescript-active .home-index-wrapper .inner-content-body {display:grid!important;grid-template-columns:1fr!important;gap:8px!important;}\n html.homepagescript-active .inner-content-item-index {width:100%!important;margin:0!important;}\n html.homepagescript-active :is(.home-page-switch-wrapper .inner-content-body,.feenline-vcard-wrapper) {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr))!important;gap:16px 12px!important;}\n html.homepagescript-active :is(.home-page-switch-wrapper .inner-content-body,.feenline-vcard-wrapper) > * {box-sizing:border-box!important;min-width:0!important;width:100%!important;max-width:100%!important;margin:0!important;}\n html.homepagescript-active .section-title-v2-wrapper {align-items:flex-start!important;gap:8px!important;flex-wrap:wrap!important;}\n html.homepagescript-active .title-right {min-width:0!important;max-width:100%!important;overflow-x:auto!important;}\n html.homepagescript-active .next-page {position:static!important;transform:none!important;display:block!important;margin:8px auto!important;}\n html.homepagescript-active .content-wrap {display:flex!important;flex-direction:column!important;min-width:0!important;width:100%!important;height:auto!important;}\n html.homepagescript-active .info-wrap {position:relative!important;inset:auto!important;width:100%!important;height:auto!important;min-height:0!important;}\n html.homepagescript-active .info-content-wrap {box-sizing:border-box!important;width:100%!important;height:auto!important;padding:12px!important;}\n html.homepagescript-active .video-wrap {position:relative!important;inset:auto!important;width:100%!important;height:auto!important;aspect-ratio:16/9;}\n html.homepagescript-active .carousel-wrap {width:100%!important;overflow-x:auto!important;position:relative!important;inset:auto!important;}\n html.homepagescript-active .feed-line-rank-body-container {flex-direction:column!important;gap:12px!important;}\n html.homepagescript-active .feed-line-rank-body-inner {min-width:0!important;width:100%!important;max-width:100%!important;}\n /* 电影/电视剧等页面采用 inner-c + grid 的另一套 PGC 模板。 */\n html.homepagescript-active .inner-c {box-sizing:border-box!important;min-width:0!important;width:100%!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;padding-left:8px!important;padding-right:8px!important;}\n html.homepagescript-active .banner-wrapper {min-width:0!important;height:auto!important;padding-top:56px!important;}\n html.homepagescript-active .banner-wrapper .bg-container {position:relative!important;inset:auto!important;width:100%!important;height:240px!important;}\n html.homepagescript-active .banner-wrapper .inner-c {height:auto!important;}\n html.homepagescript-active .side-list-wrp {position:relative!important;inset:auto!important;width:100%!important;height:auto!important;}\n html.homepagescript-active .side-list {flex-direction:row!important;width:100%!important;overflow-x:auto!important;gap:8px!important;padding:8px 0!important;}\n html.homepagescript-active .side-item {flex:0 0 150px!important;width:150px!important;}\n html.homepagescript-active .index-module > .inner-c {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr))!important;gap:12px!important;}\n html.homepagescript-active .index-item {width:100%!important;height:auto!important;margin:0!important;}\n html.homepagescript-active .index-item .value-c {height:auto!important;}\n html.homepagescript-active .grid {grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr))!important;grid-template-rows:none!important;grid-auto-rows:auto!important;gap:16px 12px!important;}\n html.homepagescript-active .grid > * {box-sizing:border-box!important;grid-column:auto!important;grid-row:auto!important;min-width:0!important;width:100%!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;}\n html.homepagescript-active .hot-module > .left {grid-column:1/-1!important;aspect-ratio:16/9;height:auto!important;}\n html.homepagescript-active .hot-item .cover {width:100%!important;height:auto!important;aspect-ratio:3/4;}\n}\n    @media (max-width:1099px) {\n      html.homepagescript-active .index-module { margin-top:0!important; }\n      html.homepagescript-active .banner-wrapper .bg-container {\n        height:auto!important; overflow:hidden!important;\n      }\n      html.homepagescript-active .banner-wrapper .bg-container > span { display:grid!important; }\n      html.homepagescript-active .banner-wrapper .bg-item {\n        grid-area:1/1;\n        box-sizing:border-box!important; position:relative!important; inset:auto!important;\n        width:100%!important; min-width:0!important; max-width:100%!important; height:auto!important;\n        margin:0!important; transform:none!important; background-size:contain!important; background-position:center!important;\n      }\n      html.homepagescript-active .banner-wrapper .bg-item > a :is(img,picture) {\n        display:block; position:relative!important; inset:auto!important; margin:0!important; transform:none!important;\n        width:100%!important; max-width:100%!important; height:auto!important; object-fit:contain!important;\n      }\n      html.homepagescript-active .banner-wrapper .bg-item-badge {\n        position:absolute!important; top:auto!important; bottom:8px!important; left:8px!important;\n        width:clamp(20px,8vw,80px)!important; height:auto!important;\n      }\n      html.homepagescript-active .banner-wrapper .side-list-wrp {\n        box-sizing:border-box!important; min-width:0!important; margin:0!important; padding:0!important;\n      }\n      html.homepagescript-active .banner-wrapper .side-list {\n        display:grid!important; grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr))!important;\n        box-sizing:border-box!important; height:auto!important; min-height:0!important;\n        overflow:visible!important; margin:0!important;\n      }\n      html.homepagescript-active .banner-wrapper .side-item {\n        box-sizing:border-box!important; position:relative!important; width:100%!important; min-width:0!important;\n        max-width:100%!important; height:auto!important; margin:0!important;\n      }\n    }\n  \n@media(max-width:1099px) {\n html.homepagescript-active .module .list-c {overflow:visible!important;display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr))!important;gap:20px 12px!important;}\n html.homepagescript-active .module .list-c > .hover-c {left:0!important;right:auto!important;height:auto!important;box-sizing:border-box!important;width:100%!important;min-width:0!important;max-width:100%!important;margin:0!important;}\n html.homepagescript-active .module .list-c :is(.hover-item,.season-cover-c,.season-cover) {height:auto!important;width:100%!important;min-width:0!important;}\n html.homepagescript-active .module .list-c .season-cover {height:auto!important;aspect-ratio:3/4;}\n html.homepagescript-active .module .list-c .season-cover :is(picture,img) {width:100%!important;height:100%!important;object-fit:cover;}\n html.homepagescript-active .module .list-c .title {max-width:100%!important;}\n html.homepagescript-active .module-column {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr))!important;gap:12px!important;}\n html.homepagescript-active .module-column .column-item {width:100%!important;min-width:0!important;margin:0!important;}\n}\n";
+  var content_default8 = "\n@media(max-width:1099px) {\n html.homepagescript-active .home-v3-app-container {min-width:0!important;width:100%!important;}\n html.homepagescript-active .inner-content-wrapper {box-sizing:border-box!important;width:100%!important;max-width:100%!important;min-width:0!important;margin-left:0!important;margin-right:0!important;padding-left:8px!important;padding-right:8px!important;}\n html.homepagescript-active .home-banner-wrapper {height:auto!important;min-height:0!important;padding-top:56px!important;}\n html.homepagescript-active .banner-item-ratio-scale-container {padding-top:0!important;height:auto!important;aspect-ratio:16/9;}\n html.homepagescript-active .banner-item-ratio-scale-inner {position:relative!important;inset:auto!important;width:100%!important;height:100%!important;}\n html.homepagescript-active .banner-hover-group {position:relative!important;inset:auto!important;width:100%!important;padding:8px!important;box-sizing:border-box!important;}\n html.homepagescript-active .banner-hover-group-title {width:100%!important;padding:0!important;}\n html.homepagescript-active .banner-hover-group-body {width:100%!important;gap:8px!important;overflow-x:auto!important;align-items:start!important;padding:8px 0!important;}\n html.homepagescript-active .banner-hover-group-item {flex:0 0 140px!important;width:140px!important;}\n html.homepagescript-active .home-index-wrapper .inner-content-body {display:grid!important;grid-template-columns:1fr!important;gap:8px!important;}\n html.homepagescript-active .inner-content-item-index {width:100%!important;margin:0!important;}\n html.homepagescript-active :is(.home-page-switch-wrapper .inner-content-body,.feenline-vcard-wrapper) {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr))!important;gap:16px 12px!important;}\n html.homepagescript-active :is(.home-page-switch-wrapper .inner-content-body,.feenline-vcard-wrapper) > * {box-sizing:border-box!important;min-width:0!important;width:100%!important;max-width:100%!important;margin:0!important;}\n html.homepagescript-active .section-title-v2-wrapper {align-items:flex-start!important;gap:8px!important;flex-wrap:wrap!important;}\n html.homepagescript-active .title-right {min-width:0!important;max-width:100%!important;overflow-x:auto!important;}\n html.homepagescript-active .next-page {position:static!important;transform:none!important;display:block!important;margin:8px auto!important;}\n html.homepagescript-active .content-wrap {display:flex!important;flex-direction:column!important;min-width:0!important;width:100%!important;height:auto!important;}\n html.homepagescript-active .info-wrap {position:relative!important;inset:auto!important;width:100%!important;height:auto!important;min-height:0!important;}\n html.homepagescript-active .info-content-wrap {box-sizing:border-box!important;width:100%!important;height:auto!important;padding:12px!important;}\n html.homepagescript-active .video-wrap {position:relative!important;inset:auto!important;width:100%!important;height:auto!important;aspect-ratio:16/9;}\n html.homepagescript-active .carousel-wrap {width:100%!important;overflow-x:auto!important;position:relative!important;inset:auto!important;}\n html.homepagescript-active .feed-line-rank-body-container {flex-direction:column!important;gap:12px!important;}\n html.homepagescript-active .feed-line-rank-body-inner {min-width:0!important;width:100%!important;max-width:100%!important;}\n /* 电影/电视剧等页面采用 inner-c + grid 的另一套 PGC 模板。 */\n html.homepagescript-active .inner-c {box-sizing:border-box!important;min-width:0!important;width:100%!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;padding-left:8px!important;padding-right:8px!important;}\n html.homepagescript-active .banner-wrapper {min-width:0!important;height:auto!important;padding-top:56px!important;}\n html.homepagescript-active .banner-wrapper .bg-container {position:relative!important;inset:auto!important;width:100%!important;height:240px!important;}\n html.homepagescript-active .banner-wrapper .inner-c {height:auto!important;}\n html.homepagescript-active .side-list-wrp {position:relative!important;inset:auto!important;width:100%!important;height:auto!important;}\n html.homepagescript-active .side-list {flex-direction:row!important;width:100%!important;overflow-x:auto!important;gap:8px!important;padding:8px 0!important;}\n html.homepagescript-active .side-item {flex:0 0 150px!important;width:150px!important;}\n html.homepagescript-active .index-module > .inner-c {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr))!important;gap:12px!important;}\n html.homepagescript-active .index-item {width:100%!important;height:auto!important;margin:0!important;}\n html.homepagescript-active .index-item .value-c {height:auto!important;}\n html.homepagescript-active .grid {grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr))!important;grid-template-rows:none!important;grid-auto-rows:auto!important;gap:16px 12px!important;}\n html.homepagescript-active .grid > * {box-sizing:border-box!important;grid-column:auto!important;grid-row:auto!important;min-width:0!important;width:100%!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;}\n html.homepagescript-active .hot-module > .left {grid-column:1/-1!important;aspect-ratio:16/9;height:auto!important;}\n html.homepagescript-active .hot-item .cover {width:100%!important;height:auto!important;aspect-ratio:3/4;}\n}\n    @media (max-width:1099px) {\n      html.homepagescript-active .index-module { margin-top:0!important; }\n      html.homepagescript-active .banner-wrapper .bg-container {\n        height:auto!important; overflow:hidden!important;\n      }\n      html.homepagescript-active .banner-wrapper .bg-container > span { display:grid!important; }\n      html.homepagescript-active .banner-wrapper .bg-item {\n        grid-area:1/1;\n        box-sizing:border-box!important; position:relative!important; inset:auto!important;\n        width:100%!important; min-width:0!important; max-width:100%!important; height:auto!important;\n        margin:0!important; transform:none!important; background-size:contain!important; background-position:center!important;\n      }\n      html.homepagescript-active .banner-wrapper .bg-item > a :is(img,picture) {\n        display:block; position:relative!important; inset:auto!important; margin:0!important; transform:none!important;\n        width:100%!important; max-width:100%!important; height:auto!important; object-fit:contain!important;\n      }\n      html.homepagescript-active .banner-wrapper .bg-item-badge {\n        position:absolute!important; top:auto!important; bottom:8px!important; left:8px!important;\n        width:clamp(20px,8vw,80px)!important; height:auto!important;\n      }\n      html.homepagescript-active .banner-wrapper .side-list-wrp {\n        box-sizing:border-box!important; min-width:0!important; margin:0!important; padding:0!important;\n      }\n      html.homepagescript-active .banner-wrapper .side-list {\n        display:grid!important; grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr))!important;\n        box-sizing:border-box!important; height:auto!important; min-height:0!important;\n        overflow:visible!important; margin:0!important;\n      }\n      html.homepagescript-active .banner-wrapper .side-item {\n        box-sizing:border-box!important; position:relative!important; width:100%!important; min-width:0!important;\n        max-width:100%!important; height:auto!important; margin:0!important;\n      }\n    }\n  \n@media(max-width:1099px) {\n html.homepagescript-active .module .list-c {overflow:visible!important;display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr))!important;gap:20px 12px!important;}\n html.homepagescript-active .module .list-c > .hover-c {left:0!important;right:auto!important;height:auto!important;box-sizing:border-box!important;width:100%!important;min-width:0!important;max-width:100%!important;margin:0!important;}\n html.homepagescript-active .module .list-c :is(.hover-item,.season-cover-c,.season-cover) {height:auto!important;width:100%!important;min-width:0!important;}\n html.homepagescript-active .module .list-c .season-cover {height:auto!important;aspect-ratio:3/4;}\n html.homepagescript-active .module .list-c .season-cover :is(picture,img) {width:100%!important;height:100%!important;object-fit:cover;}\n html.homepagescript-active .module .list-c .title {max-width:100%!important;}\n html.homepagescript-active .module-column {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr))!important;gap:12px!important;}\n html.homepagescript-active .module-column .column-item {width:100%!important;min-width:0!important;margin:0!important;}\n}\n";
 
   // src/WebPage/PGC/style.js
-  var pageStyle5 = homeStyle() + content_default7 + card_hover_layout_default;
+  var pageStyle6 = homeStyle() + content_default8 + card_hover_layout_default;
 
   // src/WebPage/PGC/module.js
-  var early11 = () => createPageOpening();
-  var mount11 = () => {
-    const layout = mountHomeLayout(pageStyle5, () => pageId(location.href) === "PGC");
+  var early12 = () => createPageOpening();
+  var mount12 = () => {
+    const layout = mountHomeLayout(pageStyle6, () => pageId(location.href) === "PGC");
     if (!layout) return;
     const cards2 = mountCardHoverLayout({ rowSelector: ".module .list-c:has(> .hover-c)", cardSelector: ":scope > .hover-c" });
     const instance = { destroy() {
@@ -4491,56 +4736,56 @@ ${content2}
   };
 
   // src/WebPage/Charity/module.js
-  var module_exports12 = {};
-  __export(module_exports12, {
-    early: () => early12,
-    mount: () => mount12
-  });
-
-  // src/WebPage/Charity/content.css
-  var content_default8 = "\n@media(max-width:1099px) {\nhtml.homepagescript-active :is(.bili-footer,.b-footer-wrap,.footer) {box-sizing:border-box!important;min-width:0!important;width:100%!important;padding:12px!important;}\nhtml.homepagescript-active :is(.link-box,.other-link,.link-item__right) {flex-wrap:wrap!important;gap:12px!important;width:100%!important;}\nhtml.homepagescript-active :is(.link-item,.text-con,.text-con__line) {min-width:0!important;width:100%!important;white-space:normal!important;overflow-wrap:anywhere!important;}\n}@media(max-width:1099px) {\nhtml.homepagescript-active .page-width {box-sizing:border-box!important;width:100%!important;min-width:0!important;padding:8px!important;}\nhtml.homepagescript-active .header-content {flex-wrap:wrap!important;gap:8px!important;height:auto!important;}\nhtml.homepagescript-active .charity-header {height:auto!important;}\nhtml.homepagescript-active .charity-home {margin-top:20px!important;}\nhtml.homepagescript-active .charity-home > .s-be {flex-direction:column!important;gap:12px!important;}\nhtml.homepagescript-active :is(.number-show,.carousel-show,.charity-home > .s-be > .l-con,.charity-home > .s-be > .r-con,.gather-card) {width:100%!important;min-width:0!important;}\nhtml.homepagescript-active .charity-home > .s-be > * {box-sizing:border-box!important;margin-left:0!important;margin-right:0!important;max-width:100%!important;}\nhtml.homepagescript-active .el-carousel__container {height:auto!important;aspect-ratio:740/300;}\nhtml.homepagescript-active .carousel-item img {width:100%!important;height:100%!important;object-fit:cover!important;}\nhtml.homepagescript-active .card-box {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr))!important;gap:12px!important;}\nhtml.homepagescript-active :is(.card-c,.card-c .pic,.card-c .content,.funding-progress,.bulletin-board,.video-group,.card-v) {box-sizing:border-box!important;min-width:0!important;width:100%!important;}\nhtml.homepagescript-active .card-c img {max-width:100%!important;}\nhtml.homepagescript-active .charity-home .s-be {flex-wrap:wrap!important;}\n}";
-
-  // src/WebPage/Charity/style.js
-  var pageStyle6 = homeStyle() + content_default8;
-
-  // src/WebPage/Charity/module.js
-  var early12 = () => createPageOpening();
-  var mount12 = () => mountHomeLayout(pageStyle6, () => pageId(location.href) === "Charity");
-
-  // src/WebPage/UHD/module.js
   var module_exports13 = {};
   __export(module_exports13, {
     early: () => early13,
     mount: () => mount13
   });
 
-  // src/WebPage/UHD/content.css
-  var content_default9 = '@media(max-width:1099px) {\nhtml.homepagescript-active :is(.rendererRoot,.layerWrapperRoot,[class*="_layoutContainerRoot_"],[class*="_layoutContainer_"],.video-list) {box-sizing:border-box!important;min-width:0!important;max-width:100%!important;}\nhtml.homepagescript-active .items-container {box-sizing:border-box!important;display:grid!important;width:100%!important;padding:8px!important;grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important;gap:16px 12px!important;}\nhtml.homepagescript-active .VideoItem {width:100%!important;min-width:0!important;margin:0!important;}\nhtml.homepagescript-active .VideoItem-Top {width:100%!important;height:auto!important;aspect-ratio:16/9;}\nhtml.homepagescript-active .VideoItem-Bottom {height:auto!important;min-height:40px!important;}\n}';
+  // src/WebPage/Charity/content.css
+  var content_default9 = "\n@media(max-width:1099px) {\nhtml.homepagescript-active :is(.bili-footer,.b-footer-wrap,.footer) {box-sizing:border-box!important;min-width:0!important;width:100%!important;padding:12px!important;}\nhtml.homepagescript-active :is(.link-box,.other-link,.link-item__right) {flex-wrap:wrap!important;gap:12px!important;width:100%!important;}\nhtml.homepagescript-active :is(.link-item,.text-con,.text-con__line) {min-width:0!important;width:100%!important;white-space:normal!important;overflow-wrap:anywhere!important;}\n}@media(max-width:1099px) {\nhtml.homepagescript-active .page-width {box-sizing:border-box!important;width:100%!important;min-width:0!important;padding:8px!important;}\nhtml.homepagescript-active .header-content {flex-wrap:wrap!important;gap:8px!important;height:auto!important;}\nhtml.homepagescript-active .charity-header {height:auto!important;}\nhtml.homepagescript-active .charity-home {margin-top:20px!important;}\nhtml.homepagescript-active .charity-home > .s-be {flex-direction:column!important;gap:12px!important;}\nhtml.homepagescript-active :is(.number-show,.carousel-show,.charity-home > .s-be > .l-con,.charity-home > .s-be > .r-con,.gather-card) {width:100%!important;min-width:0!important;}\nhtml.homepagescript-active .charity-home > .s-be > * {box-sizing:border-box!important;margin-left:0!important;margin-right:0!important;max-width:100%!important;}\nhtml.homepagescript-active .el-carousel__container {height:auto!important;aspect-ratio:740/300;}\nhtml.homepagescript-active .carousel-item img {width:100%!important;height:100%!important;object-fit:cover!important;}\nhtml.homepagescript-active .card-box {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr))!important;gap:12px!important;}\nhtml.homepagescript-active :is(.card-c,.card-c .pic,.card-c .content,.funding-progress,.bulletin-board,.video-group,.card-v) {box-sizing:border-box!important;min-width:0!important;width:100%!important;}\nhtml.homepagescript-active .card-c img {max-width:100%!important;}\nhtml.homepagescript-active .charity-home .s-be {flex-wrap:wrap!important;}\n}";
 
-  // src/WebPage/UHD/style.js
+  // src/WebPage/Charity/style.js
   var pageStyle7 = homeStyle() + content_default9;
 
-  // src/WebPage/UHD/module.js
+  // src/WebPage/Charity/module.js
   var early13 = () => createPageOpening();
-  var mount13 = () => mountHomeLayout(pageStyle7, () => pageId(location.href) === "UHD");
+  var mount13 = () => mountHomeLayout(pageStyle7, () => pageId(location.href) === "Charity");
 
-  // src/WebPage/Podcast/module.js
+  // src/WebPage/UHD/module.js
   var module_exports14 = {};
   __export(module_exports14, {
     early: () => early14,
     mount: () => mount14
   });
 
-  // src/WebPage/Podcast/content.css
+  // src/WebPage/UHD/content.css
   var content_default10 = '@media(max-width:1099px) {\nhtml.homepagescript-active :is(.rendererRoot,.layerWrapperRoot,[class*="_layoutContainerRoot_"],[class*="_layoutContainer_"],.video-list) {box-sizing:border-box!important;min-width:0!important;max-width:100%!important;}\nhtml.homepagescript-active .items-container {box-sizing:border-box!important;display:grid!important;width:100%!important;padding:8px!important;grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important;gap:16px 12px!important;}\nhtml.homepagescript-active .VideoItem {width:100%!important;min-width:0!important;margin:0!important;}\nhtml.homepagescript-active .VideoItem-Top {width:100%!important;height:auto!important;aspect-ratio:16/9;}\nhtml.homepagescript-active .VideoItem-Bottom {height:auto!important;min-height:40px!important;}\n}';
 
-  // src/WebPage/Podcast/style.js
+  // src/WebPage/UHD/style.js
   var pageStyle8 = homeStyle() + content_default10;
 
-  // src/WebPage/Podcast/module.js
+  // src/WebPage/UHD/module.js
   var early14 = () => createPageOpening();
-  var mount14 = () => mountHomeLayout(pageStyle8, () => pageId(location.href) === "Podcast");
+  var mount14 = () => mountHomeLayout(pageStyle8, () => pageId(location.href) === "UHD");
+
+  // src/WebPage/Podcast/module.js
+  var module_exports15 = {};
+  __export(module_exports15, {
+    early: () => early15,
+    mount: () => mount15
+  });
+
+  // src/WebPage/Podcast/content.css
+  var content_default11 = '@media(max-width:1099px) {\nhtml.homepagescript-active :is(.rendererRoot,.layerWrapperRoot,[class*="_layoutContainerRoot_"],[class*="_layoutContainer_"],.video-list) {box-sizing:border-box!important;min-width:0!important;max-width:100%!important;}\nhtml.homepagescript-active .items-container {box-sizing:border-box!important;display:grid!important;width:100%!important;padding:8px!important;grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important;gap:16px 12px!important;}\nhtml.homepagescript-active .VideoItem {width:100%!important;min-width:0!important;margin:0!important;}\nhtml.homepagescript-active .VideoItem-Top {width:100%!important;height:auto!important;aspect-ratio:16/9;}\nhtml.homepagescript-active .VideoItem-Bottom {height:auto!important;min-height:40px!important;}\n}';
+
+  // src/WebPage/Podcast/style.js
+  var pageStyle9 = homeStyle() + content_default11;
+
+  // src/WebPage/Podcast/module.js
+  var early15 = () => createPageOpening();
+  var mount15 = () => mountHomeLayout(pageStyle9, () => pageId(location.href) === "Podcast");
 
   // src/entry.js
-  startDispatcher({ HomePage: module_exports, LiveHome: module_exports2, LiveArea: module_exports3, Feed: module_exports4, History: module_exports5, Follow: module_exports6, Space: module_exports7, Search: module_exports8, Popular: module_exports9, Anime: module_exports10, PGC: module_exports11, Charity: module_exports12, UHD: module_exports13, Podcast: module_exports14 });
+  startDispatcher({ HomePage: module_exports, LiveHome: module_exports2, LiveArea: module_exports3, Feed: module_exports4, History: module_exports5, Watchlater: module_exports6, Follow: module_exports7, Space: module_exports8, Search: module_exports9, Popular: module_exports10, Anime: module_exports11, PGC: module_exports12, Charity: module_exports13, UHD: module_exports14, Podcast: module_exports15 });
 })();
