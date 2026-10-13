@@ -136,3 +136,4 @@
 - [Make-Bilibili-Great-Than-Ever-Before](https://github.com/SukkaW/Make-Bilibili-Great-Than-Ever-Before)
 - [hgcat-360/PotPlayer-Extension_yt-dlp](https://github.com/hgcat-360/PotPlayer-Extension_yt-dlp)
 - [m13253/danmaku2ass](https://github.com/m13253/danmaku2ass)
+- [weekoo2025/Ghproxy](https://github.com/weekoo2025/Ghproxy)
