@@ -48,6 +48,7 @@
         "blockBottom": false,
         // 是否屏蔽彩色弹幕。默认：false。
         "blockColor": false,
+
         // 合并 stayTime 时间内内容完全相同的弹幕。默认：false。重复弹幕会以 “弹幕内容(n)” 显示。
         "mergeSameDanmaku": false,
         // 屏蔽同一用户重复发送的相同内容。默认：false。
@@ -80,13 +81,13 @@
     "videoNums": {
         // “我的动态”页数，默认 50。从 “我的动态” 页面(每次查询20个)过滤出视频，视频数量取决于实际情况。
         "webDynamicVideoNums": 50,
-        // "首页推荐"视频数量，默认 30。从 “推荐” 页面获取的视频数量，最终数量可能会大于设置的值。提醒:点击播放列表名字可刷新，无需设定太多数量。
+        // "首页推荐"视频数量，默认 30。从 “推荐” 页面获取的视频数量，最终数量可能会大于设置的值。提醒：点击播放列表名字可刷新，无需设定太多数量。
         "recommendVideoNums": 30,
-        // "直播首页" 推荐的直播间页数，默认 1。（每页推荐返回15个房间）。提醒:点击播放列表名字可刷新，无需设定太多数量。
+        // "直播首页" 推荐的直播间页数，默认 1。（每页推荐返回15个房间）。提醒：点击播放列表名字可刷新，无需设定太多数量。
         "liveRecommendPage": 1,
         // "历史记录"视频数量，默认 30。从 “历史记录” 页面获取的视频数量，最终数量可能会大于设置的值。
         "historyVideoNums": 30,
-        // “综合热门” 页数，默认 1。（每页查询50个）。
+        // "综合热门" 页数，默认 1。（每页查询50个）。
         "popularAllPages": 1,
         // 个人“空间动态” 视频数量，默认 30。从 个人“空间动态” 页面获取的视频数量，最终数量可能会大于设置的值。
         "spaceDynamicVideoNums": 30,
@@ -96,7 +97,7 @@
 
     // 点播
     "vod": {
-        // 播放单个视频/直播时是否显示推荐的视频/直播。默认：false。
+        // 播放单个视频时是否显示推荐的视频。默认：false。
         "showRecommendedVideos": false,
         // 当视频属于用户合集或分P时，是否显示所有合集内容。默认：true。
         "showUgcSeason": true,
@@ -113,7 +114,7 @@
         // http_hls 可能会出现"no desc"标题。注：只有http_hls(fmp4) 可能会提供av1编码。
         // 使用 http_stream (flv)。默认：false。
         "useHttpStream": false,
-        // 解析真实 M3U8 地址。
+        // 解析真实 M3U8 地址(用于 http_hls)。
         "parseM3u8RealUrl": {
             // 默认：false。当出现 M3U8 redirect 时，potplayer 会将该播放流名称覆盖为 HLS；若开启，则会尝试解析真实的 M3U8 地址，但会造成额外的请求延迟。当出现 "解析真实M3U8地址" 时间过长时，可以尝试关闭此项。
             "enable": true,
@@ -127,7 +128,7 @@
             "useWebPage": false,
             // 使用 Bilibili_Danmuji 服务，默认：false。需自己部署 Bilibili_Danmuji 服务。useBilibiliDanmuji 优先级高于 useWebPage。
             "useBilibiliDanmuji": false,
-            // BBilibili_Danmuji 地址。
+            // Bilibili_Danmuji 地址。
             "bilibiliDanmujiServer": ""
         },
         // 直播缩略图使用关键帧截图(如果存在)。默认：false。
@@ -140,7 +141,7 @@
     "disableAVC": false,
 
     // 以下配置项帮助默认选择最优画质。
-    // 默认编码选择优先级。默认: ["hevc", "av1", "avc"]。考虑到硬解支持的广泛性，默认优先 hevc。如果你的设备支持 av1 硬解，可将 av1 提升优先级。
+    // 默认编码选择优先级。默认:["hevc", "avc", "av1"]。考虑到硬解支持的广泛性，默认优先 hevc。如果你的设备支持 av1 硬解，可将 av1 提升优先级（目前 av1 硬解 + Bluesky Frame Rate Converter 问题较多，如有需要请查看wiki）。
     "defaultCodec": ["hevc", "avc", "av1"],
     // HDR优先。默认：false。跟随官方设定，“8K超高清” 优先级高于 “HDR/杜比视界”。设为 true：“杜比视界/HDR真彩色” 优先级高于“8K超高清”。
     "preferHDR": false,
