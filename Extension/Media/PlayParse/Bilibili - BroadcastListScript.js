@@ -1,4 +1,5 @@
-// bilibili-broadcast-list-script version: 3
+// bilibili-broadcast-list-script version: 5
+// 本文件可单独从 https://github.com/frostnotfall/BilibiliBroadcastListScript/releases 手动替换更新。
 // MIT License
 // 
 // Copyright (c) 2026 BilibiliBroadcastListScript contributors
@@ -140,6 +141,7 @@
         "/v/popular/history",
         "/v/popular/rank/all",
         "/v/popular/rank/anime",
+        "/v/popular/rank/bangumi",
         "/v/popular/rank/guochuang",
         "/v/popular/rank/documentary",
         "/v/popular/rank/movie",
@@ -206,6 +208,25 @@
         "/blackboard/era/jpyPhRRrMn3fmZ2B.html",
         "/blackboard/era/V9NZUSEYujbTPmT0.html"
       ]
+    },
+    {
+      id: "Music",
+      host: "music.bilibili.com",
+      paths: [
+        "/pc/music-center",
+        "/pc/music-detail",
+        "/pc/rank",
+        "/h5/rank"
+      ]
+    },
+    {
+      id: "Article",
+      host: "www.bilibili.com",
+      paths: [
+        "/read/home",
+        "/opus"
+      ],
+      pathPattern: "^/(?:opus/\\d+|read/cv\\d+)/?$"
     }
   ];
 
@@ -232,21 +253,350 @@
     return null;
   }
   var isPageUrl = (value) => Boolean(pageId(value));
-  function isMediaUrl(value) {
+  function isPlayitemUrl(value) {
     const url = value instanceof URL ? value : urlOf(value);
     if (!url || !["http:", "https:"].includes(url.protocol)) return false;
     const path = url.pathname;
     if (url.hostname === "live.bilibili.com") return /^\/(?:blanc\/)?\d+\/?$/.test(path);
     if (url.hostname !== "www.bilibili.com") return false;
-    return /^\/video\/(?:BV[a-z\d]+|av\d+)\/?$/i.test(path) || /^\/bangumi\/(?:media\/md|play\/(?:ep|ss))\d+\/?$/i.test(path) || /^\/audio\/(?:am|au)\d+\/?$/i.test(path) || /^\/medialist\/detail\/ml\d+\/?$/i.test(path) || /^\/list\/watchlater\/?$/.test(path) || /^\/list\/\d+\/?$/.test(path);
+    return /^\/video\/(?:BV[a-z\d]+|av\d+)\/?$/i.test(path) || /^\/bangumi\/(?:media\/md|play\/(?:ep|ss))\d+\/?$/i.test(path) || /^\/audio\/au\d+\/?$/i.test(path);
+  }
+  function isMediaUrl(value) {
+    const url = value instanceof URL ? value : urlOf(value);
+    if (!url || !["http:", "https:"].includes(url.protocol)) return false;
+    if (isPlayitemUrl(url)) return true;
+    if (url.hostname !== "www.bilibili.com") return false;
+    const path = url.pathname;
+    return /^\/audio\/am\d+\/?$/i.test(path) || /^\/medialist\/detail\/ml\d+\/?$/i.test(path) || /^\/list\/watchlater\/?$/.test(path) || /^\/list\/\d+\/?$/.test(path);
   }
   var isShortUrl = (value) => urlOf(value)?.hostname === "b23.tv";
+  function isPlaylistUrl(value) {
+    const url = value instanceof URL ? value : urlOf(value);
+    if (!url || !["http:", "https:"].includes(url.protocol)) return false;
+    const path = url.pathname;
+    if (["t.bilibili.com", "search.bilibili.com", "live.bilibili.com"].includes(url.hostname)) return true;
+    if (url.hostname === "space.bilibili.com") return /^\/\d+(?:\/|$)/.test(path);
+    if (url.hostname === "link.bilibili.com") return /\/user-center\/follow(?:\/|$)/.test(path + url.hash);
+    if (url.hostname !== "www.bilibili.com") return false;
+    return path === "/" || /^\/v\/popular\/(?:all|weekly|history|rank)(?:\/|$)/.test(path) || /^\/list\//.test(path) || /^\/(?:watchlater|history)(?:\/|$)/.test(path) || /^\/medialist\/detail\/ml\d+\/?$/i.test(path) || /^\/audio\/am\d+\/?$/i.test(path) || /^\/bangumi\/(?:media\/md|play\/(?:ep|ss))\d+\/?$/i.test(path) || /^\/video\/(?:BV[a-z\d]+|av\d+)\/?$/i.test(path);
+  }
+  var isPlayerUrl = (value) => isPlayitemUrl(value) || isPlaylistUrl(value);
+  function playerCommandUri(value, command) {
+    const url = urlOf(value);
+    return url && isPlayerUrl(url) && ["new", "insert", "add"].includes(command) ? "potplayer://" + url.href + (command === "new" ? " /new" : " /current /" + command) : "";
+  }
   function classifyUrl(value) {
     return isShortUrl(value) ? "short" : isMediaUrl(value) ? "media" : isPageUrl(value) ? "page" : "native";
   }
 
+  // src/common/media-menu.css
+  var media_menu_default = ':host {\n  all: initial; position: fixed; z-index: 2147483647;\n  --menu-bg: #fff; --menu-text: #18191c; --menu-muted: #74787d;\n  --menu-border: #e3e5e7; --menu-hover: #f1f3f5; --menu-shadow: #0002;\n  color-scheme: light;\n}\n:host([data-theme="dark"]) {\n  --menu-bg: #242628; --menu-text: #f1f2f3; --menu-muted: #a1a6ac;\n  --menu-border: #45484c; --menu-hover: #363a3e; --menu-shadow: #0007;\n  color-scheme: dark;\n}\n[role="menu"] {\n  box-sizing: border-box; display: flex; flex-direction: column;\n  width: max-content; max-width: calc(100vw - 12px);\n  max-height: calc(100vh - 12px); overflow: auto; padding: 4px;\n  border: 1px solid var(--menu-border); border-radius: 7px;\n  background: var(--menu-bg); color: var(--menu-text);\n  box-shadow: 0 4px 16px var(--menu-shadow); font: 12px/1.5 system-ui, sans-serif;\n}\nbutton {\n  all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 8px;\n  min-height: 27px; padding: 4px 7px; border-radius: 4px; cursor: default;\n}\nbutton:hover, button:focus-visible { background: var(--menu-hover); }\nbutton:focus-visible { outline: 1px solid #00aeec; outline-offset: -1px; }\n.icon { display: flex; flex: 0 0 16px; width: 16px; height: 16px; }\nsvg, img { display: block; width: 16px; height: 16px; }\n.label { min-width: 0; overflow-wrap: anywhere; }\n.hint { color: var(--menu-muted); font-size: 11px; }\n[role="separator"] { height: 1px; flex-shrink: 0; margin: 4px 5px; background: var(--menu-border); }\n.copy-status { padding: 0 7px; color: var(--menu-muted); font-size: 11px; }\n.copy-status:empty { display: none; }\ndialog {\n  box-sizing: border-box; width: max-content; max-width: calc(100vw - 24px);\n  max-height: calc(100vh - 24px); overflow: auto; padding: 10px 16px;\n  border: 2px solid var(--menu-border); border-radius: 8px;\n  background: var(--menu-bg); color: var(--menu-text);\n  box-shadow: 0 4px 24px var(--menu-shadow); font: 14px/1.6 system-ui, sans-serif;\n}\ndialog::backdrop { background: #0006; }\ndialog p { margin: 0 0 10px; overflow-wrap: anywhere; }\n.dialog-actions { display: flex; justify-content: center; gap: 30px; }\n.dialog-actions button {\n  justify-content: center; width: 90px; min-width: 0; min-height: 28px;\n  border: 2px solid var(--menu-border); cursor: pointer;\n}\n@media (pointer: coarse) {\n  .dialog-actions button { min-height: 44px; }\n}\n';
+
+  // src/common/assets/potplayer/potplayer-app-16.png
+  var potplayer_app_16_default = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAGxSURBVDhPjZO7L0RREMZXoxCN/a4gUeiERKJSqxSi4e/RKYWIiIpCJRqliLBIPMcj+7Ae13sJGW+7yy6LYXb3rnNvCF8yOTe5M785c2bGxwSfKSbUMqGbCVtMSDHhlQkHTBhkQpPLOR/gnMVM6GVC5jFkyVPUkvROzp6jlsTDljDhgwmjTChzAfLBUw9BFIJ+M/VhQogJ5SagzwxORiy53UT29AIMyIQDqNNrmw6XK365Ph6QvZkKuVlHtgQvRBMwoVUBPVqz+fMgUCaq5/i+2Evtcrrgl4eQJantbx+9HRMmFRD1ZtibzgEcXcfGZXeuXi5X/ZLc+vZjQloBae/1vADVWyYpsUinnC3XFDp0tQZRwMt/AKpU4lDO15slEXYD7L9KeMs8yUmkS+xApdxuoPAWOmQK6I97HtE2AFr/zmxDrn6jrfoWTAgooJEJ7yYgtuCX5P2G2IttP3ZA7S7Xxg5nkIbNQboPWtmM6uQNVNO2M2GeCUUOoIQJS/8Z5XzwEROqvctUyoQRXRhdHDOzfify4607w4Qq1zKZ0pVlwhATLrRNTFm7YsIYE1pczl/6BGPfkAuxnOXwAAAAAElFTkSuQmCC";
+
+  // src/common/assets/potplayer/playlist-dpl-16.png
+  var playlist_dpl_16_default = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAEHSURBVDhPlZIxL0NhFIZr9CP4CUfSxGCwiNitGkTjN5isFsxmjTdMJCxaI0lnFrU0MYgY25hIex85tJ97P3pz75N823mf8+bkq5iom7g0sWViqlIWE28mGL2miZl4JhcPzgmWL4Kkb2K7cBsPrV3DMIGTDsyflWzjw5stAs99WG+WaBMLHG9z/Jhp0zIxG2e/+U8wptuDWtQmzucKnEECRw9BkphYLCVwrrpB4G+1sKD3ATt3ITg0sf/noJMEty+wdB7CTyYWMsExseD9E3bbma2HJqbjXMAHN0aC9ius/P7IyVvT+HD1FOo3P1/axMDEQe7WNCbuUxfuFNqaxgMmGib2Cm9N8QXQeLETIuHdxQAAAABJRU5ErkJggg==";
+
+  // src/common/assets/bilibili/bilibili.ico
+  var bilibili_default = "data:image/x-icon;base64,AAABAAEAICAAAAEAIACoEAAAFgAAACgAAAAgAAAAQAAAAAEAIAAAAAAAABAAABMLAAATCwAAAAAAAAAAAAD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A1qEAANahAADWoQAG1qEAb9ahAMvWoQD01qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD01qEAy9ahAG/WoQAG1qEAANahAADWoQAA1qEAG9ahAM/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahANDWoQAb1qEAANahAAfWoQDQ1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahANHWoQAH1qEAbtahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAG7WoQDH1qEA/9ahAP/WoQD/1qEAtdahABjWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahABvWoQC11qEA/9ahAP/WoQD/1qEAx9ahAPnWoQD/1qEA/9ahAP/WoQAZ1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahABjWoQD/1qEA/9ahAP/WoQDz1qEA/9ahAP/WoQD/1qEA/9ahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEAANahAADWoQAA1qEAANahAErWoQDn1qEA5NahAErWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAErWoQDn1qEA5NahAErWoQAA1qEAANahAADWoQAA1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQAA1qEAANahAADWoQAA1qEA5tahAP/WoQD/1qEA59ahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEA5tahAP/WoQD/1qEA59ahAADWoQAA1qEAANahAADWoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAADWoQAA1qEAANahAADWoQD/1qEA/9ahAP/WoQD/1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQD/1qEA/9ahAP/WoQD/1qEAANahAADWoQAA1qEAANahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEAANahAADWoQAA1qEAANahAP/WoQD/1qEA/9ahAP/WoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAP/WoQD/1qEA/9ahAP/WoQAA1qEAANahAADWoQAA1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQAA1qEAANahAADWoQAA1qEA5tahAP/WoQD/1qEA5tahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEA5tahAP/WoQD/1qEA5tahAADWoQAA1qEAANahAADWoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAADWoQAA1qEAANahAADWoQBJ1qEA5tahAObWoQBJ1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQBJ1qEA5tahAObWoQBJ1qEAANahAADWoQAA1qEAANahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQD/1qEA/9ahAP/WoQD/1qEA+dahAP/WoQD/1qEA/9ahABnWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAGdahAP/WoQD/1qEA/9ahAPjWoQDH1qEA/9ahAP/WoQD/1qEAttahABnWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahABnWoQC21qEA/9ahAP/WoQD/1qEAx9ahAG3WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQBt1qEABtahAM/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA0NahAAfWoQAA1qEAG9ahAM/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAM/WoQAb1qEAANahAADWoQAA1qEABtahAG7WoQDH1qEA89ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA89ahAMfWoQBu1qEABtahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEADtahAMXWoQD/1qEA/9ahAP/WoQD/1qEAxdahAA/WoQAA1qEAANahAADWoQAA1qEADtahAMXWoQD/1qEA/9ahAP/WoQD/1qEAxdahAA/WoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAAbWoQDF1qEA/9ahAP/WoQD/1qEA/9ahAMXWoQAP1qEAANahAADWoQAA1qEAANahAADWoQAA1qEADtahAMXWoQD/1qEA/9ahAP/WoQD/1qEAxdahAAbWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAYtahAP/WoQD/1qEA/9ahAP/WoQDF1qEADtahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEADtahAMXWoQD/1qEA/9ahAP/WoQD/1qEAY9ahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQBf1qEA/9ahAP/WoQD/1qEAxdahAA7WoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEADtahAMXWoQD/1qEA/9ahAP/WoQBf1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAATWoQCg1qEA6tahAKjWoQAO1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEADtahAKjWoQDr1qEAoNahAATWoQAA1qEAANahAADWoQAA1qEAAP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A///////////AAAADgAAAAQAAAAAAAAAAA///wAf//+AP///wD///8A////AP///wDw/w8A8P8PAPD/DwDw/w8A8P8PAPD/DwD///8A////AH///gA///wAAAAAAAAAAAgAAAAcAAAAP8A8A/+AfgH/gP8B/4H/gf+D/8H/////8=";
+
+  // src/common/media-menu.js
+  var icons = {
+    bilibili: `<img src="${bilibili_default}" width="16" height="16" alt="" />`,
+    player: `<img src="${potplayer_app_16_default}" width="16" height="16" alt="" />`,
+    playlist: `<img src="${playlist_dpl_16_default}" width="16" height="16" alt="" />`,
+    browser: '<svg viewBox="0 0 20 20" fill="none" stroke="#3199dc" stroke-width="1.4"><circle cx="10" cy="10" r="8"/><ellipse cx="10" cy="10" rx="3.7" ry="8"/><path d="M2 10h16M3.5 5.5h13M3.5 14.5h13"/></svg>'
+  };
+  function pageTheme(media) {
+    const navigation = document.getElementById("broadcast-navigation");
+    if (["dark", "light"].includes(navigation?.dataset.theme)) return navigation.dataset.theme;
+    const html = document.documentElement;
+    const sheet = document.querySelector("link#__css-map__")?.getAttribute("href") || "";
+    const marker = (html.getAttribute("data-theme") || html.getAttribute("lab-style") || "").toLowerCase();
+    if (sheet.includes("/dark.css")) return "dark";
+    if (sheet.includes("/light.css")) return "light";
+    if (html.classList.contains("bili_dark") || marker.includes("dark")) return "dark";
+    if (marker.includes("light")) return "light";
+    const scheme = getComputedStyle(html).colorScheme;
+    return ["dark", "light"].includes(scheme) ? scheme : media.matches ? "dark" : "light";
+  }
+  async function copyLink(value) {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+        return;
+      }
+    } catch {
+    }
+    let focused = document.activeElement;
+    while (focused?.shadowRoot?.activeElement) focused = focused.shadowRoot.activeElement;
+    const selection = getSelection();
+    const ranges = selection ? Array.from({ length: selection.rangeCount }, (_, i) => selection.getRangeAt(i).cloneRange()) : [];
+    const input = document.createElement("textarea");
+    input.value = value;
+    input.readOnly = true;
+    input.style.cssText = "position:fixed;left:-10000px;top:0;";
+    document.body.append(input);
+    try {
+      input.select();
+      if (!document.execCommand("copy")) throw new Error("Copy denied");
+    } finally {
+      input.remove();
+      if (focused?.isConnected) focused.focus({ preventScroll: true });
+      if (selection) {
+        selection.removeAllRanges();
+        for (const range of ranges) selection.addRange(range);
+      }
+    }
+  }
+  function createMediaMenu({ getTarget, openPage, play, openNew, openExternal, addNext, addLast }) {
+    const events = new AbortController();
+    const media = matchMedia("(prefers-color-scheme: dark)");
+    let host = null, previousFocus = null, menuEvents = null, themeObserver = null, stopped = false;
+    const scrollPositions = /* @__PURE__ */ new Map();
+    let dialogHost = null, dialogEvents = null, dialogFocus = null;
+    function syncTheme() {
+      if (!host && !dialogHost) return;
+      const theme = pageTheme(media);
+      for (const element of [host, dialogHost]) if (element && element.dataset.theme !== theme) element.dataset.theme = theme;
+    }
+    function watchTheme() {
+      themeObserver?.disconnect();
+      themeObserver = new MutationObserver(syncTheme);
+      themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style", "data-theme", "lab-style"] });
+      if (document.head) themeObserver.observe(document.head, { childList: true, subtree: true, attributes: true, attributeFilter: ["href"] });
+      const navigation = document.getElementById("broadcast-navigation");
+      if (navigation) themeObserver.observe(navigation, { attributes: true, attributeFilter: ["data-theme"] });
+      syncTheme();
+    }
+    function releaseTheme() {
+      if (host || dialogHost) return;
+      themeObserver?.disconnect();
+      themeObserver = null;
+    }
+    function close(restoreFocus = false) {
+      const focused = host?.shadowRoot?.activeElement;
+      menuEvents?.abort();
+      menuEvents = null;
+      host?.remove();
+      host = null;
+      scrollPositions.clear();
+      releaseTheme();
+      if (restoreFocus && focused && previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
+      previousFocus = null;
+    }
+    function closeDialog(restoreFocus = false) {
+      dialogEvents?.abort();
+      dialogEvents = null;
+      dialogHost?.shadowRoot.querySelector("dialog")?.close();
+      dialogHost?.remove();
+      dialogHost = null;
+      releaseTheme();
+      if (restoreFocus && dialogFocus?.isConnected) dialogFocus.focus({ preventScroll: true });
+      dialogFocus = null;
+    }
+    function confirmExternal(url) {
+      if (stopped || !document.body) return false;
+      if (dialogHost) return true;
+      close(true);
+      dialogFocus = document.activeElement;
+      dialogHost = document.createElement("div");
+      dialogHost.id = "broadcast-external-dialog";
+      const root = dialogHost.attachShadow({ mode: "open" });
+      const style = document.createElement("style");
+      style.textContent = media_menu_default;
+      const dialog = document.createElement("dialog");
+      dialog.setAttribute("aria-labelledby", "external-question");
+      const message = document.createElement("p");
+      message.id = "external-question";
+      message.textContent = "不支持此页面，是否从外置浏览器打开？";
+      const actions = document.createElement("div");
+      actions.className = "dialog-actions";
+      dialogEvents = new AbortController();
+      for (const [label, accepted] of [["是", true], ["否", false]]) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = label;
+        button.addEventListener("click", (event) => {
+          if (!event.isTrusted || event.button !== 0) return;
+          event.preventDefault();
+          event.stopPropagation();
+          closeDialog(true);
+          if (accepted) openExternal({ url });
+        }, { signal: dialogEvents.signal });
+        actions.append(button);
+      }
+      dialog.addEventListener("cancel", (event) => {
+        event.preventDefault();
+        closeDialog(true);
+      }, { signal: dialogEvents.signal });
+      root.addEventListener("click", (event) => event.stopPropagation(), { signal: dialogEvents.signal });
+      dialog.append(message, actions);
+      root.append(style, dialog);
+      document.body.append(dialogHost);
+      watchTheme();
+      try {
+        dialog.showModal();
+        return true;
+      } catch {
+        closeDialog(true);
+        return false;
+      }
+    }
+    function itemsFor(target) {
+      if (target.kind === "native") return [
+        { label: "不支持当前页面，从外置浏览器打开", action: openExternal }
+      ];
+      const external = { label: "从外部浏览器打开", hint: "(鼠标中键)", icon: "browser", action: openExternal };
+      const copy = { label: "复制链接地址", copy: true };
+      if (target.kind === "page") {
+        const items = [
+          { label: "在当前标签页打开该页面", hint: "(鼠标左键)", icon: "bilibili", action: openPage },
+          external
+        ];
+        if (target.playlist) items.push(
+          { label: "播放该页面内视频", icon: "player", action: play },
+          { label: "新开一个进程播放该页面内视频", icon: "player", action: openNew },
+          null,
+          { label: "将该页面内视频添加到默认播放列表（下一个）", icon: "playlist", action: addNext },
+          { label: "将该页面内视频添加到默认播放列表（末尾）", icon: "playlist", action: addLast }
+        );
+        return [...items, null, copy];
+      }
+      return [
+        { label: "使用当前进程播放", hint: "(鼠标左键)", icon: "player", action: play },
+        { label: "新开一个进程播放", icon: "player", action: openNew },
+        external,
+        null,
+        { label: "添加到默认播放列表（下一个）", icon: "playlist", action: addNext },
+        { label: "添加到默认播放列表（末尾）", icon: "playlist", action: addLast },
+        null,
+        copy
+      ];
+    }
+    function onContextMenu(event) {
+      if (stopped || !event.isTrusted || event.defaultPrevented || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      close();
+      const target = getTarget(event);
+      if (!target || !document.body || dialogHost) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const path = event.composedPath();
+      for (const node of /* @__PURE__ */ new Set([...path.slice(path.indexOf(target.anchor) + 1), document.scrollingElement])) {
+        if (node instanceof Element && node !== target.anchor) scrollPositions.set(node, [node.scrollLeft, node.scrollTop]);
+      }
+      previousFocus = document.activeElement;
+      menuEvents = new AbortController();
+      host = document.createElement("div");
+      host.id = "broadcast-media-menu";
+      const root = host.attachShadow({ mode: "open" });
+      const style = document.createElement("style");
+      style.textContent = media_menu_default;
+      const menu = document.createElement("div");
+      menu.setAttribute("role", "menu");
+      menu.setAttribute("aria-label", "媒体打开方式");
+      const status = document.createElement("div");
+      status.className = "copy-status";
+      status.setAttribute("role", "status");
+      function place() {
+        const bounds = host.getBoundingClientRect(), anchorBounds = target.anchor.getBoundingClientRect();
+        const x = event.clientX || anchorBounds.left, y = event.clientY || anchorBounds.bottom;
+        host.style.left = Math.max(6, Math.min(x, innerWidth - bounds.width - 6)) + "px";
+        host.style.top = Math.max(6, Math.min(y, innerHeight - bounds.height - 6)) + "px";
+      }
+      const buttons = [];
+      for (const item of itemsFor(target)) {
+        if (!item) {
+          const separator = document.createElement("div");
+          separator.setAttribute("role", "separator");
+          menu.append(separator);
+          continue;
+        }
+        const button = document.createElement("button");
+        button.type = "button";
+        button.setAttribute("role", "menuitem");
+        button.setAttribute("aria-label", item.label + (item.hint || ""));
+        const image = document.createElement("span");
+        image.className = "icon";
+        image.setAttribute("aria-hidden", "true");
+        image.innerHTML = icons[item.icon] || "";
+        const label = document.createElement("span");
+        label.className = "label";
+        label.textContent = item.label;
+        if (item.hint) {
+          const hint = document.createElement("span");
+          hint.className = "hint";
+          hint.textContent = item.hint;
+          label.append(hint);
+        }
+        button.append(image, label);
+        button.addEventListener("click", async (event2) => {
+          if (!event2.isTrusted || event2.button !== 0 || event2.ctrlKey || event2.metaKey || event2.shiftKey || event2.altKey) return;
+          event2.preventDefault();
+          event2.stopPropagation();
+          if (item.copy) {
+            const current2 = host;
+            try {
+              await copyLink(target.url);
+              if (host === current2) close(true);
+            } catch {
+              if (host === current2) {
+                status.textContent = "复制失败，请重试";
+                place();
+              }
+            }
+          } else {
+            close(true);
+            item.action(target);
+          }
+        }, { signal: menuEvents.signal });
+        menu.append(button);
+        buttons.push(button);
+      }
+      menu.append(status);
+      root.append(style, menu);
+      document.body.append(host);
+      watchTheme();
+      place();
+      root.addEventListener("keydown", (event2) => {
+        if (event2.key === "Escape") {
+          event2.preventDefault();
+          close(true);
+        } else if (event2.key === "Tab") close();
+        else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event2.key)) {
+          event2.preventDefault();
+          const index = buttons.indexOf(root.activeElement);
+          buttons[event2.key === "Home" ? 0 : event2.key === "End" ? buttons.length - 1 : (index + (event2.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length].focus();
+        }
+      }, { signal: menuEvents.signal });
+      buttons[0].focus({ preventScroll: true });
+    }
+    document.addEventListener("contextmenu", onContextMenu, { capture: true, signal: events.signal });
+    document.addEventListener("pointerdown", (event) => {
+      if (host && !event.composedPath().includes(host)) close();
+    }, { capture: true, signal: events.signal });
+    document.addEventListener("scroll", (event) => {
+      if (!host || event.composedPath().includes(host)) return;
+      const node = event.target === document ? document.scrollingElement : event.target;
+      const position = scrollPositions.get(node);
+      if (!position || node.scrollLeft === position[0] && node.scrollTop === position[1]) return;
+      close();
+    }, { capture: true, signal: events.signal });
+    window.addEventListener("resize", () => close(), { signal: events.signal });
+    window.addEventListener("blur", () => close(), { signal: events.signal });
+    media.addEventListener("change", syncTheme, { signal: events.signal });
+    return { confirmExternal, destroy() {
+      if (stopped) return;
+      stopped = true;
+      events.abort();
+      close();
+      closeDialog();
+    } };
+  }
+
   // src/common/version.js
-  var version = "3";
+  var version = "5";
 
   // src/common/opening.js
   var resultType = "potPlayer.short-link.result";
@@ -259,17 +609,17 @@
     return true;
   }
   function createPageOpening({ beforeMedia = () => {
-  }, ignoreClick = () => false, timeout = 8e3 } = {}) {
+  }, ignoreClick = () => false, resolveLink = () => null, timeout = 8e3 } = {}) {
     const originalOpen = window.open;
     const events = new AbortController();
     const shortLinks = /* @__PURE__ */ new Map(), ignored = /* @__PURE__ */ new Set(), observers = /* @__PURE__ */ new Map();
     const pendingNodes = /* @__PURE__ */ new Set(), watchedTags = /* @__PURE__ */ new Set();
     let stopped = false, click = null, timer = 0, frame = 0;
     const normalized = (value) => urlOf(value)?.href || "";
-    function isIgnored(value) {
+    function isIgnored(value, probe = false, explicit = false) {
       for (const rule of ignored) {
         try {
-          if (rule(new URL(value))) return true;
+          if (rule(new URL(value), { probe, explicit })) return true;
         } catch (error) {
           console.warn("[BroadcastListScript] ignoreUrl failed", error);
         }
@@ -332,11 +682,11 @@
       });
       return entry.promise;
     }
-    function send(value, state) {
-      if (stopped || !isMediaUrl(value)) return false;
+    function send(value, state, { playlist = false, explicit = false } = {}) {
+      if (stopped || !(playlist ? isPlayerUrl(value) : isMediaUrl(value))) return false;
       if (state.sent.has(value)) return true;
       if (typeof window.chrome?.webview?.postMessage !== "function") return false;
-      if (isIgnored(value)) return false;
+      if (isIgnored(value, false, explicit)) return false;
       try {
         beforeMedia(new URL(value));
         window.chrome.webview.postMessage({ type: "potPlayer.video-click", url: value });
@@ -348,6 +698,8 @@
     }
     function dispatch(value, state) {
       if (stopped) return false;
+      if (state.explicit && isPlayerUrl(value)) return send(value, state, { playlist: true, explicit: true });
+      if (isPlayitemUrl(value)) return send(value, state);
       if (isPageUrl(value)) {
         if (!state.sent.has(value)) {
           state.sent.add(value);
@@ -355,7 +707,15 @@
         }
         return true;
       }
-      return send(value, state);
+      if (state.nativeMedia && isMediaUrl(value)) return send(value, state, { playlist: true });
+      if (typeof window.chrome?.webview?.postMessage === "function" && !isIgnored(value, true)) {
+        if (state.sent.has(value)) return true;
+        if (mediaMenu.confirmExternal(value)) {
+          state.sent.add(value);
+          return true;
+        }
+      }
+      return false;
     }
     function handle(value, state, fallback) {
       const url = normalized(value);
@@ -375,6 +735,63 @@
       timer = 0;
       click = null;
     }
+    function linkTarget(event) {
+      if (ignoreClick(event)) return null;
+      const anchor = event.composedPath().find((node) => node.matches?.("a[href]")) || event.target?.closest?.("a[href]");
+      if (anchor?.hasAttribute("download")) return null;
+      const resolved = anchor ? null : resolveLink(event);
+      const owner = anchor || resolved?.anchor;
+      if (!owner || owner.hasAttribute("download")) return null;
+      const url = normalized(anchor ? anchor.getAttribute("href") : resolved.url);
+      if (!url) return null;
+      const target = owner.getAttribute("target") || document.querySelector("base[target]")?.getAttribute("target") || "_self";
+      return { anchor: owner, url, fallback: () => target === "_self" ? location.assign(url) : Reflect.apply(originalOpen, window, [url, target]) };
+    }
+    function playerCommand({ url, fallback }, command, target, playback = false) {
+      clearClick();
+      function launch(value) {
+        const uri = playerCommandUri(value, command);
+        if (!uri || stopped || isIgnored(value, !playback, true)) return false;
+        try {
+          if (playback) beforeMedia(new URL(value));
+          Reflect.apply(originalOpen, window, [uri, target]);
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      const cached = shortLinks.get(url)?.url;
+      if (isShortUrl(url) && !cached) resolveUrl(url).then((value) => {
+        if (!stopped && !launch(value)) fallback();
+      });
+      else if (!launch(cached || url)) fallback();
+    }
+    const mediaMenu = createMediaMenu({
+      getTarget(event) {
+        if (typeof window.chrome?.webview?.postMessage !== "function") return null;
+        const target = linkTarget(event);
+        if (!target || isIgnored(target.url, true, true)) return null;
+        const resolved = shortLinks.get(target.url)?.url || target.url;
+        if (isIgnored(resolved, true, true)) return null;
+        const kind = isPlayitemUrl(resolved) || isShortUrl(resolved) ? "media" : isPageUrl(resolved) ? "page" : "native";
+        return { ...target, kind, playlist: isPlaylistUrl(resolved) };
+      },
+      openPage({ url, fallback }) {
+        clearClick();
+        if (!handle(url, { sent: /* @__PURE__ */ new Set(), pending: /* @__PURE__ */ new Set() }, fallback)) fallback();
+      },
+      play({ url, fallback }) {
+        clearClick();
+        if (!handle(url, { sent: /* @__PURE__ */ new Set(), pending: /* @__PURE__ */ new Set(), explicit: true }, fallback)) fallback();
+      },
+      openNew: (target) => playerCommand(target, "new", "_blank", true),
+      addNext: (target) => playerCommand(target, "insert", "_blank"),
+      addLast: (target) => playerCommand(target, "add", "_blank"),
+      openExternal({ url }) {
+        clearClick();
+        Reflect.apply(originalOpen, window, [url, "_blank", "noopener"]);
+      }
+    });
     function onClick(event) {
       if (stopped || !event.isTrusted || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.defaultPrevented) return;
       clearClick();
@@ -383,6 +800,7 @@
       click = state;
       timer = setTimeout(clearClick, 0);
       const anchor = event.composedPath().find((node) => node.matches?.("a[href]")) || event.target?.closest?.("a[href]");
+      state.nativeMedia = !anchor;
       if (!anchor || anchor.hasAttribute("download")) {
         if (anchor) clearClick();
         return;
@@ -398,6 +816,18 @@
     function open(...args) {
       if (!stopped && click && handle(args[0], click, () => Reflect.apply(originalOpen, this, args))) return null;
       return Reflect.apply(originalOpen, this, args);
+    }
+    function onAuxClick(event) {
+      if (stopped || !event.isTrusted || event.button !== 1 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.defaultPrevented) return;
+      if (typeof window.chrome?.webview?.postMessage !== "function") return;
+      const target = linkTarget(event);
+      if (!target) return;
+      const resolved = shortLinks.get(target.url)?.url || target.url;
+      if (!isPageUrl(resolved) || isPlayitemUrl(resolved) || isIgnored(resolved, true, true)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      clearClick();
+      Reflect.apply(originalOpen, window, [target.url, "_blank", "noopener"]);
     }
     function scan(node) {
       if (stopped || !node.querySelectorAll) return;
@@ -452,7 +882,7 @@
         if (typeof predicate !== "function") throw new TypeError("ignoreUrl requires a predicate");
         if (stopped) return () => {
         };
-        const rule = (url) => predicate(url);
+        const rule = (url, context) => predicate(url, context);
         ignored.add(rule);
         return () => ignored.delete(rule);
       },
@@ -464,6 +894,7 @@
         if (stopped) return;
         stopped = true;
         events.abort();
+        mediaMenu.destroy();
         clearClick();
         cancelAnimationFrame(frame);
         for (const observer of observers.values()) observer.disconnect();
@@ -480,6 +911,7 @@
     window.__potPlayerBilibiliClick = controller;
     window.open = open;
     document.addEventListener("click", onClick, { capture: true, passive: false, signal: events.signal });
+    document.addEventListener("auxclick", onAuxClick, { capture: true, passive: false, signal: events.signal });
     document.addEventListener("DOMContentLoaded", () => schedule(document), { signal: events.signal });
     observe(document);
     schedule(document);
@@ -492,14 +924,14 @@
   // src/common/navigation-bar.js
   var height = 32;
   var headers = ".bili-header__bar,.mini-header,.international-header,.bili-header-m,.bili-mini-header,.b-header,.link-navbar,.charity-header,.search-fixed-header,.header-channel,.space-navbar,#app .timeline-header,.v-popover:has(.bili-header-channel-panel)";
-  var icons = {
+  var icons2 = {
     back: "m12 5-7 7 7 7M5 12h15",
     forward: "m12 5 7 7-7 7M4 12h15",
     home: "m3 10 9-7 9 7M5 9v11h5v-7h4v7h5V9",
     reload: "M20 11a8 8 0 1 0-2 6M20 4v7h-7",
     submit: "M20 5v8H5m5-5-5 5 5 5"
   };
-  var icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${icons[name]}"/></svg>`;
+  var icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${icons2[name]}"/></svg>`;
   function mountNavigationBar() {
     const html = document.documentElement;
     const events = new AbortController();
@@ -672,7 +1104,7 @@ ${location.href}`;
           history.forward();
           break;
         case "home":
-          location.assign(["live.bilibili.com", "link.bilibili.com"].includes(location.hostname) ? "https://live.bilibili.com/" : "https://www.bilibili.com/");
+          location.assign("https://www.bilibili.com/");
           break;
         case "action":
           if (editing) submitAddress();
@@ -1016,15 +1448,134 @@ ${location.href}`;
     } };
   }
 
+  // src/common/header-search-controls.css
+  var header_search_controls_default = ".broadcast-search-closed {display:none!important;}\n.broadcast-search-header {display:flex!important;align-items:center!important;}\n.broadcast-search-header .title {flex:1 1 auto;min-width:0;}\n.broadcast-search-header .clear {flex:none;}\n/* Account for the icon's 4px inset: clear-to-icon spacing matches the native 16px gutter. */\n.broadcast-search-header .broadcast-search-close {box-sizing:border-box!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;flex:none!important;width:calc(var(--broadcast-search-close-size,12px) + 8px)!important;height:calc(var(--broadcast-search-close-size,12px) + 8px)!important;margin:0 -4px 0 12px!important;padding:0!important;border:0!important;border-radius:4px;background:transparent;color:#9499a0;font-size:var(--broadcast-search-close-size,12px)!important;line-height:1;cursor:pointer;}\n.broadcast-search-close svg {display:block;width:1em!important;height:1em!important;pointer-events:none;}\n.broadcast-search-header .broadcast-search-close:hover {color:#00aeec;background:rgba(148,153,160,.12);}\n.broadcast-search-header .broadcast-search-close:focus-visible {outline:2px solid #00aeec;outline-offset:2px;}\n";
+
+  // src/common/header-search-controls.js
+  function createHeaderSearchControls({ signal }) {
+    const panels = /* @__PURE__ */ new Map();
+    const headers2 = ".bili-header__bar,.mini-header,.international-header,.bili-header-m,.bili-mini-header,.b-header,.link-navbar,.charity-header,.search-fixed-header,.search-layout .search-input-container";
+    const hosts = ".center-search-container,.search-block,.nav-search,.nav-search-box,.search-box,.search-container,.search-input-wrap";
+    const selector = ".search-pannel,.search-panel,.nav-search-panel";
+    const style = document.createElement("style");
+    style.textContent = header_search_controls_default;
+    (document.head || document.documentElement).append(style);
+    let frame = 0, stopped = false;
+    function removeButton(state) {
+      state.button?.remove();
+      state.header?.classList.remove("broadcast-search-header");
+      state.button = null;
+      state.header = null;
+    }
+    function restore(panel, state) {
+      removeButton(state);
+      panel.classList.remove("broadcast-search-closed");
+    }
+    function update() {
+      frame = 0;
+      if (stopped) return;
+      for (const [panel, state] of panels) {
+        if (!panel.isConnected || !panel.closest(headers2)) {
+          restore(panel, state);
+          panels.delete(panel);
+          continue;
+        }
+        if (panel.querySelector(".header") !== state.header || !state.header?.contains(state.button)) removeButton(state);
+      }
+      for (const panel of document.querySelectorAll(selector)) {
+        if (!panel.closest(headers2)) continue;
+        let state = panels.get(panel);
+        if (!state) {
+          state = { header: null, button: null, host: panel.closest(hosts) || panel.parentElement };
+          panels.set(panel, state);
+        }
+        if (!state.button) {
+          const header = panel.querySelector(".header");
+          if (!header) continue;
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "broadcast-search-close";
+          button.title = "关闭搜索卡片";
+          button.setAttribute("aria-label", "关闭搜索卡片");
+          button.innerHTML = '<svg viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path d="M1 1l10 10M11 1L1 11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+          header.classList.add("broadcast-search-header");
+          header.append(button);
+          state.header = header;
+          state.button = button;
+        }
+        const clear = state.header.querySelector(".clear");
+        const size = clear ? getComputedStyle(clear).fontSize : "12px";
+        if (state.button.style.getPropertyValue("--broadcast-search-close-size") !== size) {
+          state.button.style.setProperty("--broadcast-search-close-size", size);
+        }
+      }
+    }
+    function schedule() {
+      if (!stopped && !frame) frame = requestAnimationFrame(update);
+    }
+    function reopen(event) {
+      const input = event.target.closest?.('input.nav-search-input,input.nav-search-content,input[name="keyword"],input.search-input-el');
+      if (!input?.closest(headers2)) return;
+      for (const [panel, state] of panels) {
+        if (state.host.contains(input)) panel.classList.remove("broadcast-search-closed");
+      }
+    }
+    function close(panel, state) {
+      panel.classList.add("broadcast-search-closed");
+      const active = document.activeElement;
+      if (state.host.contains(active)) active.blur();
+    }
+    document.addEventListener("mousedown", (event) => {
+      if (!event.target.closest?.(".broadcast-search-close")) return;
+      event.preventDefault();
+      event.stopPropagation();
+    }, { signal });
+    document.addEventListener("click", (event) => {
+      const button = event.target.closest?.(".broadcast-search-close");
+      if (!button) return;
+      const panel = button.closest(selector), state = panels.get(panel);
+      if (!state) return;
+      event.preventDefault();
+      event.stopPropagation();
+      close(panel, state);
+    }, { signal });
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
+      for (const [panel, state] of panels) {
+        if (!panel.getClientRects().length || getComputedStyle(panel).visibility === "hidden") continue;
+        event.preventDefault();
+        close(panel, state);
+      }
+    }, { capture: true, signal });
+    for (const type of ["pointerdown", "focusin", "input"]) {
+      document.addEventListener(type, reopen, { capture: true, signal });
+    }
+    const mutations = new MutationObserver((records) => {
+      if (records.some((record) => record.target.closest?.(headers2) || [...record.addedNodes, ...record.removedNodes].some((node) => node.nodeType === 1 && (node.matches(headers2) || node.querySelector(headers2))))) schedule();
+    });
+    mutations.observe(document.body || document.documentElement, { childList: true, subtree: true });
+    update();
+    return { update, destroy() {
+      stopped = true;
+      mutations.disconnect();
+      cancelAnimationFrame(frame);
+      for (const [panel, state] of panels) restore(panel, state);
+      panels.clear();
+      style.remove();
+    } };
+  }
+
   // src/common/main-site/header-search-navigation.js
   function createHeaderSearchNavigation() {
     const events = new AbortController(), attributes = /* @__PURE__ */ new Map();
+    const searchControls = createHeaderSearchControls({ signal: events.signal });
     const headers2 = ".bili-header__bar,.mini-header,.international-header,.bili-header-m,.bili-mini-header,.b-header,.link-navbar,.charity-header,.search-fixed-header";
     const components = "#nav-searchform,#nav_searchform,.center-search-container,.nav-search,.nav-search-box,.search-block,.search-bar-ctnr,.search-box,.search-container,.search-panel,.nav-search-panel,.search-input-wrap,.charity-header .search-input";
     const originalOpen = window.open;
     let api = null, restoreIgnore = () => {
     }, pending = null, stopped = false;
     function searchControl(node) {
+      if (node instanceof Element && node.closest(".broadcast-search-close")) return null;
       const component = node instanceof Element ? node.closest(components) : null;
       return component?.closest(headers2) ? component : null;
     }
@@ -1108,6 +1659,7 @@ ${location.href}`;
       events.abort();
       clearInterval(poll);
       restoreIgnore();
+      searchControls.destroy();
       if (window.open === open) window.open = originalOpen;
       for (const [element, saved] of attributes) for (const [name, value] of saved) {
         if (element.getAttribute(name) !== "_self") continue;
@@ -1139,7 +1691,8 @@ ${location.href}`;
     function isLink(link) {
       return Boolean(control(link) && link.hasAttribute("href") && destination(link.href));
     }
-    function ignored(url) {
+    function ignored(url, { explicit = false } = {}) {
+      if (explicit) return false;
       return Boolean(active && destination(url.href)) || Array.from(document.querySelectorAll("a[href]")).some((link) => isLink(link) && link.href === url.href);
     }
     function sync() {
@@ -1204,7 +1757,7 @@ ${location.href}`;
   }
 
   // src/common/main-site/home-layout.js
-  function mountHomeLayout(pageStyle10, suppliedMatchesPage) {
+  function mountHomeLayout(pageStyle11, suppliedMatchesPage) {
     "use strict";
     const matchesPage = suppliedMatchesPage;
     if (!matchesPage()) return;
@@ -1226,7 +1779,7 @@ ${location.href}`;
     let frame = 0, stopped = false, activeMenu = null;
     const style = document.createElement("style");
     style.id = "homepagescript-style";
-    style.textContent = pageStyle10;
+    style.textContent = pageStyle11;
     const panel = document.createElement("div");
     panel.id = "homepagescript-menu";
     panel.setAttribute("aria-label", "全部频道");
@@ -1336,8 +1889,8 @@ ${location.href}`;
       return avatarNavigation.isLink(link);
     }
     const isCompletedNavigation = isPageUrl;
-    function isNavigationIgnored(url) {
-      return isCompletedNavigation(url);
+    function isNavigationIgnored(url, { explicit = false } = {}) {
+      return !explicit && isCompletedNavigation(url);
     }
     function syncPotPlayerIgnore() {
       if (location.href !== observedUrl) {
@@ -1469,7 +2022,7 @@ ${location.href}`;
         makeMore(container, () => Array.from(container.querySelectorAll("a[href]")));
         fit(Array.from(container.querySelectorAll("a.channel-item")), count - 1);
       }
-      for (const container of document.querySelectorAll('.feed2 .recommended-container_floor-aside > .container,.head-cards,.loading-cards,.channel-feed,.popular-list .card-list,.fav-list-main .items,.section-cards,#room-card-list,main [class~="grid"],.items-container')) {
+      for (const container of document.querySelectorAll('.feed2 .recommended-container_floor-aside > .container,.head-cards,.loading-cards,.channel-feed,.channel-page__body > .feed-cards,.popular-list .card-list,.fav-list-main .items,.section-cards,#room-card-list,main [class~="grid"],.items-container')) {
         observe(container);
         const count = innerWidth < 400 ? 1 : Math.max(2, Math.floor((container.clientWidth + 12) / 232));
         setColumns(container, count);
@@ -1556,7 +2109,7 @@ ${location.href}`;
   }
 
   // src/WebPage/HomePage/content.css
-  var content_default = "      /* HOME_CONTENT_START */\n      html.homepagescript-active .bili-feed4-layout { padding:0 8px!important; }\n      html.homepagescript-active .fixed-channel-shim { width:100%!important; min-width:0!important; }\n      html.homepagescript-active .feed2 :is(.recommended-container_floor-aside,.container,.feed-card,.bili-feed-card,.bili-video-card,.bili-video-card__wrap,.bili-video-card__skeleton) {\n        box-sizing:border-box!important; min-width:0!important; max-width:100%!important; width:100%!important;\n      }\n      html.homepagescript-active .feed2 .recommended-container_floor-aside > .container {\n        display:grid!important; grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important;\n        grid-template-rows:none!important; grid-auto-rows:auto!important; gap:16px 12px!important;\n      }\n      html.homepagescript-active .feed2 .container > .feed-card { grid-column:auto!important; grid-row:auto!important; }\n      html.homepagescript-active .feed2 .bili-video-card__info { min-width:0!important; }\n      html.homepagescript-active .feed2 .recommended-swipe { grid-column:1 / -1!important; grid-row:auto!important; min-width:0!important; width:100%!important; height:auto!important; }\n      html.homepagescript-active .feed2 .recommended-swipe-core { height:auto!important; }\n      html.homepagescript-active .feed2 .recommended-swipe-shim { display:none!important; }\n      html.homepagescript-active .feed2 .recommended-swipe-body { position:relative!important; inset:auto!important; width:100%!important; height:auto!important; aspect-ratio:16 / 9; }\n      html.homepagescript-active .feed2 .feed-roll-btn { position:static!important; display:flex!important; justify-content:center; margin:12px auto!important; width:auto!important; height:auto!important; }\n      /* /c/ 频道共用首页控件，内容区是新的 feedchannel 模板。 */\n      html.homepagescript-active :is(.feedchannel,.feedchannel-body,.feedchannel-main,.channel-header,.channel-page,.channel-page__body) { box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important; }\n      html.homepagescript-active .channel-page { padding:0 8px!important; }\n      html.homepagescript-active :is(.head-cards,.loading-cards,.channel-feed) { display:grid!important; grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important; grid-template-rows:none!important; grid-auto-rows:auto!important; gap:16px 12px!important; }\n      html.homepagescript-active :is(.head-cards,.loading-cards,.channel-feed) > * { box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important; grid-row:auto!important; grid-column:auto!important; }\n      html.homepagescript-active .head-cards .channel-carousel { grid-column:1 / -1!important; height:auto!important; aspect-ratio:16 / 9; }\n      html.homepagescript-active .channel-carousel :is(.vui_carousel,.vui_carousel__slides,.banner-carousel__item,.cover-wrap) { width:100%!important; height:100%!important; }\n      html.homepagescript-active .feedchannel :is(.bili-video-card,.bili-video-card__wrap,.bili-video-card__cover,.bili-video-card__details) { min-width:0!important; max-width:100%!important; width:100%!important; }\n      html.homepagescript-active :is(.channel-entry-more,.channel-entry-more__link) { display:none!important; }\n      /* HOME_CONTENT_END */";
+  var content_default = "      /* HOME_CONTENT_START */\n      html.homepagescript-active .bili-feed4-layout { padding:0 8px!important; }\n      html.homepagescript-active .fixed-channel-shim { width:100%!important; min-width:0!important; }\n      html.homepagescript-active .feed2 :is(.recommended-container_floor-aside,.container,.feed-card,.bili-feed-card,.bili-video-card,.bili-video-card__wrap,.bili-video-card__skeleton) {\n        box-sizing:border-box!important; min-width:0!important; max-width:100%!important; width:100%!important;\n      }\n      html.homepagescript-active .feed2 .recommended-container_floor-aside > .container {\n        display:grid!important; grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important;\n        grid-template-rows:none!important; grid-auto-rows:auto!important; gap:16px 12px!important;\n      }\n      html.homepagescript-active .feed2 .container > .feed-card { grid-column:auto!important; grid-row:auto!important; }\n      html.homepagescript-active .feed2 .bili-video-card__info { min-width:0!important; }\n      html.homepagescript-active .feed2 .recommended-swipe { grid-column:1 / -1!important; grid-row:auto!important; min-width:0!important; width:100%!important; height:auto!important; }\n      html.homepagescript-active .feed2 .recommended-swipe-core { height:auto!important; }\n      html.homepagescript-active .feed2 .recommended-swipe-shim { display:none!important; }\n      html.homepagescript-active .feed2 .recommended-swipe-body { position:relative!important; inset:auto!important; width:100%!important; height:auto!important; aspect-ratio:16 / 9; }\n      html.homepagescript-active .feed2 .feed-roll-btn { position:static!important; display:flex!important; justify-content:center; margin:12px auto!important; width:auto!important; height:auto!important; }\n      /* /c/ 频道共用首页控件，内容区是新的 feedchannel 模板。 */\n      html.homepagescript-active :is(.feedchannel,.feedchannel-body,.feedchannel-main,.channel-header,.channel-page,.channel-page__body) { box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important; }\n      html.homepagescript-active .channel-page { padding:0 8px!important; }\n      /* 首屏与滚动续载使用不同容器，必须同时覆盖 feed-cards，避免后续列表保留原生四列。 */\n      html.homepagescript-active :is(.head-cards,.loading-cards,.channel-feed,.channel-page__body > .feed-cards) { display:grid!important; grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important; grid-template-rows:none!important; grid-auto-rows:auto!important; gap:16px 12px!important; }\n      html.homepagescript-active :is(.head-cards,.loading-cards,.channel-feed,.channel-page__body > .feed-cards) > * { box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important; grid-row:auto!important; grid-column:auto!important; }\n      html.homepagescript-active .head-cards .channel-carousel { grid-column:1 / -1!important; height:auto!important; aspect-ratio:16 / 9; }\n      html.homepagescript-active .channel-carousel :is(.vui_carousel,.vui_carousel__slides,.banner-carousel__item,.cover-wrap) { width:100%!important; height:100%!important; }\n      html.homepagescript-active .feedchannel :is(.bili-video-card,.bili-video-card__wrap,.bili-video-card__cover,.bili-video-card__details) { min-width:0!important; max-width:100%!important; width:100%!important; }\n      html.homepagescript-active :is(.channel-entry-more,.channel-entry-more__link) { display:none!important; }\n      /* HOME_CONTENT_END */\n";
 
   // src/common/main-site/home-style.js
   function homeStyle(content2 = "") {
@@ -1575,10 +2128,12 @@ ${location.href}`;
       html.homepagescript-active :is(.bili-feed4,.bili-header,.bili-header__banner,.bili-header__bar,.bili-header__channel,.header-channel,.bili-feed4-layout) {
         box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important;
       }
-      html.homepagescript-active .bili-header__bar { height:var(--homepagescript-header-height)!important; padding:0 8px!important; }
+      /* 统一横向留白，避免原生搜索框和头像边距叠加；保持顶栏及控件高度。 */
+      html.homepagescript-active .bili-header__bar { height:var(--homepagescript-header-height)!important; padding:0 4px!important; column-gap:4px!important; }
+      html.homepagescript-active .bili-header__bar :is(.left-entry,.menu-left,.menu-center,.center-search-container,.right-entry,.menu-right,.header-avatar-wrap,.header-avatar-unlogin-wrap) { margin-left:0!important; margin-right:0!important; }
       html.homepagescript-active .bili-header__bar :is(.left-entry,.menu-left) { display:flex!important; flex:0 0 auto!important; width:auto!important; min-width:0!important; }
       html.homepagescript-active .bili-header__bar .left-entry-main { display:flex!important; width:auto!important; min-width:0!important; }
-      html.homepagescript-active .bili-header__bar :is(.home-page-entry,.home-page-panel-entry) { flex:none!important; }
+      html.homepagescript-active .bili-header__bar :is(.home-page-entry,.home-page-panel-entry) { flex:none!important; margin-left:0!important; margin-right:0!important; }
       html.homepagescript-active .bili-header__bar :is(.home-page-entry,.home-page-panel-entry) > a { display:flex!important; align-items:center!important; white-space:nowrap!important; }
       html.homepagescript-active .bili-header__bar .menu-center { flex:1!important; min-width:0!important; width:auto!important; }
       html.homepagescript-active .bili-header__bar .menu-right { flex:0 0 auto!important; width:auto!important; min-width:0!important; }
@@ -1597,7 +2152,10 @@ ${location.href}`;
       html.homepagescript-active .bili-header__bar .center-search-container { display:block!important; flex:1!important; min-width:0!important; }
       html.homepagescript-active .bili-header__bar .center-search__bar { width:100%!important; min-width:0!important; max-width:none!important; }
       html.homepagescript-active .bili-header__bar .right-entry { flex:0 0 auto!important; width:auto!important; min-width:0!important; }
-      html.homepagescript-active .bili-header__bar .right-entry__main { gap:8px!important; }
+      html.homepagescript-active .bili-header__bar .right-entry__main { gap:4px!important; }
+      /* 原生头像以 50px 容器承载 38px 图像，并额外留出 10px 右边距。仅收掉横向占位。 */
+      html.homepagescript-active .bili-header__bar .header-avatar-wrap .header-avatar-wrap--container { width:38px!important; margin-left:0!important; margin-right:0!important; }
+      html.homepagescript-active .bili-header__bar .header-avatar-unlogin-wrap .header-avatar-unlogin-inner { min-width:36px!important; }
       html.homepagescript-active .bili-header__bar .right-entry__item { min-width:28px!important; margin:0!important; }
       html.homepagescript-active .bili-header__bar .right-entry__item-trigger .trigger-text { display:block!important; font-size:12px!important; white-space:nowrap!important; }
       /* 外框留在原生悬停区域内；只调整坐标和尺寸，保留背景、状态及内容事件。 */
@@ -1716,6 +2274,62 @@ ${content2}
     mount: () => mount2
   });
 
+  // src/common/live/link-target.js
+  function jsonAttribute(element, name) {
+    try {
+      return JSON.parse(element?.getAttribute(name) || "null");
+    } catch {
+      return null;
+    }
+  }
+  function report(element) {
+    const click = jsonAttribute(element, "data-bl-report-click");
+    return click?.msg || jsonAttribute(element, "data-report");
+  }
+  var numericId = (value) => /^\d+$/.test(String(value)) && Number(value) > 0;
+  function bannerUrl(value) {
+    if (typeof value !== "string" || !value) return "";
+    if (/^(?:https?%3a|%2f)/i.test(value)) {
+      try {
+        value = decodeURIComponent(value);
+      } catch {
+        return "";
+      }
+    }
+    return urlOf(value)?.href || "";
+  }
+  function resolveLiveHomeLink(event) {
+    if (pageId(location.href) !== "LiveHome") return null;
+    for (const node of event.composedPath()) {
+      if (!(node instanceof Element)) continue;
+      if (node.matches('input,textarea,button,[contenteditable="true"],.follow-btn,[data-player-pause-stop],.action-arrow-ctnr,.flip-dots-item')) return null;
+      let url = "";
+      if (node.matches(".sec-area-item,.highlight-area-item")) {
+        const data = report(node);
+        if (numericId(data?.parent_area_id) && (node.matches(".highlight-area-item") || numericId(data.area_id))) {
+          url = `https://live.bilibili.com/p/eden/area-tags?parentAreaId=${data.parent_area_id}&areaId=${node.matches(".highlight-area-item") ? 0 : data.area_id}`;
+        }
+      } else if (node.matches(".room-card-ctnr,.aside-item")) {
+        const data = report(node);
+        if (numericId(data?.room_id)) {
+          url = `https://live.bilibili.com/${data.room_id}`;
+          if (data.session_id && data.session_id !== "-99998") url += `?session_id=${encodeURIComponent(data.session_id)}`;
+        }
+      } else if (node.matches(".item-wrapper,.small-banner,.bg-image[data-report]")) {
+        const data = report(node) || report(node.querySelector("[data-report]"));
+        url = bannerUrl(data?.url);
+        if (!url && node.matches(".item-wrapper")) {
+          const banners = jsonAttribute(node.closest(".hover-panel-wrap[data-banner]"), "data-banner");
+          const index = Array.from(node.parentElement.children).filter((child) => child.matches(".item-wrapper")).indexOf(node);
+          if (Array.isArray(banners) && index >= 0) url = bannerUrl(banners.filter((item) => item?.imageUrl)[index]?.link);
+        }
+      } else if (node.matches(".hover-panel-wrap")) return null;
+      if (url) return { anchor: node, url };
+      if (node.matches(".sec-area-item,.item-wrapper,.small-banner,.room-card-ctnr,.aside-item")) return null;
+    }
+    return null;
+  }
+
   // src/common/live/navigation.js
   function createLiveNavigation({ id, signal, isStopped, rememberAttribute, restoreAttribute }) {
     const pendingLinks = /* @__PURE__ */ new Set([document]);
@@ -1736,10 +2350,11 @@ ${content2}
       const url = urlOf(link.href);
       if (!url) return false;
       if (isFollowDestination(url)) return true;
-      if (url.hostname === "live.bilibili.com") return isLiveDestination(url);
+      if (url.hostname === "live.bilibili.com") return isLiveDestination(url) || pageId(url) === "LiveHome" && Boolean(link.closest(navigationScope));
       return Boolean(isPageUrl(url) && (link.closest(".bili-header-channel-panel") || link.closest(navigationScope)));
     }
     function searchControl(node) {
+      if (node instanceof Element && node.closest(".broadcast-search-close")) return null;
       const component = node instanceof Element ? node.closest(searchComponents) : null;
       return component?.closest(searchHeaders) ? component : null;
     }
@@ -1753,14 +2368,14 @@ ${content2}
         }
       }
     }
-    function isNavigationIgnored(url) {
+    function isNavigationIgnored(url, { probe = false, explicit = false } = {}) {
       if (pendingSearch?.component.isConnected) return true;
       if (url.hostname === "live.bilibili.com") {
-        if (isLiveDestination(url)) return true;
-        if (/^\/(?:blanc\/)?\d+\/?$/.test(url.pathname)) pauseHomePreview();
+        if (isLiveDestination(url)) return !explicit;
+        if (!probe && /^\/(?:blanc\/)?\d+\/?$/.test(url.pathname)) pauseHomePreview();
         return false;
       }
-      return isCompletedNavigation(url);
+      return !explicit && isCompletedNavigation(url);
     }
     function syncPotPlayerIgnore() {
       const api = window.__potPlayerBilibiliClick;
@@ -1993,246 +2608,317 @@ ${content2}
     return { update: positionAvatarMenus, startObserving, disconnect, destroy };
   }
 
-  // src/common/live/home-controls.js
-  function createLiveControls({ html, narrow, signal, schedule, ownClass, fit, includeSidebar = true }) {
-    const liveNavigation = /* @__PURE__ */ new Map(), liveSidebar = /* @__PURE__ */ new Map();
-    const liveMenu = document.createElement("section");
-    liveMenu.id = "live-home-more-menu";
-    liveMenu.hidden = true;
-    liveMenu.setAttribute("aria-label", "更多直播分区");
-    liveMenu.setAttribute("role", "region");
-    let liveMenuOwner = null, liveMenuCategory = null, liveMenuTimer = 0;
-    let menuRenderEvents = new AbortController();
-    function liveMenuButton(label, className, action, listenerSignal = signal) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = className;
-      button.textContent = label;
-      button.addEventListener("click", action, { signal: listenerSignal });
-      return button;
+  // src/common/live/header-menus.js
+  function readLiveHeaderItems(navbar) {
+    const itemOf = (node) => {
+      const label = (node.querySelector(".label,.nav-title__label") || node).textContent.trim();
+      const link = node.matches(".waterfall-item") ? node.querySelector("a") : node.closest("a") || node.querySelector("a[href]");
+      return {
+        label,
+        href: link?.getAttribute("href"),
+        source: link || node,
+        children: Array.from(node.querySelectorAll(".area-list a,.absolute a")).map((child) => ({
+          label: child.textContent.trim(),
+          href: child.getAttribute("href"),
+          source: child
+        }))
+      };
+    };
+    const dom = Array.from(navbar.querySelectorAll(".nav-items-ctnr .nav-item,.showmore-link .waterfall-item,.nav-title")).map(itemOf);
+    let native;
+    try {
+      native = navbar.__vue__?.$props?.navItems;
+    } catch {
     }
-    function readLiveMenu(navbar) {
-      const categories = [];
-      if (navbar.querySelector(".live-home-new-nav")) {
-        const entries2 = Array.from(navbar.querySelectorAll(".nav-title")).map((node) => {
-          const link = node.closest("a") || node;
-          return { label: node.textContent.trim(), href: link.getAttribute("href"), source: link };
-        }).filter((item) => item.label && item.label !== "首页");
-        for (const group of document.querySelectorAll("#app nav.flex-nowrap > .group")) {
-          const link = group.querySelector("a");
-          if (!link?.textContent.trim()) continue;
-          const children = Array.from(group.querySelectorAll(".absolute a")).map((node) => ({ label: node.textContent.trim(), href: node.getAttribute("href"), source: node }));
-          categories.push({ name: link.textContent.trim(), href: link.getAttribute("href"), source: link, children });
-        }
-        return { entries: entries2, categories };
+    const items = Array.isArray(native) && native.length ? native.map((item) => {
+      const fallback = dom.find((entry) => entry.label === item.label), areas = item.propData?.areaList;
+      return {
+        label: item.label,
+        href: item.href,
+        source: fallback?.source,
+        children: Array.isArray(areas) ? areas.filter((area) => area.label && area.link).map((area) => ({ label: area.label, href: area.link })) : fallback?.children || []
+      };
+    }) : dom;
+    if (!native?.length && navbar.querySelector(".nav-title")) {
+      for (const group of document.querySelectorAll("#app nav.flex-nowrap > .group")) {
+        const entry = itemOf(group), anchor = group.querySelector("a");
+        entry.label = anchor?.textContent.trim() || entry.label;
+        items.push(entry);
       }
-      for (const native of navbar.querySelectorAll(".nav-items-ctnr .nav-item")) {
-        const name = native.querySelector(".label")?.textContent.trim();
-        if (!name) continue;
-        const link = native.closest("a");
-        const children = Array.from(native.querySelectorAll(".area-list a")).map((node) => ({ label: node.querySelector(".list-item")?.textContent.trim() || node.textContent.trim(), href: node.getAttribute("href"), source: node }));
-        categories.push({ name, href: link?.getAttribute("href"), source: link || native, children });
-      }
-      const entries = Array.from(navbar.querySelectorAll(".showmore-link .waterfall-item")).map((node) => ({ label: node.textContent.trim(), href: node.querySelector("a[href]")?.getAttribute("href"), source: node })).filter((item) => item.label && !categories.some((category) => category.name === item.label));
-      return { categories, entries };
     }
-    function createLiveMenuLink(entry, className) {
-      const valid = entry.href && !/^(?:javascript:|#)/i.test(entry.href) && urlOf(entry.href);
-      if (valid) {
-        const link = document.createElement("a");
-        link.className = className;
-        link.textContent = entry.label;
-        link.href = entry.href;
-        link.target = "_self";
-        return link;
-      }
-      if (entry.source) {
-        return liveMenuButton(entry.label, className, () => {
-          closeLiveMenu();
-          entry.source.click();
-        }, menuRenderEvents.signal);
-      }
-      const disabled = liveMenuButton(entry.label, className, () => {
-      }, menuRenderEvents.signal);
-      disabled.disabled = true;
-      return disabled;
+    const seen = /* @__PURE__ */ new Set(["首页", "直播"]);
+    return items.filter((item) => {
+      if (typeof item.label !== "string" || !item.label.trim() || seen.has(item.label)) return false;
+      seen.add(item.label);
+      return true;
+    });
+  }
+  function createLiveHeaderMenus({
+    html,
+    narrow,
+    signal,
+    ownClass,
+    fit,
+    rememberAttribute,
+    restoreAttribute,
+    setProperty,
+    restoreProperty
+  }) {
+    const owners = /* @__PURE__ */ new Map(), panel = document.createElement("div");
+    panel.id = "live-home-more-menu";
+    panel.hidden = true;
+    panel.setAttribute("aria-label", "更多直播分区");
+    const primary = document.createElement("div"), secondary = document.createElement("div");
+    primary.className = "broadcast-live-menu-grid";
+    secondary.className = "broadcast-live-submenu";
+    secondary.hidden = true;
+    panel.append(primary, secondary);
+    let active = null, selected = null, renderEvents = new AbortController();
+    const listen = (node, type, fn, s = signal) => node.addEventListener(type, fn, { signal: s });
+    function button(label, className) {
+      const node = document.createElement("button");
+      node.type = "button";
+      node.textContent = label;
+      node.className = className;
+      return node;
     }
-    function positionLiveMenu() {
-      if (!liveMenuOwner || liveMenu.hidden) return;
-      const anchor = liveMenuOwner.button.getBoundingClientRect();
-      liveMenu.style.width = "max-content";
-      liveMenu.style.maxWidth = Math.max(0, html.clientWidth - 16) + "px";
-      const below = innerHeight - anchor.bottom - 16, above = anchor.top - 16;
-      const useAbove = below < 180 && above > below;
-      const available = Math.max(48, useAbove ? above : below);
-      const maxHeight = Math.min(640, available);
-      liveMenu.style.maxHeight = maxHeight + "px";
-      const width = liveMenu.getBoundingClientRect().width;
-      const left = Math.max(8, Math.min(anchor.left, html.clientWidth - width - 8));
-      const top = useAbove ? Math.max(8, anchor.top - liveMenu.offsetHeight - 8) : Math.max(8, anchor.bottom + 8);
-      liveMenu.style.left = left + "px";
-      liveMenu.style.top = top + "px";
+    function link(item) {
+      const url = item.href && urlOf(item.href), node = url ? document.createElement("a") : button(item.label, "");
+      node.textContent = item.label;
+      node.className = "broadcast-live-menu-link";
+      if (url) {
+        node.href = url.href;
+        node.target = "_self";
+      } else if (item.source) listen(node, "click", () => {
+        close();
+        item.source.click();
+      }, renderEvents.signal);
+      else node.disabled = true;
+      return node;
     }
-    function renderLiveMenu(focus = false) {
-      if (!liveMenuOwner) return;
-      menuRenderEvents.abort();
-      menuRenderEvents = new AbortController();
-      const data = readLiveMenu(liveMenuOwner.navbar);
-      const category = data.categories.find((item) => item.name === liveMenuCategory);
-      if (liveMenuCategory && !category) liveMenuCategory = null;
-      liveMenu.replaceChildren();
-      const header = document.createElement("div");
-      header.className = "live-home-menu-header";
-      if (category) header.append(liveMenuButton("‹", "live-home-menu-back", () => {
-        liveMenuCategory = null;
-        renderLiveMenu(true);
-      }, menuRenderEvents.signal));
-      const heading = document.createElement("strong");
-      heading.textContent = category ? category.name : "更多分区";
-      header.append(heading);
-      const close = liveMenuButton("×", "live-home-menu-close", () => closeLiveMenu(true), menuRenderEvents.signal);
-      close.setAttribute("aria-label", "关闭更多分区");
-      header.append(close);
-      if (category) header.firstElementChild.setAttribute("aria-label", "返回全部分区");
-      const content2 = document.createElement("div");
-      content2.className = "live-home-menu-content";
-      if (category) {
-        if (category.href || category.source) content2.append(createLiveMenuLink({ label: "全部" + category.name, href: category.href, source: category.source }, "live-home-menu-all"));
+    function position() {
+      if (!active || panel.hidden) return;
+      const anchor = active.trigger.getBoundingClientRect();
+      const bottom = Math.max(anchor.bottom, active.navbar.getBoundingClientRect().bottom);
+      const ceiling = parseFloat(getComputedStyle(html).getPropertyValue("--broadcast-navigation-height")) || 0;
+      panel.style.maxWidth = Math.max(0, html.clientWidth - 16) + "px";
+      panel.style.maxHeight = Math.max(0, innerHeight - ceiling - 16) + "px";
+      const box = panel.getBoundingClientRect(), below = innerHeight - bottom - 16;
+      const top = box.height <= below || anchor.top - ceiling < below ? Math.max(ceiling + 8, Math.min(bottom + 6, innerHeight - box.height - 8)) : Math.max(ceiling + 8, anchor.top - box.height - 6);
+      panel.style.left = Math.max(8, Math.min(anchor.left, html.clientWidth - box.width - 8)) + "px";
+      panel.style.top = top + "px";
+      positionChild();
+    }
+    function positionChild() {
+      if (!active || !selected || secondary.hidden || panel.hidden) return;
+      const anchor = selected.closest(".broadcast-live-menu-cell").getBoundingClientRect();
+      const ceiling = Math.max(
+        active.navbar.getBoundingClientRect().bottom + 6,
+        (parseFloat(getComputedStyle(html).getPropertyValue("--broadcast-navigation-height")) || 0) + 8
+      );
+      const room = Math.max(anchor.left - 8, html.clientWidth - anchor.right - 8);
+      secondary.style.width = Math.max(96, Math.min(200, room)) + "px";
+      secondary.classList.toggle("broadcast-live-submenu-narrow", room < 160);
+      secondary.style.maxWidth = Math.max(0, html.clientWidth - 16) + "px";
+      secondary.style.maxHeight = Math.max(0, innerHeight - ceiling - 8) + "px";
+      const box = secondary.getBoundingClientRect();
+      const left = anchor.right + box.width <= html.clientWidth - 8 ? anchor.right : anchor.left - box.width;
+      secondary.style.left = Math.max(8, Math.min(left, html.clientWidth - box.width - 8)) + "px";
+      secondary.style.top = Math.max(ceiling, Math.min((anchor.top + anchor.bottom - box.height) / 2, innerHeight - box.height - 8)) + "px";
+    }
+    function collapseChild(focus = false) {
+      const previous = selected;
+      selected = null;
+      secondary.hidden = true;
+      secondary.replaceChildren();
+      if (previous) categoryState(previous, false);
+      if (focus) previous?.focus({ preventScroll: true });
+    }
+    function categoryState(trigger, expanded) {
+      trigger.setAttribute("aria-expanded", String(expanded));
+      trigger.setAttribute("aria-label", (expanded ? "收起" : "展开") + trigger.dataset.category + "子菜单");
+      trigger.querySelector(".broadcast-live-submenu-trigger").textContent = expanded ? "<" : ">";
+    }
+    function expandChild(item, trigger) {
+      if (selected !== trigger) {
+        collapseChild();
+        selected = trigger;
+        const all = link({ ...item, label: "全部" + item.label });
+        all.classList.add("broadcast-live-submenu-all");
         const grid = document.createElement("div");
-        grid.className = "live-home-menu-grid";
-        for (const entry of category.children) grid.append(createLiveMenuLink(entry, "live-home-menu-entry"));
-        if (!category.children.length) {
-          const empty = document.createElement("p");
-          empty.className = "live-home-menu-empty";
-          empty.textContent = "该分类暂无细分入口";
-          grid.append(empty);
-        }
-        content2.append(grid);
-      } else {
-        const grid = document.createElement("div");
-        grid.className = "live-home-menu-grid";
-        for (const entry of data.entries) grid.append(createLiveMenuLink(entry, "live-home-menu-entry"));
-        content2.append(grid);
-        const group = document.createElement("div");
-        group.className = "live-home-menu-categories";
-        for (const item of data.categories) {
-          const button = liveMenuButton("", "live-home-menu-category", () => {
-            liveMenuCategory = item.name;
-            renderLiveMenu(true);
-          }, menuRenderEvents.signal);
-          const label = document.createElement("span");
-          label.textContent = item.name;
-          const arrow = document.createElement("span");
-          arrow.textContent = "›";
+        grid.className = "broadcast-live-submenu-grid";
+        for (const child of item.children) grid.append(link(child));
+        secondary.replaceChildren(all, grid);
+        secondary.hidden = false;
+        categoryState(trigger, true);
+        positionChild();
+      }
+    }
+    function render() {
+      renderEvents.abort();
+      renderEvents = new AbortController();
+      primary.replaceChildren();
+      for (const item of readLiveHeaderItems(active.navbar)) {
+        const cell = document.createElement("div");
+        cell.className = "broadcast-live-menu-cell";
+        if (item.children.length) {
+          const trigger = button("", "broadcast-live-menu-link broadcast-live-category-trigger");
+          const label = document.createElement("span"), arrow = document.createElement("span");
+          label.textContent = item.label;
+          arrow.className = "broadcast-live-submenu-trigger";
           arrow.setAttribute("aria-hidden", "true");
-          button.append(label, arrow);
-          button.setAttribute("aria-label", "展开" + item.name + "子菜单");
-          group.append(button);
-        }
-        content2.append(group);
+          trigger.dataset.category = item.label;
+          trigger.append(label, arrow);
+          categoryState(trigger, false);
+          cell.append(trigger);
+          listen(trigger, "click", () => {
+            if (selected === trigger) collapseChild();
+            else expandChild(item, trigger);
+          }, renderEvents.signal);
+        } else cell.append(link(item));
+        primary.append(cell);
       }
-      liveMenu.append(header, content2);
-      positionLiveMenu();
-      if (focus) liveMenu.querySelector("button,a")?.focus({ preventScroll: true });
     }
-    function closeLiveMenu(focus = false) {
-      clearTimeout(liveMenuTimer);
-      liveMenuTimer = 0;
-      menuRenderEvents.abort();
-      const owner = liveMenuOwner;
-      liveMenu.hidden = true;
-      liveMenuOwner = null;
-      liveMenuCategory = null;
-      owner?.button.setAttribute("aria-expanded", "false");
-      if (focus && owner?.button.isConnected) owner.button.focus({ preventScroll: true });
+    function close(focus = false) {
+      const previous = active;
+      collapseChild();
+      active = null;
+      panel.hidden = true;
+      previous?.trigger.setAttribute("aria-expanded", "false");
+      if (focus) previous?.trigger.focus({ preventScroll: true });
     }
-    function openLiveMenu(owner, focus = false) {
-      clearTimeout(liveMenuTimer);
-      liveMenuTimer = 0;
-      if (liveMenuOwner === owner && !liveMenu.hidden) {
-        if (focus) liveMenu.querySelector("button,a")?.focus();
-        return;
+    function open(owner) {
+      if (active !== owner || panel.hidden) {
+        close();
+        active = owner;
+        render();
+        if (!panel.isConnected) document.body.append(panel);
+        panel.hidden = false;
+        owner.trigger.setAttribute("aria-expanded", "true");
+        position();
       }
-      closeLiveMenu();
-      liveMenuOwner = owner;
-      liveMenuCategory = null;
-      if (!liveMenu.isConnected) document.body.append(liveMenu);
-      liveMenu.hidden = false;
-      owner.button.setAttribute("aria-expanded", "true");
-      renderLiveMenu(focus);
-      schedule();
     }
-    function deferCloseLiveMenu() {
-      clearTimeout(liveMenuTimer);
-      liveMenuTimer = setTimeout(() => closeLiveMenu(), 220);
-    }
-    liveMenu.addEventListener("pointerenter", () => {
-      clearTimeout(liveMenuTimer);
-      liveMenuTimer = 0;
-    }, { signal });
-    liveMenu.addEventListener("click", (event) => {
-      if (event.target.closest("a[href]")) closeLiveMenu();
-    }, { signal });
+    listen(panel, "click", (event) => {
+      if (event.target.closest("a[href]")) close();
+    });
     document.addEventListener("pointerdown", (event) => {
-      if (liveMenuOwner && !liveMenu.contains(event.target) && !liveMenuOwner.button.contains(event.target)) closeLiveMenu();
+      if (active && !panel.contains(event.target) && !active.host.contains(event.target)) close();
     }, { capture: true, signal });
     document.addEventListener("keydown", (event) => {
-      if (!liveMenuOwner) return;
+      if (!active) return;
       if (event.key === "Escape") {
         event.preventDefault();
-        closeLiveMenu(true);
+        event.stopPropagation();
+        if (selected) collapseChild(true);
+        else close(true);
       }
-    }, { signal });
+    }, { capture: true, signal });
     document.addEventListener("scroll", (event) => {
-      if (!liveMenu.contains(event.target)) closeLiveMenu();
+      if (panel.contains(event.target)) positionChild();
+      else close();
     }, { capture: true, passive: true, signal });
-    function restoreLiveNavigation() {
-      closeLiveMenu();
-      liveMenu.remove();
-      for (const [more, owner] of liveNavigation) {
-        owner.button.remove();
-        ownClass(more, "live-home-menu-host", false);
-        ownClass(more, "live-home-new-nav", false);
-        if (owner.wrapper) ownClass(owner.wrapper, "live-home-new-header", false);
+    function fitNativePanel(owner) {
+      const livePanel = owner.live.querySelector(".area-list-panel");
+      if (!livePanel) return;
+      if (owner.livePanel !== livePanel) {
+        owner.watch?.disconnect();
+        owner.resize?.disconnect();
+        owner.livePanel = livePanel;
+        owner.watch = new MutationObserver(() => fitNativePanel(owner));
+        owner.watch.observe(livePanel, { attributes: true, attributeFilter: ["style"], childList: true, subtree: true });
+        owner.resize = new ResizeObserver(() => fitNativePanel(owner));
+        owner.resize.observe(livePanel);
       }
-      liveNavigation.clear();
+      const anchor = owner.live.getBoundingClientRect(), box = livePanel.getBoundingClientRect();
+      const ceiling = parseFloat(getComputedStyle(html).getPropertyValue("--broadcast-navigation-height")) || 0;
+      const bottom = Math.max(anchor.bottom, owner.navbar.getBoundingClientRect().bottom);
+      const top = Math.max(ceiling + 8, Math.min(bottom + 6, innerHeight - box.height - 8));
+      setProperty(owner.live, "--broadcast-live-panel-left", Math.max(8, Math.min(anchor.left, html.clientWidth - box.width - 8)) + "px");
+      setProperty(owner.live, "--broadcast-live-panel-top", top + "px");
+      setProperty(owner.live, "--broadcast-live-panel-height", Math.max(0, innerHeight - top - 8) + "px");
     }
-    function restoreLiveSidebar() {
-      for (const [node, button] of liveSidebar) {
-        ownClass(node, "live-home-sidebar-collapsed", false);
-        button.remove();
+    function release(navbar, owner) {
+      if (active === owner) close();
+      owner.events.abort();
+      owner.watch?.disconnect();
+      owner.resize?.disconnect();
+      for (const attr of ["tabindex", "role", "aria-expanded", "aria-controls"]) restoreAttribute(owner.trigger, attr);
+      ownClass(owner.host, "broadcast-live-more-host", false);
+      for (const prop of ["--broadcast-live-font", "--broadcast-live-font-size", "--broadcast-live-font-weight"]) restoreProperty(owner.host, prop);
+      if (owner.created) owner.host.remove();
+      ownClass(owner.live, "live-home-live-entry", false);
+      for (const prop of ["--broadcast-live-panel-left", "--broadcast-live-panel-top", "--broadcast-live-panel-height"]) restoreProperty(owner.live, prop);
+      if (owner.marker) {
+        if (owner.live.isConnected || !owner.marker.isConnected) owner.marker.replaceWith(owner.live);
+        else owner.marker.remove();
       }
-      liveSidebar.clear();
+      if (owner.titles) ownClass(owner.titles, "live-home-new-nav", false);
+      if (owner.wrapper) ownClass(owner.wrapper, "live-home-new-header", false);
+      owners.delete(navbar);
     }
-    function fitLiveNavigation() {
+    function attach(navbar, live, titles, wrapper) {
+      let host = navbar.querySelector(".showmore-link");
+      const created = !host;
+      if (created) {
+        host = document.createElement("div");
+        host.className = "showmore-link";
+        const trigger2 = button("更多", "broadcast-live-more-trigger"), arrow = document.createElement("span");
+        arrow.setAttribute("aria-hidden", "true");
+        trigger2.append(arrow);
+        host.append(trigger2);
+        (titles || live.parentElement).append(host);
+      }
+      const trigger = host.querySelector(":scope > a,:scope > button") || host;
+      const owner = { navbar, live, host, trigger, created, titles, wrapper, events: new AbortController(), marker: null };
+      if (!titles) {
+        owner.marker = document.createComment("native live entry");
+        live.before(owner.marker);
+        host.before(live);
+      }
+      ownClass(live, "live-home-live-entry");
+      ownClass(host, "broadcast-live-more-host");
+      rememberAttribute(trigger, "tabindex", "0");
+      if (trigger.tagName !== "BUTTON") rememberAttribute(trigger, "role", "button");
+      rememberAttribute(trigger, "aria-expanded", "false");
+      rememberAttribute(trigger, "aria-controls", panel.id);
+      const s = owner.events.signal;
+      host.addEventListener("click", (event) => {
+        if (event.target.closest(".slot-ctnr")) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (active === owner && !panel.hidden) close();
+        else open(owner);
+      }, { capture: true, signal: s });
+      trigger.addEventListener("keydown", (event) => {
+        if (event.target !== trigger || !["Enter", " ", "ArrowDown"].includes(event.key)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.key !== "ArrowDown" && active === owner && !panel.hidden) close();
+        else open(owner);
+        if (event.key === "ArrowDown") primary.querySelector("a,button")?.focus({ preventScroll: true });
+      }, { signal: s });
+      owners.set(navbar, owner);
+      return owner;
+    }
+    function update() {
+      for (const [navbar, owner] of owners) if (!narrow.matches || !navbar.isConnected || !navbar.contains(owner.live) || !navbar.contains(owner.host) || !owner.host.contains(owner.trigger)) release(navbar, owner);
       if (!narrow.matches) {
-        restoreLiveNavigation();
-        restoreLiveSidebar();
+        close();
+        panel.remove();
         return;
-      }
-      for (const [more, owner] of liveNavigation) if (!more.isConnected) {
-        if (owner === liveMenuOwner) closeLiveMenu();
-        owner.button.remove();
-        liveNavigation.delete(more);
       }
       for (const navbar of document.querySelectorAll(".link-navbar")) {
         const wrapper = navbar.closest('[class~="relative"][class~="z-100"][class~="h-64px"][class~="w-full"][class~="shrink-0"]');
-        const modern = wrapper && navbar.querySelector(".nav-title");
-        const more = navbar.querySelector(modern ? ".nav-titles" : ".showmore-link");
-        if (!more) continue;
-        let homeFont = "";
-        if (modern) {
-          const home = Array.from(more.querySelectorAll(".nav-title")).find((link) => link.textContent.trim() === "首页");
-          const avatar = navbar.querySelector(".user-panel.dp-table");
-          const search = navbar.querySelector("#nav-searchform");
-          if (!home || !avatar || !search) continue;
-          homeFont = getComputedStyle(home).font;
+        const titles = wrapper && navbar.querySelector(".nav-titles");
+        const live = owners.get(navbar)?.live || Array.from(navbar.querySelectorAll(titles ? ".nav-title" : ".nav-items-ctnr .nav-item")).find((node) => (node.querySelector(".label,.nav-title__label") || node).textContent.trim() === "直播");
+        if (!live) continue;
+        const entry = live.closest("a") || live, owner = owners.get(navbar) || attach(navbar, entry, titles, wrapper);
+        if (titles) {
           ownClass(wrapper, "live-home-new-header");
-          ownClass(more, "live-home-new-nav");
-          const keep = [home.closest("a") || home, avatar, search.closest(".search-block") || search];
+          ownClass(titles, "live-home-new-nav");
+          const keep = [entry, owner.host, navbar.querySelector(".user-panel.dp-table"), navbar.querySelector(".search-block")].filter(Boolean);
           const trim = (node) => {
             for (const child of node.children) {
-              if (child.classList.contains("live-home-more-trigger")) continue;
               const retained = keep.some((item) => child.contains(item));
               fit([child], retained ? 1 : 0);
               if (retained && !keep.includes(child)) trim(child);
@@ -2240,79 +2926,148 @@ ${content2}
           };
           trim(navbar);
         }
-        if (liveNavigation.has(more)) {
-          if (homeFont) liveNavigation.get(more).button.style.setProperty("font", homeFont, "important");
-          continue;
-        }
-        const owner = { navbar, wrapper, button: null };
-        const button = liveMenuButton("更多 ▾", "live-home-more-trigger", () => {
-          if (liveMenuOwner === owner && !liveMenu.hidden) closeLiveMenu();
-          else openLiveMenu(owner, true);
-        });
-        if (homeFont) button.style.setProperty("font", homeFont, "important");
-        owner.button = button;
-        button.setAttribute("aria-expanded", "false");
-        button.setAttribute("aria-controls", liveMenu.id);
-        button.addEventListener("pointerenter", () => {
-          clearTimeout(liveMenuTimer);
-          liveMenuTimer = setTimeout(() => openLiveMenu(owner), 120);
-        }, { signal });
-        button.addEventListener("pointerleave", deferCloseLiveMenu, { signal });
-        button.addEventListener("keydown", (event) => {
-          if (event.key === "ArrowDown") {
-            event.preventDefault();
-            openLiveMenu(owner, true);
-          }
-        }, { signal });
-        if (!modern) ownClass(more, "live-home-menu-host");
-        more.append(button);
-        liveNavigation.set(more, owner);
+        const font = getComputedStyle(entry.querySelector(".label,.nav-title__label") || entry);
+        setProperty(owner.host, "--broadcast-live-font", font.fontFamily);
+        setProperty(owner.host, "--broadcast-live-font-size", font.fontSize);
+        setProperty(owner.host, "--broadcast-live-font-weight", font.fontWeight);
+        fitNativePanel(owner);
       }
-      if (liveMenuOwner) positionLiveMenu();
-      for (const [sidebar, button] of liveSidebar) if (!sidebar.isConnected) {
-        button.remove();
-        liveSidebar.delete(sidebar);
-      }
-      for (const sidebar of includeSidebar ? document.querySelectorAll(".live-sidebar-ctnr") : []) {
-        if (liveSidebar.has(sidebar)) continue;
+      position();
+    }
+    return { update, contains: (node) => panel.contains(node), destroy() {
+      close();
+      renderEvents.abort();
+      for (const [navbar, owner] of owners) release(navbar, owner);
+      panel.remove();
+    } };
+  }
+
+  // src/common/live/home-controls.js
+  function createLiveControls(options) {
+    const { narrow, signal, ownClass, includeSidebar = true } = options;
+    const header = createLiveHeaderMenus(options), sidebars = /* @__PURE__ */ new Map();
+    function restore(node, button) {
+      ownClass(node, "live-home-sidebar-collapsed", false);
+      button.remove();
+      sidebars.delete(node);
+    }
+    return { contains: header.contains, update() {
+      header.update();
+      for (const [node, button] of sidebars) if (!narrow.matches || !node.isConnected) restore(node, button);
+      if (!narrow.matches || !includeSidebar) return;
+      for (const node of document.querySelectorAll(".live-sidebar-ctnr")) {
+        if (sidebars.has(node)) continue;
         const button = document.createElement("button");
         button.type = "button";
         button.className = "live-home-sidebar-toggle";
-        const setExpanded = (expanded) => {
-          ownClass(sidebar, "live-home-sidebar-collapsed", !expanded);
-          button.textContent = expanded ? "收起工具栏" : "展开工具栏";
-          button.setAttribute("aria-expanded", String(expanded));
+        const expand = (value) => {
+          ownClass(node, "live-home-sidebar-collapsed", !value);
+          button.textContent = value ? "收起工具栏" : "展开工具栏";
+          button.setAttribute("aria-expanded", String(value));
         };
-        setExpanded(false);
-        button.addEventListener("click", () => setExpanded(button.getAttribute("aria-expanded") !== "true"), { signal });
-        sidebar.before(button);
-        liveSidebar.set(sidebar, button);
+        expand(false);
+        button.addEventListener("click", () => expand(button.getAttribute("aria-expanded") !== "true"), { signal });
+        node.before(button);
+        sidebars.set(node, button);
       }
-    }
-    return {
-      update: fitLiveNavigation,
-      contains: (node) => liveMenu.contains(node),
-      destroy() {
-        restoreLiveNavigation();
-        restoreLiveSidebar();
-      }
-    };
+    }, destroy() {
+      header.destroy();
+      for (const [node, button] of sidebars) restore(node, button);
+    } };
   }
 
   // src/common/live/base.css
   var base_default = '    /* 与 FeedScript 一致，原生滚动条配色跟随站点主题；所有宽度和滚动容器均生效。 */\n    html.homepagescript-active { color-scheme:light!important; }\n    html.homepagescript-active.bili_dark { color-scheme:dark!important; }\n    html.homepagescript-active:has(link#__css-map__[href*="/light.css"]) { color-scheme:light!important; }\n    html.homepagescript-active:has(link#__css-map__[href*="/dark.css"]) { color-scheme:dark!important; }\n    html.homepagescript-active, html.homepagescript-active * { scrollbar-width:thin!important; scrollbar-color:auto!important; }\n\n@media(max-width:1099px) {\n  html.homepagescript-active, html.homepagescript-active body {min-width:0!important;overflow-x:clip!important;}\n  html.homepagescript-active .homepagescript-hidden {display:none!important;}\n  html.homepagescript-active :is(.bili-header__bar,.link-navbar) :is(.homepagescript-avatar-menu,.homepagescript-avatar-submenu) {\n    position:fixed!important;left:var(--homepagescript-avatar-left,0px)!important;top:var(--homepagescript-avatar-top,0px)!important;\n    right:auto!important;bottom:auto!important;margin:0!important;transform:none!important;\n    zoom:var(--homepagescript-avatar-zoom,1)!important;transition-property:opacity!important;\n  }\n  html.homepagescript-active .homepagescript-avatar-submenu-left {padding-left:0!important;padding-right:10px!important;}\n}\n';
 
   // src/common/live/live-header.css
-  var live_header_default = "/* Shared compact live header; preserve native search and avatar controls. */\n@media(max-width:1099px) {\n/* Header: title, More, flexible search, avatar. Keep all popup contents intact. */\nhtml.homepagescript-active .link-navbar {box-sizing:border-box!important;display:flex!important;align-items:center!important;gap:6px!important;width:100%!important;min-width:0!important;height:56px!important;padding:0 8px!important;}\nhtml.homepagescript-active .link-navbar :is(#main-ctnr,.left-part,.right-part) {position:relative!important;inset:auto!important;float:none!important;flex:none!important;width:auto!important;min-width:0!important;margin:0!important;padding:0!important;}\nhtml.homepagescript-active .link-navbar .left-part {display:flex!important;align-items:center!important;height:100%!important;}\nhtml.homepagescript-active .link-navbar .left-part > .dp-table-cell {display:flex!important;align-items:center!important;height:100%!important;gap:6px!important;}\nhtml.homepagescript-active .link-navbar :is(.entry-title,.showmore-link) {white-space:nowrap!important;flex:none!important;margin:0!important;}\nhtml.homepagescript-active .link-navbar .entry-title {display:inline-flex!important;align-items:center!important;}\nhtml.homepagescript-active .link-navbar .nav-logo {margin:0!important;line-height:24px!important;}\nhtml.homepagescript-active .link-navbar .tv-logo {display:block!important;top:auto!important;flex:none!important;margin-right:4px!important;}\nhtml.homepagescript-active .link-navbar :is(.entry_logo,.platform-service-ctnr,.shortcuts-ctnr) {display:none!important;}\nhtml.homepagescript-active .link-navbar .showmore-link {display:block!important;position:relative!important;margin-left:6px!important;}\nhtml.homepagescript-active .link-navbar .search-block {position:relative!important;inset:auto!important;flex:1 1 0!important;min-width:0!important;width:auto!important;padding:0!important;margin:0!important;}\nhtml.homepagescript-active .link-navbar :is(.search-bar-ctnr,.nomarl-cell,.search-bar,.nav-search-content) {box-sizing:border-box!important;min-width:0!important;width:100%!important;}\nhtml.homepagescript-active .link-navbar .nav-search-content {padding-right:32px!important;}\nhtml.homepagescript-active .link-navbar .panel-ab {position:static!important;}\nhtml.homepagescript-active .link-navbar .right-part > .user-panel {width:auto!important;min-width:0!important;padding:0!important;margin:0!important;}\nhtml.homepagescript-active .link-navbar .user-panel-ctnr {min-width:0!important;margin:0!important;padding:0!important;}\nhtml.homepagescript-active .link-navbar .user-panel-ctnr > .user-panel {box-sizing:border-box!important;max-width:calc(100vw - 16px)!important;}\n/* New live header: the same native search/avatar, with nav-title entries. */\nhtml.homepagescript-active .live-home-new-header {height:56px!important;min-width:0!important;width:100%!important;}\n/* Keep the native 40px search height. The in-flow panel expands the inner table;\n   align its top so opening suggestions cannot lift the input out of the header. */\nhtml.homepagescript-active .live-home-new-header .search-block {display:flex!important;align-items:flex-start!important;height:40px!important;}\nhtml.homepagescript-active .live-home-new-header .user-panel-ctnr {display:inline-flex!important;align-items:center!important;}\nhtml.homepagescript-active .link-navbar .live-home-new-nav {display:flex!important;align-items:center!important;gap:6px!important;flex:none!important;width:auto!important;min-width:0!important;margin:0!important;padding:0!important;}\nhtml.homepagescript-active .live-home-new-nav .nav-title:not(.homepagescript-hidden) {display:inline-flex!important;align-items:center!important;gap:4px!important;white-space:nowrap!important;margin:0!important;padding:0!important;line-height:24px!important;}\n}\n";
+  var live_header_default = '/* Shared compact live header; preserve native search and avatar controls. */\n@media(max-width:1099px) {\n/* Header: native Live entry, More, flexible search, avatar. */\nhtml.homepagescript-active .link-navbar {box-sizing:border-box!important;display:flex!important;align-items:center!important;gap:6px!important;width:100%!important;min-width:0!important;height:56px!important;padding:0 8px!important;}\nhtml.homepagescript-active .link-navbar :is(#main-ctnr,.left-part,.right-part) {position:relative!important;inset:auto!important;float:none!important;flex:none!important;width:auto!important;min-width:0!important;margin:0!important;padding:0!important;}\nhtml.homepagescript-active .link-navbar .left-part {display:flex!important;align-items:center!important;height:100%!important;}\nhtml.homepagescript-active .link-navbar .left-part > .dp-table-cell {display:flex!important;align-items:center!important;height:100%!important;gap:6px!important;}\nhtml.homepagescript-active .link-navbar :is(.live-home-live-entry,.showmore-link) {white-space:nowrap!important;flex:none!important;margin:0!important;}\nhtml.homepagescript-active .link-navbar .live-home-live-entry {position:relative!important;display:inline-flex!important;align-items:center!important;line-height:24px!important;}\nhtml.homepagescript-active .live-home-live-entry:has(.area-list-panel):hover::after {content:"";position:absolute;left:0;top:100%;width:96px;height:24px;}\nhtml.homepagescript-active .link-navbar .live-home-live-entry .nav-item {height:auto!important;line-height:24px!important;margin:0!important;}\n/* Keep the original Live card and handlers; its native centering around a\n   28px entry otherwise pushes the left half of the card outside the window. */\nhtml.homepagescript-active .live-home-live-entry .area-list-panel {position:fixed!important;left:var(--broadcast-live-panel-left,8px)!important;top:var(--broadcast-live-panel-top,94px)!important;right:auto!important;bottom:auto!important;margin:0!important;transform:none!important;box-sizing:border-box!important;width:max-content!important;min-width:0!important;max-width:calc(100vw - 16px)!important;height:auto!important;max-height:var(--broadcast-live-panel-height,calc(100dvh - 102px))!important;overflow:auto!important;}\nhtml.homepagescript-active .live-home-live-entry .area-list-panel :is(.lens-transition,.main-ctnr) {position:static!important;inset:auto!important;width:auto!important;height:auto!important;min-width:0!important;max-width:100%!important;margin:0!important;transform:none!important;}\nhtml.homepagescript-active .live-home-live-entry .area-list-panel .main-ctnr {padding:8px!important;}\nhtml.homepagescript-active .live-home-live-entry .area-list-panel .area-list {display:flex!important;flex-wrap:wrap!important;justify-content:flex-start!important;gap:0!important;margin:0!important;padding:0!important;}\nhtml.homepagescript-active .live-home-live-entry .area-list-panel .list-item {width:auto!important;max-width:100%!important;height:auto!important;min-height:32px!important;line-height:20px!important;padding:6px!important;text-overflow:clip!important;white-space:normal!important;overflow-wrap:anywhere!important;}\nhtml.homepagescript-active .link-navbar :is(.entry-title,.entry_logo,.platform-service-ctnr,.shortcuts-ctnr) {display:none!important;}\nhtml.homepagescript-active .link-navbar .showmore-link {display:block!important;position:relative!important;margin-left:6px!important;}\nhtml.homepagescript-active .link-navbar .search-block {position:relative!important;inset:auto!important;flex:1 1 0!important;min-width:0!important;width:auto!important;padding:0!important;margin:0!important;}\nhtml.homepagescript-active .link-navbar :is(.search-bar-ctnr,.nomarl-cell,.search-bar,.nav-search-content) {box-sizing:border-box!important;min-width:0!important;width:100%!important;}\nhtml.homepagescript-active .link-navbar .nav-search-content {padding-right:32px!important;}\nhtml.homepagescript-active .link-navbar .panel-ab {position:static!important;}\nhtml.homepagescript-active .link-navbar .right-part > .user-panel {width:auto!important;min-width:0!important;padding:0!important;margin:0!important;}\nhtml.homepagescript-active .link-navbar .user-panel-ctnr {min-width:0!important;margin:0!important;padding:0!important;}\nhtml.homepagescript-active .link-navbar .user-panel-ctnr > .user-panel {box-sizing:border-box!important;max-width:calc(100vw - 16px)!important;}\n/* New live header: the same native search/avatar, with nav-title entries. */\nhtml.homepagescript-active .live-home-new-header {height:56px!important;min-width:0!important;width:100%!important;}\n/* Keep the native 40px search height. The in-flow panel expands the inner table;\n   align its top so opening suggestions cannot lift the input out of the header. */\nhtml.homepagescript-active .live-home-new-header .search-block {display:flex!important;align-items:flex-start!important;height:40px!important;}\nhtml.homepagescript-active .live-home-new-header .user-panel-ctnr {display:inline-flex!important;align-items:center!important;}\nhtml.homepagescript-active .link-navbar .live-home-new-nav {display:flex!important;align-items:center!important;gap:6px!important;flex:none!important;width:auto!important;min-width:0!important;margin:0!important;padding:0!important;}\nhtml.homepagescript-active .live-home-new-nav .nav-title:not(.homepagescript-hidden) {display:inline-flex!important;align-items:center!important;gap:4px!important;white-space:nowrap!important;margin:0!important;padding:0!important;line-height:24px!important;}\n}\n';
 
   // src/common/live/live-list-layout.css
   var live_list_layout_default = '/* Native /all wrappers and room cards. */\n@media(max-width:1099px) {\nhtml.homepagescript-active :is(#app,#main) {min-width:0!important;width:100%!important;}\nhtml.homepagescript-active :is(.all__area-top-ctnr,.all__special-area-recommend-list-ctnr,.all__card-list-ctnr) {box-sizing:border-box!important;min-width:0!important;width:calc(100% - 24px)!important;margin:24px 12px!important;padding:0!important;}\nhtml.homepagescript-active :is(.all__area-top-ctnr,.all__special-area-recommend-list-ctnr,.all__card-list-ctnr:not(#area-tag-list)) :is(.top__header-wrap,.header__wrap,.tab__bar-wrap,.tabs) {display:flex!important;flex-wrap:wrap!important;align-items:center!important;gap:8px!important;min-width:0!important;padding:0!important;}\nhtml.homepagescript-active [class*="index_room-card-list_"] {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(220px,calc((100% - 12px)/2)),1fr))!important;gap:16px 12px!important;padding-bottom:16px!important;min-width:0!important;width:100%!important;}\nhtml.homepagescript-active [class*="index_room-card-list_"] > * {width:100%!important;min-width:0!important;margin:0!important;}\nhtml.homepagescript-active [class*="Item_card-item_"] {height:auto!important;}\nhtml.homepagescript-active [class*="Item_card-item-ctnr_"] {box-sizing:border-box!important;position:relative!important;top:auto!important;left:auto!important;width:100%!important;min-width:0!important;padding:0!important;}\nhtml.homepagescript-active [class*="Item_cover-wrap_"] {width:100%!important;height:auto!important;aspect-ratio:16/9;}\nhtml.homepagescript-active [class*="Item_lowerRow_"] {width:100%!important;min-width:0!important;padding:0!important;}\nhtml.homepagescript-active [class*="Item_right_"] {flex:1!important;min-width:0!important;}\nhtml.homepagescript-active [class*="Item_nickName_"] {min-width:0!important;}\n}\n/* /all uses fixed-width list wrappers and fixed card covers in the native CSS. */\n@media(max-width:1099px) {\nhtml.homepagescript-active #main:has(.all__card-list-ctnr) {box-sizing:border-box!important;min-width:0!important;max-width:100%!important;overflow-x:clip!important;}\nhtml.homepagescript-active #app:has(.all__card-list-ctnr) [class*="app_wrap_"] {box-sizing:border-box!important;min-width:0!important;width:100%!important;max-width:100%!important;}\nhtml.homepagescript-active .all__card-list-ctnr :is(.tab__bar-wrap,.tabs) {height:auto!important;max-width:100%!important;}\nhtml.homepagescript-active .all__card-list-ctnr:not(#area-tag-list) .tabs > * {margin:0!important;max-width:100%!important;}\nhtml.homepagescript-active :is(.all__area-top-ctnr,.all__special-area-recommend-list-ctnr,.all__card-list-ctnr) [class*="Item_cover-wrap_"] {max-width:100%!important;}\nhtml.homepagescript-active .all__card-list-ctnr [class*="Item_roomTitle_"] {min-width:0!important;max-width:100%!important;}\n}\n@media(max-width:399px) {\nhtml.homepagescript-active :is(.all__area-top-ctnr,.all__special-area-recommend-list-ctnr,.all__card-list-ctnr) [class*="index_room-card-list_"] {grid-template-columns:minmax(0,1fr)!important;}\n}\n';
 
   // src/common/live/home-layout.css
-  var home_layout_default = '/* LiveHome only: layout changes stay in CSS so native controls keep their events. */\n@media(max-width:1099px) {\nhtml.homepagescript-active #app {box-sizing:border-box!important;min-width:0!important;width:100%!important;}\n/* Old homepage: full-width sections, including descendants mounted by lazy-component. */\nhtml.homepagescript-active #app :is(.area-detail-ctnr,.grid-area-ctnr,.highlight-areas-ctnr,.recommend-area-ctnr) {box-sizing:border-box!important;min-width:0!important;width:calc(100% - 24px)!important;margin:24px 12px!important;}\nhtml.homepagescript-active .player-area-ctnr {box-sizing:border-box!important;display:flex!important;flex-direction:column!important;gap:12px!important;width:100%!important;min-width:0!important;margin:0!important;padding:12px!important;white-space:normal!important;}\nhtml.homepagescript-active .player-area-ctnr .player-ctnr {flex:none!important;width:100%!important;height:auto!important;aspect-ratio:16/9;}\nhtml.homepagescript-active .player-area-ctnr #live-video {position:absolute!important;inset:0!important;width:100%!important;height:100%!important;}\nhtml.homepagescript-active .player-aside {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(140px,100%),1fr))!important;gap:8px!important;box-sizing:border-box!important;width:100%!important;height:auto!important;padding:8px!important;margin:0!important;}\nhtml.homepagescript-active .player-aside .aside-item {width:100%!important;height:auto!important;aspect-ratio:16/9;margin:0!important;}\nhtml.homepagescript-active .grid-focus-highlight-area {display:flex!important;flex-direction:column!important;gap:36px!important;}\nhtml.homepagescript-active :is(.focus-area-ctnr,.grid-col) {box-sizing:border-box!important;width:100%!important;min-width:0!important;margin:0!important;}\nhtml.homepagescript-active .focus-area-ctnr .focus-content-ctnr {box-sizing:border-box!important;display:flex!important;flex-wrap:wrap!important;justify-content:flex-start!important;gap:12px!important;width:100%!important;padding:16px!important;}\nhtml.homepagescript-active .focus-area-ctnr .focus-content-ctnr .focus-item {flex:0 0 64px!important;width:auto!important;margin:0!important;padding:0!important;}\nhtml.homepagescript-active .focus-area-ctnr .focus-item.focus-content-item {flex:1 1 180px!important;}\nhtml.homepagescript-active #app .grid-focus-highlight-area .highlight-areas-ctnr {width:100%!important;margin:0!important;}\nhtml.homepagescript-active .highlight-areas-ctnr {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(100px,100%),1fr))!important;gap:8px!important;white-space:normal!important;}\nhtml.homepagescript-active .highlight-areas-ctnr .highlight-area-item {position:static!important;box-sizing:border-box!important;min-width:0!important;width:100%!important;margin:0!important;padding:12px 4px!important;}\nhtml.homepagescript-active .highlight-areas-ctnr .area-detail {width:100%!important;min-width:0!important;margin:0!important;}\n/* Anchor the recommendation popup to its section, preserving native hover/click events. */\nhtml.homepagescript-active #app .highlight-areas-ctnr .hover-panel-wrap {position:absolute!important;inset:100% 0 auto!important;width:100%!important;min-width:0!important;margin:8px 0 0!important;padding:12px!important;box-sizing:border-box!important;max-height:calc(100dvh - 80px)!important;overflow:auto!important;z-index:10003!important;}\nhtml.homepagescript-active .highlight-areas-ctnr .area-banner {width:100%!important;height:auto!important;aspect-ratio:420/112;}\nhtml.homepagescript-active .highlight-areas-ctnr .sec-areas {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(80px,100%),1fr))!important;gap:12px!important;}\nhtml.homepagescript-active .highlight-areas-ctnr .sec-area-item {width:100%!important;min-width:0!important;margin:0!important;}\nhtml.homepagescript-active .grid-area-ctnr {display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:16px!important;white-space:normal!important;}\nhtml.homepagescript-active .large-banner-ctnr {width:100%!important;height:auto!important;aspect-ratio:532/238;}\nhtml.homepagescript-active .small-banner-ctnr {display:flex!important;gap:12px!important;height:auto!important;}\nhtml.homepagescript-active .small-banner-ctnr .small-banner {position:relative!important;inset:auto!important;flex:1 1 0!important;width:auto!important;min-width:0!important;height:auto!important;aspect-ratio:256/130;}\nhtml.homepagescript-active .small-loop-banner-wrap {height:auto!important;aspect-ratio:532/130;}\nhtml.homepagescript-active :is(.hab-ctnr,.news-ctnr) {height:auto!important;min-height:0!important;padding:12px!important;}\nhtml.homepagescript-active .banner-ctnr {display:flex!important;gap:8px!important;}\nhtml.homepagescript-active .banner-item-ctnr {flex:1 1 0!important;min-width:0!important;margin:0!important;}\nhtml.homepagescript-active .banner-item-ctnr .banner-img {width:100%!important;height:auto!important;aspect-ratio:120/76;}\nhtml.homepagescript-active .rank-ctnr {height:auto!important;padding:12px!important;}\nhtml.homepagescript-active .rank-ctnr .rank-item {display:flex!important;align-items:center!important;gap:8px!important;}\nhtml.homepagescript-active .rank-item > :is(.rank-icon,.rank-idx,.avatar-ctnr) {flex:none!important;margin-left:0!important;}\nhtml.homepagescript-active .rank-ctnr .info-col {flex:1 1 0!important;min-width:0!important;max-width:none!important;margin:0!important;padding:0!important;}\nhtml.homepagescript-active .rank-ctnr .rank-txt {box-sizing:border-box!important;width:100%!important;max-width:none!important;}\nhtml.homepagescript-active .rank-ctnr .meta-row {position:static!important;transform:none!important;flex:none!important;margin-left:auto!important;}\nhtml.homepagescript-active .area-title-row {display:flex!important;flex-wrap:wrap!important;justify-content:space-between!important;gap:8px!important;padding:0!important;margin-bottom:12px!important;}\nhtml.homepagescript-active .area-title-row .area-link {position:static!important;}\nhtml.homepagescript-active .area-detail-ctnr .room-ctnr {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(220px,calc((100% - 12px)/2)),1fr))!important;gap:16px 12px!important;white-space:normal!important;}\nhtml.homepagescript-active #app .room-card-wrapper {box-sizing:border-box!important;float:none!important;width:100%!important;min-width:0!important;margin:0!important;}\nhtml.homepagescript-active #app .room-card-wrapper :is(.room-card-ctnr,.card-content,.text-info-ctnr,.cover-wrapper) {box-sizing:border-box!important;width:100%!important;min-width:0!important;max-width:100%!important;}\nhtml.homepagescript-active .room-card-wrapper .cover-wrapper {position:relative!important;height:auto!important;padding:0!important;aspect-ratio:16/9;}\nhtml.homepagescript-active .room-card-wrapper .hover-panel-wrapper {box-sizing:border-box!important;left:0!important;top:0!important;width:100%!important;}\nhtml.homepagescript-active .room-card-wrapper :is(.room-title,.room-anchor) {min-width:0!important;max-width:100%!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;}\nhtml.homepagescript-active :is(.area-banner-ctnr,.recommend-area-ctnr .title-text,.activity-pushing-out) {box-sizing:border-box!important;width:100%!important;min-width:0!important;}\nhtml.homepagescript-active .area-banner-ctnr {height:auto!important;aspect-ratio:1360/114;}\nhtml.homepagescript-active .recommend-area-ctnr .content-ctnr {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(86px,100%),1fr))!important;gap:8px!important;white-space:normal!important;}\nhtml.homepagescript-active .recommend-area-ctnr .rec-area-item {width:100%!important;min-width:0!important;margin:0!important;}\nhtml.homepagescript-active .link-footer {box-sizing:border-box!important;min-width:0!important;width:100%!important;padding:12px!important;}\nhtml.homepagescript-active .link-footer :is(.footer-linker,.footer-img-linker) {display:flex!important;flex-wrap:wrap!important;gap:12px!important;min-width:0!important;width:100%!important;margin:0!important;}\n/* New homepage: preserve its scroll container and player controls, resize content only. */\nhtml.homepagescript-active #app [class~="min-w-1190px"] {min-width:0!important;width:100%!important;}\nhtml.homepagescript-active #app nav[class~="flex-nowrap"] {flex-wrap:wrap!important;gap:8px!important;}\nhtml.homepagescript-active #app nav[class~="flex-nowrap"] > [class~="group"] {flex:0 0 calc(25% - 6px)!important;margin:0!important;}\nhtml.homepagescript-active #app nav[class~="flex-nowrap"] > .group:is(:hover,:focus-within) {z-index:2!important;}\nhtml.homepagescript-active #app nav[class~="flex-nowrap"] > .group > .absolute {box-sizing:border-box!important;top:100%!important;left:0!important;right:auto!important;z-index:3!important;width:max-content!important;min-width:0!important;max-width:calc(100vw - 24px)!important;max-height:calc(100dvh - 160px)!important;overflow-y:auto!important;overflow-x:hidden!important;}\nhtml.homepagescript-active #app nav[class~="flex-nowrap"] > .group:nth-child(4n) > .absolute {left:auto!important;right:0!important;}\nhtml.homepagescript-active #app nav[class~="flex-nowrap"] .group > .absolute a {display:block!important;width:auto!important;max-width:100%!important;white-space:nowrap!important;}\nhtml.homepagescript-active #app main {margin:0 12px!important;}\nhtml.homepagescript-active #app main > .flex {flex-direction:column!important;height:auto!important;gap:12px!important;}\nhtml.homepagescript-active #app main > .flex > * {width:100%!important;min-width:0!important;flex:none!important;height:auto!important;margin:0!important;}\nhtml.homepagescript-active #app main .main-player {height:auto!important;aspect-ratio:16/9;}\nhtml.homepagescript-active #app main .flex-wrap:has(> div) {gap:12px!important;}\nhtml.homepagescript-active #app main .flex-wrap > div {width:calc(50% - 6px)!important;margin:0!important;}\nhtml.homepagescript-active #app main [class~="grid"] {grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important;}\nhtml.homepagescript-active #app main [class~="grid"] > * {min-width:0!important;width:100%!important;}\n}\n@media(max-width:399px) {\nhtml.homepagescript-active #app nav[class~="flex-nowrap"] > [class~="group"] {flex-basis:calc(50% - 4px)!important;}\nhtml.homepagescript-active #app nav[class~="flex-nowrap"] > .group:nth-child(2n) > .absolute {left:auto!important;right:0!important;}\nhtml.homepagescript-active .area-detail-ctnr .room-ctnr {grid-template-columns:minmax(0,1fr)!important;}\nhtml.homepagescript-active #app main .flex-wrap > div {width:100%!important;}\n}\n';
+  var home_layout_default = `/* LiveHome only: layout changes stay in CSS so native controls keep their events. */
+/* The native full-screen shell must fit below the shared navigation inset. */
+html.homepagescript-active #app [class~="min-w-1190px"] > [class~="h-screen"] {height:calc(100vh - var(--broadcast-navigation-height,0px))!important;}
+@media(max-width:1099px) {
+html.homepagescript-active #app {box-sizing:border-box!important;min-width:0!important;width:100%!important;}
+/* Old homepage: full-width sections, including descendants mounted by lazy-component. */
+html.homepagescript-active #app :is(.area-detail-ctnr,.grid-area-ctnr,.highlight-areas-ctnr,.recommend-area-ctnr) {box-sizing:border-box!important;min-width:0!important;width:calc(100% - 24px)!important;margin:24px 12px!important;}
+html.homepagescript-active .player-area-ctnr {box-sizing:border-box!important;display:flex!important;flex-direction:column!important;gap:12px!important;width:100%!important;min-width:0!important;margin:0!important;padding:12px!important;white-space:normal!important;}
+html.homepagescript-active .player-area-ctnr .player-ctnr {flex:none!important;width:100%!important;height:auto!important;aspect-ratio:16/9;}
+html.homepagescript-active .player-area-ctnr #live-video {position:absolute!important;inset:0!important;width:100%!important;height:100%!important;}
+html.homepagescript-active .player-aside {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(140px,100%),1fr))!important;gap:8px!important;box-sizing:border-box!important;width:100%!important;height:auto!important;padding:8px!important;margin:0!important;}
+html.homepagescript-active .player-aside .aside-item {width:100%!important;height:auto!important;aspect-ratio:16/9;margin:0!important;}
+html.homepagescript-active .grid-focus-highlight-area {display:flex!important;flex-direction:column!important;gap:36px!important;}
+html.homepagescript-active :is(.focus-area-ctnr,.grid-col) {box-sizing:border-box!important;width:100%!important;min-width:0!important;margin:0!important;}
+html.homepagescript-active .focus-area-ctnr .focus-content-ctnr {box-sizing:border-box!important;display:flex!important;flex-wrap:wrap!important;justify-content:flex-start!important;gap:12px!important;width:100%!important;padding:16px!important;}
+html.homepagescript-active .focus-area-ctnr .focus-content-ctnr .focus-item {flex:0 0 64px!important;width:auto!important;margin:0!important;padding:0!important;}
+html.homepagescript-active .focus-area-ctnr .focus-item.focus-content-item {flex:1 1 180px!important;}
+html.homepagescript-active #app .grid-focus-highlight-area .highlight-areas-ctnr {width:100%!important;margin:0!important;}
+html.homepagescript-active .highlight-areas-ctnr {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(100px,100%),1fr))!important;gap:8px!important;white-space:normal!important;}
+html.homepagescript-active .highlight-areas-ctnr .highlight-area-item {position:static!important;box-sizing:border-box!important;min-width:0!important;width:100%!important;margin:0!important;padding:12px 4px!important;}
+html.homepagescript-active .highlight-areas-ctnr .area-detail {width:100%!important;min-width:0!important;margin:0!important;}
+/* Keep section-wide popups directly below the hovered item's row. */
+html.homepagescript-active #app .highlight-areas-ctnr .hover-panel-wrap {position:absolute!important;inset:var(--broadcast-live-recommendation-top,100%) 0 auto!important;width:100%!important;min-width:0!important;margin:8px 0 0!important;padding:12px!important;box-sizing:border-box!important;max-height:calc(100dvh - 80px)!important;overflow:auto!important;z-index:10003!important;}
+html.homepagescript-active .highlight-areas-ctnr .area-banner {width:100%!important;height:auto!important;aspect-ratio:420/112;}
+html.homepagescript-active .highlight-areas-ctnr .sec-areas {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(80px,100%),1fr))!important;gap:12px!important;}
+html.homepagescript-active .highlight-areas-ctnr .sec-area-item {width:100%!important;min-width:0!important;margin:0!important;}
+html.homepagescript-active .grid-area-ctnr {display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:16px!important;white-space:normal!important;}
+html.homepagescript-active .large-banner-ctnr {width:100%!important;height:auto!important;aspect-ratio:532/238;}
+html.homepagescript-active .small-banner-ctnr {display:flex!important;gap:12px!important;height:auto!important;}
+html.homepagescript-active .small-banner-ctnr .small-banner {position:relative!important;inset:auto!important;flex:1 1 0!important;width:auto!important;min-width:0!important;height:auto!important;aspect-ratio:256/130;}
+html.homepagescript-active .small-loop-banner-wrap {height:auto!important;aspect-ratio:532/130;}
+html.homepagescript-active :is(.hab-ctnr,.news-ctnr) {height:auto!important;min-height:0!important;padding:12px!important;}
+html.homepagescript-active .banner-ctnr {display:flex!important;gap:8px!important;}
+html.homepagescript-active .banner-item-ctnr {flex:1 1 0!important;min-width:0!important;margin:0!important;}
+html.homepagescript-active .banner-item-ctnr .banner-img {width:100%!important;height:auto!important;aspect-ratio:120/76;}
+html.homepagescript-active .rank-ctnr {height:auto!important;padding:12px!important;}
+html.homepagescript-active .rank-ctnr .rank-item {display:flex!important;align-items:center!important;gap:8px!important;}
+html.homepagescript-active .rank-item > :is(.rank-icon,.rank-idx,.avatar-ctnr) {flex:none!important;margin-left:0!important;}
+html.homepagescript-active .rank-ctnr .info-col {flex:1 1 0!important;min-width:0!important;max-width:none!important;margin:0!important;padding:0!important;}
+html.homepagescript-active .rank-ctnr .rank-txt {box-sizing:border-box!important;width:100%!important;max-width:none!important;}
+html.homepagescript-active .rank-ctnr .meta-row {position:static!important;transform:none!important;flex:none!important;margin-left:auto!important;}
+html.homepagescript-active .area-title-row {display:flex!important;flex-wrap:wrap!important;justify-content:space-between!important;gap:8px!important;padding:0!important;margin-bottom:12px!important;}
+html.homepagescript-active .area-title-row .area-link {position:static!important;}
+html.homepagescript-active .area-detail-ctnr .room-ctnr {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(220px,calc((100% - 12px)/2)),1fr))!important;gap:16px 12px!important;white-space:normal!important;}
+html.homepagescript-active #app .room-card-wrapper {box-sizing:border-box!important;float:none!important;width:100%!important;min-width:0!important;margin:0!important;}
+html.homepagescript-active #app .room-card-wrapper :is(.room-card-ctnr,.card-content,.text-info-ctnr,.cover-wrapper) {box-sizing:border-box!important;width:100%!important;min-width:0!important;max-width:100%!important;}
+html.homepagescript-active .room-card-wrapper .cover-wrapper {position:relative!important;height:auto!important;padding:0!important;aspect-ratio:16/9;}
+html.homepagescript-active .room-card-wrapper .hover-panel-wrapper {box-sizing:border-box!important;left:0!important;top:0!important;width:100%!important;}
+html.homepagescript-active .room-card-wrapper :is(.room-title,.room-anchor) {min-width:0!important;max-width:100%!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;}
+html.homepagescript-active :is(.area-banner-ctnr,.recommend-area-ctnr .title-text,.activity-pushing-out) {box-sizing:border-box!important;width:100%!important;min-width:0!important;}
+html.homepagescript-active .area-banner-ctnr {height:auto!important;aspect-ratio:1360/114;}
+html.homepagescript-active .recommend-area-ctnr .content-ctnr {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(86px,100%),1fr))!important;gap:8px!important;white-space:normal!important;}
+html.homepagescript-active .recommend-area-ctnr .rec-area-item {width:100%!important;min-width:0!important;margin:0!important;}
+html.homepagescript-active .link-footer {box-sizing:border-box!important;min-width:0!important;width:100%!important;padding:12px!important;}
+html.homepagescript-active .link-footer :is(.footer-linker,.footer-img-linker) {display:flex!important;flex-wrap:wrap!important;gap:12px!important;min-width:0!important;width:100%!important;margin:0!important;}
+/* New homepage: preserve its scroll container and player controls, resize content only. */
+html.homepagescript-active #app [class~="min-w-1190px"] {min-width:0!important;width:100%!important;}
+html.homepagescript-active #app nav[class~="flex-nowrap"] {flex-wrap:wrap!important;gap:8px!important;}
+html.homepagescript-active #app nav[class~="flex-nowrap"] > [class~="group"] {flex:0 0 calc(25% - 6px)!important;margin:0!important;}
+html.homepagescript-active #app nav[class~="flex-nowrap"] > .group:is(:hover,:focus-within) {z-index:2!important;}
+html.homepagescript-active #app nav[class~="flex-nowrap"] > .group > .absolute {box-sizing:border-box!important;top:100%!important;left:0!important;right:auto!important;z-index:3!important;width:max-content!important;min-width:0!important;max-width:calc(100vw - 24px)!important;max-height:calc(100dvh - 160px)!important;overflow-y:auto!important;overflow-x:hidden!important;}
+html.homepagescript-active #app nav[class~="flex-nowrap"] > .group:nth-child(4n) > .absolute {left:auto!important;right:0!important;}
+html.homepagescript-active #app nav[class~="flex-nowrap"] .group > .absolute a {display:block!important;width:auto!important;max-width:100%!important;white-space:nowrap!important;}
+html.homepagescript-active #app main {margin:0 12px!important;}
+html.homepagescript-active #app main > .flex {flex-direction:column!important;height:auto!important;gap:12px!important;}
+html.homepagescript-active #app main > .flex > * {width:100%!important;min-width:0!important;flex:none!important;height:auto!important;margin:0!important;}
+html.homepagescript-active #app main .main-player {height:auto!important;aspect-ratio:16/9;}
+html.homepagescript-active #app main .flex-wrap:has(> div) {gap:12px!important;}
+html.homepagescript-active #app main .flex-wrap > div {width:calc(50% - 6px)!important;margin:0!important;}
+html.homepagescript-active #app main [class~="grid"] {grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important;}
+html.homepagescript-active #app main [class~="grid"] > * {min-width:0!important;width:100%!important;}
+}
+@media(max-width:399px) {
+html.homepagescript-active #app nav[class~="flex-nowrap"] > [class~="group"] {flex-basis:calc(50% - 4px)!important;}
+html.homepagescript-active #app nav[class~="flex-nowrap"] > .group:nth-child(2n) > .absolute {left:auto!important;right:0!important;}
+html.homepagescript-active .area-detail-ctnr .room-ctnr {grid-template-columns:minmax(0,1fr)!important;}
+html.homepagescript-active #app main .flex-wrap > div {width:100%!important;}
+}
+`;
 
   // src/common/live/home-controls.css
-  var home_controls_default = "@media(max-width:1099px) {\nhtml.homepagescript-active .link-navbar .nav-items-ctnr,\nhtml.homepagescript-active .link-navbar .live-home-menu-host > :not(.live-home-more-trigger) {display:none!important;}\nhtml.homepagescript-active .live-home-more-trigger {appearance:none;border:0;padding:0 2px;background:transparent;color:inherit;font:inherit;line-height:24px;white-space:nowrap;cursor:pointer;}\nhtml.homepagescript-active #live-home-more-menu {position:fixed;z-index:10004;display:flex;flex-direction:column;box-sizing:border-box;min-width:0;border:1px solid var(--line_regular,#3a3e43);border-radius:12px;background:var(--bg1_float,#242629);color:var(--text1,#e8eaed);box-shadow:0 10px 32px #0005;overflow:hidden;font:14px/1.5 sans-serif;}\nhtml.homepagescript-active #live-home-more-menu[hidden] {display:none!important;}\nhtml.homepagescript-active #live-home-more-menu * {box-sizing:border-box;}\nhtml.homepagescript-active #live-home-more-menu button,\nhtml.homepagescript-active #live-home-more-menu a {font:inherit;color:inherit;cursor:pointer;text-decoration:none;}\nhtml.homepagescript-active .live-home-menu-header {display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line_regular,#3a3e43);flex:none;}\nhtml.homepagescript-active .live-home-menu-header strong {flex:1;min-width:0;font-size:15px;}\nhtml.homepagescript-active #live-home-more-menu :is(.live-home-menu-back,.live-home-menu-close) {display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:6px;background:transparent;font-size:22px;}\nhtml.homepagescript-active .live-home-menu-content {padding:8px;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;}\nhtml.homepagescript-active .live-home-menu-grid {display:grid;grid-template-columns:repeat(2,minmax(0,max-content));gap:2px 6px;}\nhtml.homepagescript-active #live-home-more-menu .live-home-menu-entry {display:flex;align-items:center;min-width:0;min-height:30px;padding:4px 6px;border:0;border-radius:5px;background:transparent;text-align:left;white-space:normal;overflow-wrap:anywhere;}\nhtml.homepagescript-active .live-home-menu-categories {margin-top:6px;padding-top:6px;border-top:1px solid var(--line_regular,#3a3e43);display:grid;grid-template-columns:repeat(2,minmax(0,max-content));gap:2px 6px;}\nhtml.homepagescript-active #live-home-more-menu .live-home-menu-category {display:flex;align-items:center;justify-content:space-between;gap:6px;width:100%;min-width:0;min-height:30px;padding:4px 6px;border:0;border-radius:5px;background:transparent;text-align:left;white-space:normal;}\nhtml.homepagescript-active .live-home-menu-category > :last-child {font-size:20px;color:var(--text3,#9da4ad);}\nhtml.homepagescript-active #live-home-more-menu .live-home-menu-all {display:block;margin-bottom:10px;padding:8px 10px;border-radius:7px;background:#00aeec18;color:var(--brand_blue,#00aeec);}\nhtml.homepagescript-active #live-home-more-menu :is(button,a):hover {background:#8882;}\nhtml.homepagescript-active #live-home-more-menu :is(button,a):focus-visible,\nhtml.homepagescript-active .live-home-more-trigger:focus-visible {outline:2px solid #00aeec;outline-offset:-2px;}\nhtml.homepagescript-active #live-home-more-menu button:disabled {opacity:.45;cursor:default;}\nhtml.homepagescript-active .live-home-menu-empty {grid-column:1/-1;color:var(--text3,#9da4ad);margin:4px 0;}\nhtml.homepagescript-active .live-sidebar-ctnr.live-home-sidebar-collapsed {display:none!important;}\nhtml.homepagescript-active .live-home-sidebar-toggle {position:fixed!important;right:8px!important;bottom:12px!important;z-index:10002!important;border:1px solid #00aeec;border-radius:8px;padding:8px 12px;background:var(--bg1_float,#25272a);color:#00aeec;cursor:pointer;font:inherit;}\n}\n";
+  var home_controls_default = '@media(max-width:1099px) {\nhtml.homepagescript-active .link-navbar .nav-items-ctnr,\nhtml.homepagescript-active .broadcast-live-more-host .slot-ctnr {display:none!important;}\nhtml.homepagescript-active .broadcast-live-more-host,\nhtml.homepagescript-active .broadcast-live-more-host > [aria-controls="live-home-more-menu"] {font-family:var(--broadcast-live-font,inherit)!important;font-size:var(--broadcast-live-font-size,14px)!important;font-weight:var(--broadcast-live-font-weight,400)!important;line-height:24px!important;}\nhtml.homepagescript-active .broadcast-live-more-host :is(.more-tab-animation,.more-label-text) {font:inherit!important;line-height:24px!important;}\nhtml.homepagescript-active .broadcast-live-more-trigger {appearance:none;border:0;background:transparent;color:inherit;font:inherit;line-height:24px;padding:0;cursor:pointer;}\nhtml.homepagescript-active .broadcast-live-more-host :is(.more-tab-animation,.broadcast-live-more-trigger) {display:inline-flex!important;align-items:center!important;}\nhtml.homepagescript-active .broadcast-live-more-host .down-arrow-icon-block,\nhtml.homepagescript-active .broadcast-live-more-trigger > span {display:inline-flex!important;align-items:center!important;justify-content:center!important;flex:none!important;box-sizing:border-box!important;width:12px!important;height:24px!important;margin:0 0 0 4px!important;padding:0!important;vertical-align:middle!important;transform:rotate(0deg)!important;transform-origin:center!important;}\nhtml.homepagescript-active .broadcast-live-more-host .down-arrow-icon-block .down-arrow {display:none!important;}\nhtml.homepagescript-active .broadcast-live-more-host .down-arrow-icon-block::before,\nhtml.homepagescript-active .broadcast-live-more-trigger > span::before {content:"";box-sizing:content-box;width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:translateY(-2px) rotate(45deg);}\nhtml.homepagescript-active .broadcast-live-more-host:is([aria-expanded="true"],:has([aria-expanded="true"])) .down-arrow-icon-block {transform:rotate(180deg)!important;}\nhtml.homepagescript-active .broadcast-live-more-trigger[aria-expanded="true"] > span {transform:rotate(180deg)!important;}\nhtml.homepagescript-active #live-home-more-menu {\n  --live-menu-bg:#fff;--live-menu-text:#61666d;--live-menu-line:#e3e5e7;--live-menu-hover:#e3e5e7;\n  position:fixed;z-index:10006;display:flex;align-items:flex-start;width:max-content;box-sizing:border-box;\n  border:1px solid var(--live-menu-line);border-radius:8px;background:var(--live-menu-bg);color:var(--live-menu-text);\n  box-shadow:0 0 30px #0000001a;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;font:14px/18px Arial,"Microsoft YaHei",sans-serif;\n}\nhtml.homepagescript-active:is(.bili_dark,[lab-style*="dark"],[data-theme*="dark"]) #live-home-more-menu,\nhtml.homepagescript-active:has(link#__css-map__[href*="/dark.css"]) #live-home-more-menu {--live-menu-bg:#25272a;--live-menu-text:#c9ccd0;--live-menu-line:#3b3f43;--live-menu-hover:#3b3f43;}\nhtml.homepagescript-active:has(link#__css-map__[href*="/light.css"]) #live-home-more-menu {--live-menu-bg:#fff;--live-menu-text:#61666d;--live-menu-line:#e3e5e7;--live-menu-hover:#e3e5e7;}\nhtml.homepagescript-active #live-home-more-menu[hidden],html.homepagescript-active #live-home-more-menu [hidden] {display:none!important;}\nhtml.homepagescript-active #live-home-more-menu * {box-sizing:border-box;}\nhtml.homepagescript-active .broadcast-live-menu-grid {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:288px;max-width:calc(100vw - 18px);padding:8px;gap:0;flex:none;}\nhtml.homepagescript-active .broadcast-live-menu-cell {display:flex;align-items:center;min-width:0;border-radius:4px;}\nhtml.homepagescript-active #live-home-more-menu :is(a,button) {font:inherit;color:inherit;text-decoration:none;border:0;background:transparent;cursor:pointer;}\nhtml.homepagescript-active #live-home-more-menu .broadcast-live-menu-link {display:flex;align-items:center;min-width:0;min-height:32px;padding:6px;flex:1;text-align:left;white-space:normal;overflow-wrap:anywhere;border-radius:4px;}\nhtml.homepagescript-active #live-home-more-menu .broadcast-live-category-trigger {justify-content:space-between;gap:4px;}\nhtml.homepagescript-active #live-home-more-menu .broadcast-live-submenu-trigger {font-size:16px;flex:none;}\nhtml.homepagescript-active #live-home-more-menu .broadcast-live-menu-cell:has([aria-expanded="true"]),\nhtml.homepagescript-active #live-home-more-menu .broadcast-live-menu-cell:hover,\nhtml.homepagescript-active #live-home-more-menu .broadcast-live-menu-link:hover {background:var(--live-menu-hover);}\nhtml.homepagescript-active #live-home-more-menu :is(a,button),\nhtml.homepagescript-active .broadcast-live-more-host,\nhtml.homepagescript-active .broadcast-live-more-host > :is(a,button) {outline:none!important;}\nhtml.homepagescript-active .broadcast-live-submenu {position:fixed;z-index:10007;box-sizing:border-box;width:200px;max-width:calc(100vw - 16px);padding:8px;border:1px solid var(--live-menu-line);border-radius:8px;background:var(--live-menu-bg);box-shadow:0 0 30px #0000001a;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;}\nhtml.homepagescript-active .broadcast-live-submenu-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));}\nhtml.homepagescript-active .broadcast-live-submenu-narrow .broadcast-live-submenu-grid {grid-template-columns:minmax(0,1fr);}\nhtml.homepagescript-active #live-home-more-menu .broadcast-live-submenu-all {color:var(--brand_blue,#00aeec);margin-bottom:4px;}\nhtml.homepagescript-active #live-home-more-menu button:disabled {cursor:default;opacity:.45;}\nhtml.homepagescript-active .live-sidebar-ctnr.live-home-sidebar-collapsed {display:none!important;}\nhtml.homepagescript-active .live-home-sidebar-toggle {position:fixed!important;right:8px!important;bottom:12px!important;z-index:10002!important;border:1px solid #00aeec;border-radius:8px;padding:8px 12px;background:var(--bg1_float,#25272a);color:#00aeec;cursor:pointer;font:inherit;}\n}\n';
 
   // src/common/live/style.js
   var liveStyle = [base_default, live_header_default, live_list_layout_default, home_layout_default, home_controls_default].map((css) => css.trimEnd()).join("\n\n");
@@ -2410,11 +3165,15 @@ ${content2}
       html,
       narrow,
       signal: events.signal,
-      schedule,
       ownClass,
       fit,
+      rememberAttribute,
+      restoreAttribute,
+      setProperty,
+      restoreProperty,
       includeSidebar: !headerOnly
     });
+    const searchControls = createHeaderSearchControls({ signal: events.signal });
     function updateLiveHome() {
       frame = 0;
       if (stopped) return;
@@ -2428,6 +3187,15 @@ ${content2}
       for (const element of observed) if (!element.isConnected) {
         resize.unobserve(element);
         observed.delete(element);
+      }
+      if (id === "LiveHome" && !headerOnly) for (const section of document.querySelectorAll(".highlight-areas-ctnr")) {
+        if (narrow.matches) observe(section);
+        for (const item of section.querySelectorAll(".highlight-area-item")) {
+          if (narrow.matches) {
+            observe(item);
+            setProperty(item, "--broadcast-live-recommendation-top", `${item.offsetTop + item.offsetHeight}px`);
+          } else restoreProperty(item, "--broadcast-live-recommendation-top");
+        }
       }
       for (const container of !headerOnly && contentSelector ? document.querySelectorAll(contentSelector) : []) {
         if (narrow.matches) {
@@ -2486,6 +3254,7 @@ ${content2}
       cancelAnimationFrame(frame);
       navigation.destroy();
       controls.destroy();
+      searchControls.destroy();
       avatarLayout.destroy();
       for (const [element, saved] of attributes) for (const name of [...saved.keys()]) restoreAttribute(element, name);
       for (const [element, saved] of properties) for (const name of [...saved.keys()]) restoreProperty(element, name);
@@ -2506,7 +3275,7 @@ ${content2}
   var mount2 = () => mountLivePage();
 
   // src/WebPage/LiveHome/module.js
-  var early2 = () => createPageOpening();
+  var early2 = () => createPageOpening({ resolveLink: resolveLiveHomeLink });
 
   // src/WebPage/LiveArea/module.js
   var module_exports3 = {};
@@ -2554,12 +3323,15 @@ ${content2}
     ${scope} .${prefix}-media :is(img,video,canvas) { max-width:none!important; }
     ${scope} img.${prefix}-media { height:auto!important; }
     ${scope} .${prefix}-image-tools {
-      display:flex!important; flex-wrap:wrap!important; align-items:center!important; gap:8px!important; box-sizing:border-box!important;
+      display:flex!important; flex-wrap:wrap!important; align-items:center!important; justify-content:flex-start!important; gap:4px 12px!important; box-sizing:border-box!important;
       min-width:0!important; white-space:nowrap!important; word-break:normal!important; overflow-wrap:normal!important;
-      width:calc(100% * var(--${prefix}-scale,1))!important; zoom:calc(1 / var(--${prefix}-scale,1))!important;
+      height:auto!important; padding:4px 0!important; font-size:12px!important; line-height:20px!important;
+      width:100%!important; zoom:calc(1 / var(--${prefix}-scale,1))!important;
     }
-    ${scope} .${prefix}-image-tools > * { display:flex!important; align-items:center!important; gap:4px!important; flex:1 1 auto!important; width:auto!important; min-width:max-content!important; }
-    ${scope} .${prefix}-image-tools :is(span,a,button) { white-space:nowrap!important; word-break:normal!important; overflow-wrap:normal!important; min-width:max-content!important; }
+    ${scope} .${prefix}-image-tools > * { display:flex!important; flex-direction:row!important; align-items:center!important; gap:4px!important; flex:0 0 auto!important; width:auto!important; height:auto!important; min-width:max-content!important; min-height:24px!important; margin:0!important; padding:0!important; font-size:inherit!important; line-height:inherit!important; }
+    ${scope} .${prefix}-image-tools * { white-space:nowrap!important; word-break:normal!important; overflow-wrap:normal!important; }
+    ${scope} .${prefix}-image-tools :is(span,a,button,div) { width:auto!important; min-width:max-content!important; font-size:inherit!important; line-height:inherit!important; }
+    ${scope} .${prefix}-image-tools > * > * { flex-shrink:0!important; margin:0!important; }
   `;
   }
   function createDynamicContent({ getRoot, prefix = "feedscript", popup = '[role="tooltip"],[role="dialog"],[class*="popover"],[class*="popper"],[class*="image-viewer"],[class*="image-preview"]', isActive = () => true }) {
@@ -2611,6 +3383,9 @@ ${content2}
         return;
       }
       const images = collectMedia(root);
+      for (const tool of root.querySelectorAll("*")) {
+        if (tool.children.length >= 2 && !tool.closest(popup) && isTools(tool) && ![...tool.children].some(isTools)) mark(tool, "image-tools");
+      }
       for (const element of images) {
         for (let parent = element.parentElement; parent && parent !== root; parent = parent.parentElement) {
           mark(parent, "fit");
@@ -2624,9 +3399,6 @@ ${content2}
         const scale = Math.min(1, Math.max(0, available) / Math.max(1, natural));
         if (!natural || !scale || scale === 1) continue;
         mark(element, "media");
-        for (const tool of element.querySelectorAll("*")) {
-          if (tool.children.length >= 2 && isTools(tool) && ![...tool.children].some(isTools)) mark(tool, "image-tools");
-        }
         const values = { [`--${prefix}-media-width`]: `${natural}px`, [`--${prefix}-scale`]: String(scale) };
         mediaStyles.set(element, saveStyles(element, Object.keys(values)));
         for (const [name, value] of Object.entries(values)) element.style.setProperty(name, value, "important");
@@ -2712,6 +3484,12 @@ ${content2}
       :is(.feedscript-path,.feedscript-main,.feedscript-fit,.feedscript-scroll), .feedscript-main > ${pageChild},
       .feedscript-main :is(${fullWidth2},${content2}) { box-sizing:border-box!important; min-width:0!important; max-width:100%!important; }
       :is(.feedscript-path,.feedscript-main) { width:100%!important; }
+      /* 固定信息栏必须以视口定位；祖先的变换/隔离会把 fixed 变成随正文滚动。 */
+      .feedscript-viewport {
+        transform:none!important; translate:none!important; rotate:none!important; scale:none!important;
+        filter:none!important; backdrop-filter:none!important; perspective:none!important;
+        contain:none!important; will-change:auto!important; content-visibility:visible!important;
+      }
       .bili-dyn-home--member { padding-inline:0!important; }
       .feedscript-main { margin-inline:0!important; padding:8px!important; }
       .feedscript-main > ${pageChild}, .feedscript-main :is(${fullWidth2}) { width:100%!important; margin-left:0!important; margin-right:0!important; }
@@ -2880,6 +3658,7 @@ ${content2}
           for (let parent = top.parentElement; parent && !next.has(parent); parent = parent.parentElement) mark(parent, "path");
         }
         for (const target of [main, left]) for (let parent = target?.parentElement; parent && !next.has(parent); parent = parent.parentElement) mark(parent, "path");
+        for (let parent = left?.parentElement; parent; parent = parent.parentElement) mark(parent, "viewport");
         for (const [parent, names] of [...next]) if (names.has("feedscript-path")) for (const child of parent.children) {
           if (!next.has(child) && child.matches(extra)) mark(child, "hidden");
         }
@@ -3086,7 +3865,7 @@ ${content2}
           const parent = branch.parentElement;
           keep.add(parent);
           for (const sibling of parent.children) {
-            if (sibling === branch || ["broadcast-navigation", "live-home-more-menu"].includes(sibling.id)) continue;
+            if (sibling === branch || ["broadcast-navigation", "broadcast-media-menu", "broadcast-external-dialog", "live-home-more-menu"].includes(sibling.id)) continue;
             if (sibling.matches(".link-navbar") || sibling.querySelector(".link-navbar")) continue;
             hide.add(sibling);
           }
@@ -3452,8 +4231,8 @@ ${content2}
       return avatarNavigation.isLink(link);
     }
     const isCompletedNavigation = isPageUrl;
-    function isNavigationIgnored(url) {
-      return isCompletedNavigation(url);
+    function isNavigationIgnored(url, { explicit = false } = {}) {
+      return !explicit && isCompletedNavigation(url);
     }
     function syncPotPlayerIgnore() {
       if (location.href !== observedUrl) {
@@ -3685,7 +4464,153 @@ ${content2}
   });
 
   // src/WebPage/Search/layout.css
-  var layout_default = '/* Search shares the native header and keeps every result/control in its original DOM. */\n@media (max-width:1099px) {\n  html.homepagescript-active :is(#app,.search-layout,.search-header,.search-content,.search-page-wrapper,.search-page) {\n    box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important;\n  }\n  html.homepagescript-active .search-layout .i_wrapper {\n    box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important;\n    padding-left:8px!important; padding-right:8px!important; margin-left:0!important; margin-right:0!important;\n  }\n  /* The page has its own search field; the native header search remains hidden. */\n  html.homepagescript-active .bili-header__bar .center-search-container { display:none!important; }\n  html.homepagescript-active .bili-header__bar .right-entry { margin-left:auto!important; }\n  /* The automatic login tip covers the search field on narrow screens. Keep it available on hover/focus. */\n  html.homepagescript-active .header-avatar-unlogin-wrap:not(:hover):not(:focus-within) .v-popover {\n    visibility:hidden!important; opacity:0!important; pointer-events:none!important;\n  }\n  html.homepagescript-active .search-layout .search-input { padding:0 8px!important; margin:16px 0!important; }\n  html.homepagescript-active .search-layout .search-input-container {\n    --search_input_width:100%!important; min-width:0!important; width:100%!important;\n  }\n  html.homepagescript-active .search-layout .search-input-wrap {\n    box-sizing:border-box!important; min-width:0!important; max-width:640px!important; width:100%!important;\n  }\n  html.homepagescript-active .search-layout .search-input-el {\n    flex:1 1 0!important; min-width:0!important; width:0!important; margin-right:8px!important; font-size:16px!important;\n  }\n  html.homepagescript-active .search-layout .search-button { flex:none!important; width:72px!important; }\n  html.homepagescript-active .search-layout .search-input-wrap .clear-icon { right:85px!important; }\n  html.homepagescript-active .search-layout .search-panel-popover {\n    box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important;\n  }\n  /* Preserve the native sticky search activation and back button. */\n  html.homepagescript-active .search-layout .search-fixed-header {\n    display:flex!important; gap:8px!important; box-sizing:border-box!important; min-width:0!important;\n    width:100%!important; max-width:100%!important; left:0!important; transform:none!important; padding:0 8px!important;\n  }\n  html.homepagescript-active .search-layout .search-fixed-header :is(.search-logo,.back-button) {\n    position:static!important; transform:none!important; flex:none!important;\n  }\n  html.homepagescript-active .search-layout .search-fixed-header .search-input-wrap { flex:1!important; margin:0 auto!important; }\n  html.homepagescript-active .search-layout .search-tabs .vui_tabs--navbar {\n    min-width:0!important; max-width:100%!important; overflow-x:auto!important; overscroll-behavior-x:contain;\n  }\n  html.homepagescript-active .search-layout .search-tabs .vui_tabs--nav { width:max-content!important; }\n  html.homepagescript-active .search-layout .search-tabs .vui_tabs--nav-item { flex:none!important; }\n  html.homepagescript-active .search-layout .search-tabs .vui_tabs--nav-link { padding-left:12px!important; padding-right:12px!important; white-space:nowrap!important; }\n  html.homepagescript-active .search-layout :is(.conditions-order,.search-condition-row,.condition-row,.room-header,.room-order,.live-user > .b_text) {\n    min-width:0!important; flex-wrap:wrap!important; gap:6px 0!important;\n  }\n  html.homepagescript-active .search-layout :is(.search-conditions,.more-conditions,.live-condition) { min-width:0!important; max-width:100%!important; }\n  html.homepagescript-active .search-layout .search-channel-item .search-sub-wrapper {\n    left:0!important; transform:none!important; max-width:calc(100vw - 32px)!important;\n  }\n  html.homepagescript-active .search-layout .search-sub-channel { flex-wrap:wrap!important; gap:8px!important; }\n  /* Native columns and negative row margins otherwise leave the cards overflowing. */\n  html.homepagescript-active .search-layout .row {\n    display:grid!important; grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr))!important;\n    gap:24px 12px!important; margin-left:0!important; margin-right:0!important;\n  }\n  html.homepagescript-active .search-layout .row > [class*="col_"] {\n    box-sizing:border-box!important; float:none!important; min-width:0!important; width:100%!important;\n    max-width:100%!important; padding-left:0!important; padding-right:0!important; margin:0!important;\n  }\n  html.homepagescript-active .search-layout .row > :is(.to_hide_xs,.to_hide_md,.to_hide_xl) { display:block!important; }\n  html.homepagescript-active .search-layout :is(.video-list,.live-room-cards) {\n    grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important;\n  }\n  html.homepagescript-active .search-layout :is(.live-user-cards,.search-page-upuser .media-list) {\n    grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr))!important;\n  }\n  html.homepagescript-active .search-layout :is(.bili-video-card,.bili-live-card,.bili-video-card__info--right,.bili-live-card__info--text) { min-width:0!important; max-width:100%!important; }\n  html.homepagescript-active .search-layout .search-page-live .live-room .video-list-item { padding-bottom:0!important; }\n  html.homepagescript-active .search-layout .media-card {\n    --image-width:clamp(90px,24vw,148px); --image-height:auto; --image-mg-r:12px;\n    min-width:0!important; margin-right:0!important;\n  }\n  html.homepagescript-active .search-layout .media-card-image { flex:none!important; height:auto!important; aspect-ratio:3/4; align-self:flex-start; }\n  html.homepagescript-active .search-layout .media-card-image > .v-img { width:100%!important; height:100%!important; }\n  html.homepagescript-active .search-layout .media-card-content { min-width:0!important; gap:8px!important; }\n  html.homepagescript-active .search-layout .media-card-content-head-title { min-width:0!important; flex-wrap:wrap!important; }\n  html.homepagescript-active .search-layout .media-card-content-head-title a { min-width:0!important; max-width:100%!important; }\n  html.homepagescript-active .search-layout .media-card-content-footer-btns { height:auto!important; flex-wrap:wrap!important; gap:6px!important; }\n  html.homepagescript-active .search-layout .media-footer { min-width:0!important; gap:6px 0!important; }\n  html.homepagescript-active .search-layout :is(.media-footer-select,.media-card-btn) { max-width:100%!important; }\n  html.homepagescript-active .search-layout :is(.b-user-video-card .user-info,.b-user-video-card .info-card) { width:100%!important; min-width:0!important; height:auto!important; }\n  html.homepagescript-active .search-layout :is(.user-content,.live-content) { flex:1!important; min-width:0!important; }\n  html.homepagescript-active .search-layout :is(.b-user-video-card .i_card_title,.b-user-info-card .i_card_title,.b-user-live-card .i_card_title) {\n    display:flex!important; flex-wrap:wrap!important; align-items:center!important; gap:6px!important; height:auto!important;\n  }\n  html.homepagescript-active .search-layout .b-user-video-card .user-actions { margin-left:0!important; }\n  html.homepagescript-active .search-layout .b-user-video-card .user-video-info { position:relative!important; margin-top:12px!important; }\n  html.homepagescript-active .search-layout .live-user-cards .live-user-card { margin-bottom:0!important; }\n  html.homepagescript-active .search-layout .live-desc { min-width:0!important; flex-wrap:wrap!important; white-space:normal!important; }\n  html.homepagescript-active .search-layout .b-article-card { display:flex!important; min-width:0!important; }\n  html.homepagescript-active .search-layout .b-article-card .article-banner { flex:none!important; width:clamp(90px,24vw,154px)!important; height:auto!important; aspect-ratio:4/3; }\n  html.homepagescript-active .search-layout .b-article-card .article-banner :is(.cover-img,img) { height:100%!important; }\n  html.homepagescript-active .search-layout .b-article-card .article-content { flex:1!important; min-width:0!important; width:auto!important; }\n  html.homepagescript-active .search-layout .vui_pagenation { flex-wrap:wrap!important; justify-content:center!important; gap:12px!important; max-width:100%!important; white-space:normal!important; }\n  html.homepagescript-active .search-layout .vui_pagenation--btns { flex-wrap:wrap!important; justify-content:center!important; gap:6px!important; margin-right:0!important; }\n  html.homepagescript-active .search-layout .vui_pagenation--btns > * { margin-right:0!important; }\n  html.homepagescript-active .search-layout .side-buttons { right:8px!important; }\n  html.homepagescript-active :is(.bili-footer,.b-footer-wrap,.footer) { box-sizing:border-box!important; min-width:0!important; width:100%!important; padding:12px!important; }\n  html.homepagescript-active :is(.link-box,.other-link,.link-item__right) { flex-wrap:wrap!important; gap:12px!important; width:100%!important; }\n  html.homepagescript-active :is(.link-item,.text-con,.text-con__line) { min-width:0!important; width:100%!important; white-space:normal!important; overflow-wrap:anywhere!important; }\n}\n@media (max-width:399px) {\n  html.homepagescript-active .search-layout :is(.video-list,.live-room-cards) { grid-template-columns:minmax(0,1fr)!important; }\n  html.homepagescript-active .search-layout .search-fixed-header .search-logo { width:40px!important; }\n  html.homepagescript-active .search-layout .search-fixed-header .back-button { width:48px!important; }\n}\n';
+  var layout_default = `/* Search shares the native header and keeps every result/control in its original DOM. */
+/* Keep clear in the flex flow: native button min-width can exceed width, so a
+   fixed right offset can place clear on top of the search button or input text. */
+html.homepagescript-active .search-layout .search-input-wrap .search-icon { flex:none!important; }
+html.homepagescript-active .search-layout .search-input-wrap .search-input-el {
+  order:1; flex:1 1 0!important; min-width:0!important; width:0!important; margin-right:8px!important;
+}
+html.homepagescript-active .search-layout .search-input-wrap .clear-icon {
+  order:2; position:static!important; top:auto!important; right:auto!important; transform:none!important;
+  flex:0 0 20px!important; margin:0 8px 0 0!important;
+}
+html.homepagescript-active .search-layout .search-input-wrap .search-button { order:3; flex:none!important; }
+/* Flatten only the footer layout, keeping the original anchors and handlers.
+   Score/watch share the first row; episode badges have space above row two. */
+html.homepagescript-active .search-layout .media-card-content-footer {
+  display:grid!important; grid-template-columns:minmax(0,1fr) auto!important;
+  align-items:center!important; column-gap:12px!important; row-gap:12px!important;
+}
+html.homepagescript-active .search-layout .media-card-content-footer-score {
+  grid-column:1; grid-row:1; min-width:0; margin-bottom:0!important;
+}
+html.homepagescript-active .search-layout .media-card-content-footer-btns { display:contents!important; }
+html.homepagescript-active .search-layout .media-card-content-footer-btns > a {
+  grid-column:2; grid-row:1; justify-self:end;
+}
+html.homepagescript-active .search-layout .media-card-btn { margin-right:0!important; }
+html.homepagescript-active .search-layout .media-card-content-footer-btns > .media-footer {
+  grid-column:1 / -1; grid-row:2; min-width:0;
+}
+/* The native footer counts buttons from their wrapped positions. Slightly
+   tighter margins let it include more episodes without replacing its links. */
+html.homepagescript-active .search-layout .media-card-content-footer-btns > .media-footer > a:not(:last-child) {
+  margin-right:6px!important;
+}
+/* Trade one description line for the extra footer row, preserving poster alignment. */
+html.homepagescript-active .search-layout .media-card:has(.media-footer) .media-card-content-head-desc {
+  -webkit-line-clamp:2!important;
+}
+@media (max-width:1099px) {
+  /* Keep the document as the native scroll container. Clipping both html and
+     body makes body scroll instead, bypassing search's window scroll handlers. */
+  html.homepagescript-active body { overflow:visible!important; }
+  html.homepagescript-active :is(#app,.search-layout,.search-header,.search-content,.search-page-wrapper,.search-page) {
+    box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important;
+  }
+  html.homepagescript-active .search-layout .i_wrapper {
+    box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important;
+    padding-left:8px!important; padding-right:8px!important; margin-left:0!important; margin-right:0!important;
+  }
+  /* The page has its own search field; the native header search remains hidden. */
+  html.homepagescript-active .bili-header__bar .center-search-container { display:none!important; }
+  html.homepagescript-active .bili-header__bar .right-entry { margin-left:auto!important; }
+  /* The automatic login tip covers the search field on narrow screens. Keep it available on hover/focus. */
+  html.homepagescript-active .header-avatar-unlogin-wrap:not(:hover):not(:focus-within) .v-popover {
+    visibility:hidden!important; opacity:0!important; pointer-events:none!important;
+  }
+  html.homepagescript-active .search-layout .search-input { padding:0 8px!important; margin:16px 0!important; }
+  html.homepagescript-active .search-layout .search-input-container {
+    --search_input_width:100%!important; min-width:0!important; width:100%!important;
+  }
+  html.homepagescript-active .search-layout .search-input-wrap {
+    box-sizing:border-box!important; min-width:0!important; max-width:640px!important; width:100%!important;
+  }
+  html.homepagescript-active .search-layout .search-input-el {
+    font-size:16px!important;
+  }
+  html.homepagescript-active .search-layout .search-panel-popover {
+    box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important;
+  }
+  /* Preserve the native sticky search activation and back button. */
+  html.homepagescript-active .search-layout .search-fixed-header {
+    display:flex!important; gap:8px!important; box-sizing:border-box!important; min-width:0!important;
+    width:100%!important; max-width:100%!important; left:0!important; transform:none!important; padding:0 8px!important;
+  }
+  html.homepagescript-active .search-layout .search-fixed-header :is(.search-logo,.back-button) {
+    position:static!important; transform:none!important; flex:none!important;
+  }
+  html.homepagescript-active .search-layout .search-fixed-header .search-input-wrap { flex:1!important; margin:0 auto!important; }
+  html.homepagescript-active .search-layout .search-tabs .vui_tabs--navbar {
+    min-width:0!important; max-width:100%!important; overflow-x:auto!important; overscroll-behavior-x:contain;
+  }
+  html.homepagescript-active .search-layout .search-tabs .vui_tabs--nav { width:max-content!important; }
+  html.homepagescript-active .search-layout .search-tabs .vui_tabs--nav-item { flex:none!important; }
+  html.homepagescript-active .search-layout .search-tabs .vui_tabs--nav-link { padding-left:12px!important; padding-right:12px!important; white-space:nowrap!important; }
+  html.homepagescript-active .search-layout :is(.conditions-order,.search-condition-row,.condition-row,.room-header,.room-order,.live-user > .b_text) {
+    min-width:0!important; flex-wrap:wrap!important; gap:6px 0!important;
+  }
+  html.homepagescript-active .search-layout :is(.search-conditions,.more-conditions,.live-condition) { min-width:0!important; max-width:100%!important; }
+  html.homepagescript-active .search-layout .search-channel-item .search-sub-wrapper {
+    left:0!important; transform:none!important; max-width:calc(100vw - 32px)!important;
+  }
+  html.homepagescript-active .search-layout .search-sub-channel { flex-wrap:wrap!important; gap:8px!important; }
+  /* Native columns and negative row margins otherwise leave the cards overflowing. */
+  html.homepagescript-active .search-layout .row {
+    display:grid!important; grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr))!important;
+    gap:24px 12px!important; margin-left:0!important; margin-right:0!important;
+  }
+  html.homepagescript-active .search-layout .row > [class*="col_"] {
+    box-sizing:border-box!important; float:none!important; min-width:0!important; width:100%!important;
+    max-width:100%!important; padding-left:0!important; padding-right:0!important; margin-left:0!important; margin-right:0!important;
+  }
+  html.homepagescript-active .search-layout :is(.video-list,.live-room-cards) {
+    grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important;
+  }
+  html.homepagescript-active .search-layout :is(.live-user-cards,.search-page-upuser .media-list) {
+    grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr))!important;
+  }
+  html.homepagescript-active .search-layout :is(.bili-video-card,.bili-live-card,.bili-video-card__info--right,.bili-live-card__info--text) { min-width:0!important; max-width:100%!important; }
+  html.homepagescript-active .search-layout .search-page-live .live-room .video-list-item { padding-bottom:0!important; }
+  /* Media results retain native poster sizes and text truncation.
+     Give each result a full column instead of squeezing two cards. */
+  html.homepagescript-active .search-layout .row:has(.media-card) { grid-template-columns:minmax(0,1fr)!important; row-gap:0!important; }
+  html.homepagescript-active .search-layout .media-card-content { min-width:0!important; }
+  html.homepagescript-active .search-layout :is(.b-user-video-card .user-info,.b-user-video-card .info-card) { width:100%!important; min-width:0!important; height:auto!important; }
+  html.homepagescript-active .search-layout :is(.user-content,.live-content) { flex:1!important; min-width:0!important; }
+  html.homepagescript-active .search-layout :is(.b-user-video-card .i_card_title,.b-user-info-card .i_card_title,.b-user-live-card .i_card_title) {
+    display:flex!important; flex-wrap:wrap!important; align-items:center!important; gap:6px!important; height:auto!important;
+  }
+  html.homepagescript-active .search-layout .b-user-video-card .user-actions { margin-left:0!important; }
+  html.homepagescript-active .search-layout .b-user-video-card .user-video-info { position:relative!important; margin-top:12px!important; }
+  html.homepagescript-active .search-layout .live-user-cards .live-user-card { margin-bottom:0!important; }
+  html.homepagescript-active .search-layout .live-desc { min-width:0!important; flex-wrap:wrap!important; white-space:normal!important; }
+  html.homepagescript-active .search-layout .b-article-card { display:flex!important; min-width:0!important; }
+  html.homepagescript-active .search-layout .b-article-card .article-banner { flex:none!important; width:clamp(90px,24vw,154px)!important; height:auto!important; aspect-ratio:4/3; }
+  html.homepagescript-active .search-layout .b-article-card .article-banner :is(.cover-img,img) { height:100%!important; }
+  html.homepagescript-active .search-layout .b-article-card .article-content { flex:1!important; min-width:0!important; width:auto!important; }
+  html.homepagescript-active .search-layout .vui_pagenation { flex-wrap:wrap!important; justify-content:center!important; gap:12px!important; max-width:100%!important; white-space:normal!important; }
+  html.homepagescript-active .search-layout .vui_pagenation--btns { flex-wrap:wrap!important; justify-content:center!important; gap:6px!important; margin-right:0!important; }
+  html.homepagescript-active .search-layout .vui_pagenation--btns > * { margin-right:0!important; }
+  html.homepagescript-active .search-layout .side-buttons { right:8px!important; }
+  html.homepagescript-active :is(.bili-footer,.b-footer-wrap,.footer) { box-sizing:border-box!important; min-width:0!important; width:100%!important; padding:12px!important; }
+  html.homepagescript-active :is(.link-box,.other-link,.link-item__right) { flex-wrap:wrap!important; gap:12px!important; width:100%!important; }
+  html.homepagescript-active :is(.link-item,.text-con,.text-con__line) { min-width:0!important; width:100%!important; white-space:normal!important; overflow-wrap:anywhere!important; }
+}
+@media (max-width:599px) {
+  /* Metadata can occupy two lines here; reserve the footer without stretching the poster. */
+  html.homepagescript-active .search-layout .media-card:has(.media-footer) .media-card-content-head-desc {
+    -webkit-line-clamp:1!important;
+  }
+}
+@media (max-width:399px) {
+  html.homepagescript-active .search-layout .search-input-wrap .search-button { width:72px!important; min-width:72px!important; }
+  html.homepagescript-active .search-layout :is(.video-list,.live-room-cards) { grid-template-columns:minmax(0,1fr)!important; }
+  html.homepagescript-active .search-layout .search-fixed-header .search-logo { width:40px!important; }
+  html.homepagescript-active .search-layout .search-fixed-header .back-button { width:48px!important; }
+}
+`;
 
   // src/WebPage/Search/module.js
   var early9 = () => createPageOpening();
@@ -3825,8 +4750,8 @@ ${content2}
       return Boolean(destination && (link.closest(".header-avatar-wrap") && (link.matches(".header-entry-mini,.header-entry-avatar") || link.querySelector(".bili-avatar")) || link.closest(".link-navbar") && (link.querySelector(".user-avatar") || link.closest(".user-panel-ctnr,.user-panel") && link.textContent.trim() === "主站空间") || link.closest(".charity-header") && link.matches(".user") && link.querySelector(".face")));
     }
     const isCompletedNavigation = isPageUrl;
-    function isNavigationIgnored(url) {
-      return isCompletedNavigation(url);
+    function isNavigationIgnored(url, { explicit = false } = {}) {
+      return !explicit && isCompletedNavigation(url);
     }
     function syncPotPlayerIgnore() {
       if (location.href !== observedUrl) {
@@ -4092,8 +5017,11 @@ ${content2}
       html.homepagescript-active .rank-item { box-sizing:border-box!important; width:100%!important; min-width:0!important; margin:0!important; }
       html.homepagescript-active .rank-item .content { display:flex!important; flex-direction:column!important; width:100%!important; min-width:0!important; }
       html.homepagescript-active .rank-item :is(.img,.info,.detail,.detail-state) { box-sizing:border-box!important; width:100%!important; min-width:0!important; height:auto!important; margin:0!important; }
-      html.homepagescript-active .rank-item .img { aspect-ratio:16/9; }
-      html.homepagescript-active .rank-item .img :is(a,img) { display:block; width:100%!important; height:100%!important; }
+      html.homepagescript-active .rank-list:not(.pgc-list) .rank-item .img { aspect-ratio:16/9; }
+      html.homepagescript-active .rank-item .img :is(a,img) { display:block; width:100%!important; }
+      html.homepagescript-active .rank-list:not(.pgc-list) .rank-item .img :is(a,img) { height:100%!important; }
+      /* 官方 pgc-list 使用竖封面；解除固定高度，沿用原生缩略图比例。 */
+      html.homepagescript-active .rank-list.pgc-list .rank-item .img :is(a,img) { height:auto!important; }
       html.homepagescript-active .rank-item .info { padding:8px 0 0!important; }
       html.homepagescript-active .rank-item .title { width:100%!important; }
       html.homepagescript-active .rank-item .detail-state { display:flex!important; flex-wrap:wrap!important; gap:4px 10px!important; }
@@ -4227,8 +5155,8 @@ ${content2}
       return avatarNavigation.isLink(link);
     }
     const isCompletedNavigation = isPageUrl;
-    function isNavigationIgnored(url) {
-      return isCompletedNavigation(url);
+    function isNavigationIgnored(url, { explicit = false } = {}) {
+      return !explicit && isCompletedNavigation(url);
     }
     function syncPotPlayerIgnore() {
       if (location.href !== observedUrl) {
@@ -4451,13 +5379,16 @@ ${content2}
   });
 
   // src/WebPage/Anime/content.css
-  var content_default7 = "\n@media(max-width:1099px) {\n html.homepagescript-active .home-v3-app-container {min-width:0!important;width:100%!important;}\n html.homepagescript-active .inner-content-wrapper {box-sizing:border-box!important;width:100%!important;max-width:100%!important;min-width:0!important;margin-left:0!important;margin-right:0!important;padding-left:8px!important;padding-right:8px!important;}\n html.homepagescript-active .home-banner-wrapper {height:auto!important;min-height:0!important;padding-top:56px!important;}\n html.homepagescript-active .banner-item-ratio-scale-container {padding-top:0!important;height:auto!important;aspect-ratio:16/9;}\n html.homepagescript-active .banner-item-ratio-scale-inner {position:relative!important;inset:auto!important;width:100%!important;height:100%!important;}\n html.homepagescript-active .banner-hover-group {position:relative!important;inset:auto!important;width:100%!important;padding:8px!important;box-sizing:border-box!important;}\n html.homepagescript-active .banner-hover-group-title {width:100%!important;padding:0!important;}\n html.homepagescript-active .banner-hover-group-body {box-sizing:border-box!important;width:100%!important;height:auto!important;min-height:0!important;max-height:none!important;gap:8px!important;overflow-x:auto!important;overflow-y:hidden!important;align-items:start!important;padding:8px 0!important;}\n html.homepagescript-active .banner-hover-group-item {flex:0 0 140px!important;width:140px!important;}\n html.homepagescript-active .home-index-wrapper .inner-content-body {display:grid!important;grid-template-columns:1fr!important;gap:8px!important;}\n html.homepagescript-active .inner-content-item-index {width:100%!important;margin:0!important;}\n html.homepagescript-active :is(.home-page-switch-wrapper .inner-content-body,.feenline-vcard-wrapper) {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr))!important;gap:16px 12px!important;}\n html.homepagescript-active :is(.home-page-switch-wrapper .inner-content-body,.feenline-vcard-wrapper) > * {box-sizing:border-box!important;min-width:0!important;width:100%!important;max-width:100%!important;margin:0!important;}\n html.homepagescript-active .section-title-v2-wrapper {align-items:flex-start!important;gap:8px!important;flex-wrap:wrap!important;}\n html.homepagescript-active .title-right {min-width:0!important;max-width:100%!important;overflow-x:auto!important;}\n html.homepagescript-active .home-page-switch-wrapper :is(.next-page,.prev-page) {position:static!important;transform:none!important;margin:8px auto!important;}\n html.homepagescript-active .content-wrap {display:flex!important;flex-direction:column!important;min-width:0!important;width:100%!important;height:auto!important;}\n html.homepagescript-active .info-wrap {position:relative!important;inset:auto!important;width:100%!important;height:auto!important;min-height:0!important;}\n html.homepagescript-active .info-content-wrap {box-sizing:border-box!important;width:100%!important;height:auto!important;padding:12px!important;}\n html.homepagescript-active .video-wrap {position:relative!important;inset:auto!important;width:100%!important;height:auto!important;aspect-ratio:16/9;}\n html.homepagescript-active .carousel-wrap {width:100%!important;overflow-x:auto!important;position:relative!important;inset:auto!important;}\n html.homepagescript-active .feed-line-rank-body-container {flex-direction:column!important;gap:12px!important;}\n html.homepagescript-active .feed-line-rank-body-inner {min-width:0!important;width:100%!important;max-width:100%!important;}\n /* 电影/电视剧等页面采用 inner-c + grid 的另一套 PGC 模板。 */\n html.homepagescript-active .inner-c {box-sizing:border-box!important;min-width:0!important;width:100%!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;padding-left:8px!important;padding-right:8px!important;}\n html.homepagescript-active .banner-wrapper {min-width:0!important;height:auto!important;padding-top:56px!important;}\n html.homepagescript-active .banner-wrapper .bg-container {position:relative!important;inset:auto!important;width:100%!important;height:240px!important;}\n html.homepagescript-active .banner-wrapper .inner-c {height:auto!important;}\n html.homepagescript-active .side-list-wrp {position:relative!important;inset:auto!important;width:100%!important;height:auto!important;}\n html.homepagescript-active .side-list {flex-direction:row!important;width:100%!important;overflow-x:auto!important;gap:8px!important;padding:8px 0!important;}\n html.homepagescript-active .side-item {flex:0 0 150px!important;width:150px!important;}\n html.homepagescript-active .index-module > .inner-c {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr))!important;gap:12px!important;}\n html.homepagescript-active .index-item {width:100%!important;margin:0!important;}\n html.homepagescript-active .grid {grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr))!important;grid-template-rows:none!important;grid-auto-rows:auto!important;gap:16px 12px!important;}\n html.homepagescript-active .grid > * {box-sizing:border-box!important;grid-column:auto!important;grid-row:auto!important;min-width:0!important;width:100%!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;}\n html.homepagescript-active .hot-module > .left {grid-column:1/-1!important;aspect-ratio:16/9;height:auto!important;}\n html.homepagescript-active .hot-item .cover {width:100%!important;height:auto!important;aspect-ratio:3/4;}\n}\n\n@media(max-width:1099px) {\n /* 可收起的浮动导航，不压缩页面内容。 */\n html.homepagescript-active .nav-tool-container {z-index:40!important;}\n html.homepagescript-active .anime-sidebar {\n  position:fixed;right:8px;bottom:12px;width:44px;pointer-events:auto;\n  transform:translateX(calc(100% + 8px));transition:transform .18s ease;z-index:30;\n }\n html.homepagescript-active .anime-sidebar[data-open] {transform:none;}\n html.homepagescript-active .anime-sidebar-toggle {\n  position:absolute;right:100%;top:0;width:24px;height:44px;padding:0;border:1px solid var(--line_light,#444);\n  border-radius:6px 0 0 6px;background:var(--bg1_float,#252627);color:var(--text1,#eee);font-size:24px;cursor:pointer;\n }\n html.homepagescript-active .anime-sidebar-toggle:focus-visible {outline:2px solid #00aeec;outline-offset:2px;}\n html.homepagescript-active .anime-sidebar .nav-tool {\n  position:relative!important;box-sizing:border-box!important;inset:auto!important;\n  transform:none!important;max-height:calc(100vh - 80px)!important;max-height:calc(100dvh - 80px)!important;\n  overflow-y:auto!important;overflow-x:hidden!important;\n }\n html.homepagescript-active .nav-tool-container .section {box-sizing:border-box!important;opacity:1!important;}\n html.homepagescript-active .nav-tool-container .top:not(.show) {opacity:0!important;pointer-events:none!important;}\n\n /* 原布局依赖视频撑高信息区；纵向排列后，文字及缩略图必须自行撑高。 */\n html.homepagescript-active .new-hot-wrap .content-wrap {gap:12px!important;padding-bottom:0!important;}\n html.homepagescript-active .new-hot-wrap .info-wrap {flex:none!important;justify-content:flex-start!important;}\n html.homepagescript-active .new-hot-wrap .info-content-wrap {min-width:0!important;justify-content:flex-start!important;gap:12px!important;padding:16px!important;}\n html.homepagescript-active .new-hot-wrap .info-content-wrap > :not(.season-cover) {flex-shrink:0!important;margin:0!important;}\n html.homepagescript-active .new-hot-wrap .info-content-wrap > .season-cover {pointer-events:none!important;}\n html.homepagescript-active .new-hot-wrap .info-content-wrap > .title {\n  height:auto!important;min-height:0!important;padding:0!important;font-size:clamp(20px,3vw,28px)!important;\n  line-height:1.4!important;white-space:normal!important;overflow-wrap:anywhere!important;\n }\n html.homepagescript-active .new-hot-wrap .rating-wrap {height:auto!important;min-height:40px!important;padding:0!important;}\n html.homepagescript-active .new-hot-wrap .rating-wrap .right-wrap {min-width:0!important;width:auto!important;flex:1!important;}\n html.homepagescript-active .new-hot-wrap .info-content-wrap > .desc {\n  display:-webkit-box!important;height:auto!important;max-height:none!important;padding:0!important;\n  line-height:1.5!important;white-space:normal!important;overflow-wrap:anywhere!important;-webkit-line-clamp:3!important;\n }\n html.homepagescript-active .new-hot-wrap .button-group {gap:12px!important;}\n html.homepagescript-active .new-hot-wrap .button-group .button {flex-shrink:0!important;margin-right:0!important;}\n html.homepagescript-active .new-hot-wrap .carousel-wrap {\n  display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:8px!important;\n  height:auto!important;min-width:0!important;overflow:visible!important;\n }\n html.homepagescript-active .new-hot-wrap .carousel-item-wrap {\n  position:relative!important;inset:auto!important;width:100%!important;min-width:0!important;\n  transform:none!important;transition:none!important;border-width:3px!important;\n }\n html.homepagescript-active .new-hot-wrap .video-wrap {flex:none!important;aspect-ratio:auto!important;}\n html.homepagescript-active .new-hot-wrap .video-area {height:0!important;padding-bottom:56.25%!important;}\n\n /* 首页横幅、索引及时间表同样存在原生定高或定宽的内部节点。 */\n html.homepagescript-active .home-banner-wrapper {margin-top:0!important;}\n html.homepagescript-active .home-index-wrapper .index-categary-content-container {height:auto!important;overflow:visible!important;}\n html.homepagescript-active .home-index-wrapper .vertical-items-group {height:auto!important;gap:8px!important;margin-right:16px!important;}\n html.homepagescript-active .home-index-wrapper .index-background-icon {pointer-events:none!important;}\n html.homepagescript-active .section-title-v2-wrapper .title-left {min-width:0!important;max-width:100%!important;flex-wrap:wrap!important;gap:8px!important;}\n html.homepagescript-active .section-title-v2-wrapper .week-day-wrapper {max-width:100%!important;margin-left:0!important;overflow-x:auto!important;}\n html.homepagescript-active .section-title-v2-wrapper .week-day-item {flex-shrink:0!important;}\n html.homepagescript-active .time-line-body .timeline-common-content {box-sizing:border-box!important;width:100%!important;min-width:0!important;margin:0!important;padding:8px!important;display:grid!important;grid-template-columns:1fr 1fr!important;}\n html.homepagescript-active .time-line-body .timeline-common-content-list-container {grid-column:1/-1!important;}\n html.homepagescript-active .time-line-wrapper .time-line-body {overflow:visible!important;}\n html.homepagescript-active .time-line-body .timeline-weekday-item {min-width:0!important;width:100%!important;}\n /* 日期标签伸出卡片顶部，展开时一并遮住相邻卡片的标签。 */\n html.homepagescript-active .time-line-body .timeline-weekday-item.is-hover-active::before {content:'';position:absolute;inset:-12px 0 0;background:var(--bg1,#171819);z-index:-1;}\n html.homepagescript-active .time-line-body :is(.timeline-special-content-left,.timeline-special-content-right) {display:none!important;}\n html.homepagescript-active .time-line-body :is(.next-page,.prev-page) {position:static!important;transform:none!important;margin:8px auto!important;}\n html.homepagescript-active .recommend-feed-line-rank-wrapper .subject-titles {position:relative!important;inset:auto!important;width:100%!important;}\n html.homepagescript-active .recommend-feed-line-rank-wrapper .subject-picture {pointer-events:none!important;}\n html.homepagescript-active .recommend-feed-line-rank-wrapper .feed-line-rank-body-inner {flex:none!important;}\n}\n\n/* 宽屏保留原生导航的位置和可访问性。 */\n@media(min-width:1100px) {\n html.homepagescript-active .anime-sidebar {display:contents;}\n html.homepagescript-active .anime-sidebar-toggle {display:none;}\n}\n\n@media(max-width:1099px) {\n /* 独立时间表：日期行切换对应日程，标题与条目不再挤在三列固定宽度内。 */\n html.homepagescript-active #app :is(.bread-crumb,.timeline-container) {box-sizing:border-box!important;width:100%!important;min-width:0!important;margin:0!important;padding-left:8px!important;padding-right:8px!important;}\n html.homepagescript-active #app .timeline-container {padding-top:0!important;}\n html.homepagescript-active #app .timeline-header {position:sticky!important;inset:auto!important;top:56px!important;box-sizing:border-box!important;width:100%!important;height:76px!important;margin:0!important;}\n html.homepagescript-active #app .timeline-header :is(.arrow-left,.arrow-right) {display:none!important;}\n html.homepagescript-active #app .tl-weeks {height:76px!important;overflow-x:auto!important;overflow-y:hidden!important;}\n html.homepagescript-active #app .tl-head-list {display:flex!important;width:max-content!important;transform:none!important;transition:none!important;}\n html.homepagescript-active #app .tl-head {float:none!important;flex:0 0 130px!important;width:130px!important;animation:none!important;cursor:pointer;}\n html.homepagescript-active #app .tl-head .tl-day {left:0!important;}\n html.homepagescript-active #app .tl-head[data-anime-selected] .indicator {background:var(--brand_blue,#00aeec)!important;}\n html.homepagescript-active #app .tl-head:focus-visible {outline:2px solid #00aeec;outline-offset:-2px;}\n html.homepagescript-active #app .timeline-wrapper {width:100%!important;overflow:visible!important;}\n html.homepagescript-active #app .tl-body-list {width:100%!important;transform:none!important;transition:none!important;}\n html.homepagescript-active #app .season-timeline {box-sizing:border-box!important;float:none!important;width:100%!important;animation:none!important;}\n html.homepagescript-active #app .season-timeline:not([data-anime-selected]) {display:none!important;}\n html.homepagescript-active #app .season-group {box-sizing:border-box!important;left:12px!important;padding-right:20px!important;}\n html.homepagescript-active #app .season-item .season-body {min-height:72px!important;}\n html.homepagescript-active #app .season-item .season-desc {position:relative!important;width:auto!important;max-width:100%!important;margin-top:8px!important;}\n html.homepagescript-active #app .bread-crumb ul {display:flex!important;gap:16px!important;flex-wrap:wrap!important;}\n html.homepagescript-active #app .bread-crumb li {float:none!important;margin-left:0!important;}\n\n /* 索引：筛选控件先于结果，保持原生筛选、排序和翻页。 */\n html.homepagescript-active .bangumi-index-wrapper {box-sizing:border-box!important;width:100%!important;min-width:0!important;padding:0 8px!important;margin:0!important;}\n html.homepagescript-active .bangumi-index-body {display:grid!important;grid-template-columns:minmax(0,1fr)!important;}\n html.homepagescript-active .bangumi-index-body :is(.filter-wrapper,.filter-body) {float:none!important;width:100%!important;min-width:0!important;}\n html.homepagescript-active .bangumi-index-body .filter-wrapper {grid-row:1;}\n html.homepagescript-active .bangumi-index-body .filter-body {grid-row:2;}\n html.homepagescript-active .bangumi-index-wrapper .filter-list {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr))!important;gap:0 16px!important;align-items:start!important;}\n html.homepagescript-active .bangumi-index-wrapper .filter-block {display:grid!important;grid-template-columns:52px minmax(0,1fr)!important;align-items:start!important;}\n html.homepagescript-active .bangumi-index-wrapper .filter-item-wrapper {position:relative!important;float:none!important;width:100%!important;min-width:0!important;height:var(--anime-filter-height,auto)!important;transition:none!important;}\n html.homepagescript-active .bangumi-index-wrapper .btn-expand {right:0!important;}\n html.homepagescript-active .bangumi-index-wrapper .btn-expand::after {display:none!important;}\n html.homepagescript-active .bangumi-index-wrapper .btn-expand[data-anime-filter-toggle=hidden] {display:none!important;}\n html.homepagescript-active .bangumi-index-wrapper .sort-banner {height:auto!important;display:flex!important;flex-wrap:wrap!important;gap:16px 8px!important;margin-bottom:16px!important;}\n html.homepagescript-active .bangumi-index-wrapper .sort-item {float:none!important;margin-right:0!important;flex:0 0 80px!important;}\n html.homepagescript-active .bangumi-index-wrapper .bangumi-list {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(140px,100%),1fr))!important;gap:20px 12px!important;}\n html.homepagescript-active .bangumi-index-wrapper .bangumi-item {box-sizing:border-box!important;width:100%!important;height:auto!important;margin-right:0!important;min-width:0!important;}\n html.homepagescript-active .bangumi-index-wrapper .cover-wrapper {height:auto!important;aspect-ratio:3/4;}\n html.homepagescript-active .bangumi-index-wrapper .cover-wrapper img {object-fit:cover;}\n html.homepagescript-active .bangumi-index-wrapper .pagelistbox {display:flex!important;flex-wrap:wrap!important;gap:4px!important;height:auto!important;padding-right:0!important;margin:20px 0!important;}\n html.homepagescript-active .bangumi-index-wrapper .pagelistbox :is(.p,strong,.custom-right) {float:none!important;margin-right:0!important;}\n html.homepagescript-active .bangumi-index-crumb ul {display:flex!important;flex-wrap:wrap!important;gap:16px!important;}\n html.homepagescript-active .bangumi-index-crumb li {padding:0!important;float:none!important;}\n}\n\n@media(max-width:479px) {\n html.homepagescript-active .new-hot-wrap .carousel-wrap {grid-template-columns:repeat(2,minmax(0,1fr))!important;}\n}\n";
+  var content_default7 = "\n@media(max-width:1099px) {\n html.homepagescript-active .home-v3-app-container {min-width:0!important;width:100%!important;}\n html.homepagescript-active .inner-content-wrapper {box-sizing:border-box!important;width:100%!important;max-width:100%!important;min-width:0!important;margin-left:0!important;margin-right:0!important;padding-left:8px!important;padding-right:8px!important;}\n html.homepagescript-active .home-banner-wrapper {height:auto!important;min-height:0!important;padding-top:56px!important;}\n html.homepagescript-active .banner-item-ratio-scale-container {padding-top:0!important;height:auto!important;aspect-ratio:16/9;}\n html.homepagescript-active .banner-item-ratio-scale-inner {position:relative!important;inset:auto!important;width:100%!important;height:100%!important;}\n html.homepagescript-active .banner-hover-group {position:relative!important;inset:auto!important;width:100%!important;padding:8px!important;box-sizing:border-box!important;}\n html.homepagescript-active .banner-hover-group-title {width:100%!important;padding:0!important;}\n html.homepagescript-active .banner-hover-group-body {box-sizing:border-box!important;width:100%!important;height:auto!important;min-height:0!important;max-height:none!important;gap:8px!important;overflow-x:auto!important;overflow-y:hidden!important;align-items:start!important;padding:8px 0!important;}\n html.homepagescript-active .banner-hover-group-item {flex:0 0 140px!important;width:140px!important;}\n html.homepagescript-active .home-index-wrapper .inner-content-body {display:grid!important;grid-template-columns:1fr!important;gap:8px!important;}\n html.homepagescript-active .inner-content-item-index {width:100%!important;margin:0!important;}\n html.homepagescript-active .section-title-v2-wrapper {align-items:flex-start!important;gap:8px!important;flex-wrap:wrap!important;}\n html.homepagescript-active .title-right {min-width:0!important;max-width:100%!important;overflow-x:auto!important;}\n html.homepagescript-active .content-wrap {display:flex!important;flex-direction:column!important;min-width:0!important;width:100%!important;height:auto!important;}\n html.homepagescript-active .info-wrap {position:relative!important;inset:auto!important;width:100%!important;height:auto!important;min-height:0!important;}\n html.homepagescript-active .info-content-wrap {box-sizing:border-box!important;width:100%!important;height:auto!important;padding:12px!important;}\n html.homepagescript-active .video-wrap {position:relative!important;inset:auto!important;width:100%!important;height:auto!important;aspect-ratio:16/9;}\n html.homepagescript-active .carousel-wrap {width:100%!important;overflow-x:auto!important;position:relative!important;inset:auto!important;}\n html.homepagescript-active .feed-line-rank-body-container {flex-direction:column!important;gap:12px!important;}\n html.homepagescript-active .feed-line-rank-body-inner {min-width:0!important;width:100%!important;max-width:100%!important;}\n /* 电影/电视剧等页面采用 inner-c + grid 的另一套 PGC 模板。 */\n html.homepagescript-active .inner-c {box-sizing:border-box!important;min-width:0!important;width:100%!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;padding-left:8px!important;padding-right:8px!important;}\n html.homepagescript-active .banner-wrapper {min-width:0!important;height:auto!important;padding-top:56px!important;}\n html.homepagescript-active .banner-wrapper .bg-container {position:relative!important;inset:auto!important;width:100%!important;height:240px!important;}\n html.homepagescript-active .banner-wrapper .inner-c {height:auto!important;}\n html.homepagescript-active .side-list-wrp {position:relative!important;inset:auto!important;width:100%!important;height:auto!important;}\n html.homepagescript-active .side-list {flex-direction:row!important;width:100%!important;overflow-x:auto!important;gap:8px!important;padding:8px 0!important;}\n html.homepagescript-active .side-item {flex:0 0 150px!important;width:150px!important;}\n html.homepagescript-active .index-module > .inner-c {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr))!important;gap:12px!important;}\n html.homepagescript-active .index-item {width:100%!important;margin:0!important;}\n html.homepagescript-active .grid {grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr))!important;grid-template-rows:none!important;grid-auto-rows:auto!important;gap:16px 12px!important;}\n html.homepagescript-active .grid > * {box-sizing:border-box!important;grid-column:auto!important;grid-row:auto!important;min-width:0!important;width:100%!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;}\n html.homepagescript-active .hot-module > .left {grid-column:1/-1!important;aspect-ratio:16/9;height:auto!important;}\n html.homepagescript-active .hot-item .cover {width:100%!important;height:auto!important;aspect-ratio:3/4;}\n}\n\n@media(max-width:1099px) {\n /* 可收起的浮动导航，不压缩页面内容。 */\n html.homepagescript-active .nav-tool-container {z-index:40!important;}\n html.homepagescript-active .anime-sidebar {\n  position:fixed;right:8px;bottom:12px;width:44px;pointer-events:auto;\n  transform:translateX(calc(100% + 8px));transition:transform .18s ease;z-index:30;\n }\n html.homepagescript-active .anime-sidebar[data-open] {transform:none;}\n html.homepagescript-active .anime-sidebar-toggle {\n  position:absolute;right:100%;top:50%;transform:translateY(-50%);width:24px;height:44px;padding:0;border:1px solid var(--line_light,#444);\n  border-radius:6px 0 0 6px;background:var(--bg1_float,#252627);color:var(--text1,#eee);font-size:24px;cursor:pointer;\n }\n html.homepagescript-active .anime-sidebar-toggle:focus-visible {outline:2px solid #00aeec;outline-offset:2px;}\n html.homepagescript-active .anime-sidebar .nav-tool {\n  position:relative!important;box-sizing:border-box!important;inset:auto!important;\n  transform:none!important;max-height:calc(100vh - 80px)!important;max-height:calc(100dvh - 80px)!important;\n  overflow-y:auto!important;overflow-x:hidden!important;\n }\n html.homepagescript-active .nav-tool-container .section {box-sizing:border-box!important;opacity:1!important;}\n html.homepagescript-active .nav-tool-container .top:not(.show) {opacity:0!important;pointer-events:none!important;}\n\n /* 原布局依赖视频撑高信息区；纵向排列后，文字及缩略图必须自行撑高。 */\n html.homepagescript-active .new-hot-wrap .content-wrap {gap:12px!important;padding-bottom:0!important;}\n html.homepagescript-active .new-hot-wrap .info-wrap {flex:none!important;justify-content:flex-start!important;}\n html.homepagescript-active .new-hot-wrap .info-content-wrap {min-width:0!important;justify-content:flex-start!important;gap:12px!important;padding:16px!important;}\n html.homepagescript-active .new-hot-wrap .info-content-wrap > :not(.season-cover) {flex-shrink:0!important;margin:0!important;}\n html.homepagescript-active .new-hot-wrap .info-content-wrap > .season-cover {pointer-events:none!important;}\n html.homepagescript-active .new-hot-wrap .info-content-wrap > .title {\n  height:auto!important;min-height:0!important;padding:0!important;font-size:clamp(20px,3vw,28px)!important;\n  line-height:1.4!important;white-space:normal!important;overflow-wrap:anywhere!important;\n }\n html.homepagescript-active .new-hot-wrap .rating-wrap {height:auto!important;min-height:40px!important;padding:0!important;}\n html.homepagescript-active .new-hot-wrap .rating-wrap .right-wrap {min-width:0!important;width:auto!important;flex:1!important;}\n html.homepagescript-active .new-hot-wrap .info-content-wrap > .desc {\n  display:-webkit-box!important;height:auto!important;max-height:none!important;padding:0!important;\n  line-height:1.5!important;white-space:normal!important;overflow-wrap:anywhere!important;-webkit-line-clamp:3!important;\n }\n html.homepagescript-active .new-hot-wrap .button-group {gap:12px!important;}\n html.homepagescript-active .new-hot-wrap .button-group .button {flex-shrink:0!important;margin-right:0!important;}\n html.homepagescript-active .new-hot-wrap .carousel-wrap {\n  display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:8px!important;\n  height:auto!important;min-width:0!important;overflow:visible!important;\n }\n html.homepagescript-active .new-hot-wrap .carousel-item-wrap {\n  position:relative!important;inset:auto!important;width:100%!important;min-width:0!important;\n  transform:none!important;transition:none!important;border-width:3px!important;\n }\n html.homepagescript-active .new-hot-wrap .video-wrap {flex:none!important;aspect-ratio:auto!important;}\n html.homepagescript-active .new-hot-wrap .video-area {height:0!important;padding-bottom:56.25%!important;}\n\n /* 首页横幅、索引及时间表同样存在原生定高或定宽的内部节点。 */\n html.homepagescript-active .home-banner-wrapper {margin-top:0!important;}\n html.homepagescript-active .home-index-wrapper .index-categary-content-container {height:auto!important;overflow:visible!important;}\n html.homepagescript-active .home-index-wrapper .vertical-items-group {height:auto!important;gap:8px!important;margin-right:16px!important;}\n html.homepagescript-active .home-index-wrapper .index-background-icon {pointer-events:none!important;}\n html.homepagescript-active .section-title-v2-wrapper .title-left {min-width:0!important;max-width:100%!important;flex-wrap:wrap!important;gap:8px!important;}\n /* The timeline head has its own native 1020px width; it is not an\n    inner-content-wrapper. Constrain it before laying out its date controls. */\n html.homepagescript-active .time-line-wrapper .time-line-head {box-sizing:border-box!important;width:100%!important;max-width:100%!important;min-width:0!important;margin:0!important;padding:0 8px!important;}\n html.homepagescript-active .section-title-v2-wrapper .title-left:has(.week-day-wrapper) {width:100%!important;}\n /* Vue wraps the date list in an unclassed flex item. Give that item its\n    own line and a shrinkable width, including when the list is a direct child. */\n html.homepagescript-active .section-title-v2-wrapper .title-left > :is(.week-day-wrapper,:has(> .week-day-wrapper)) {box-sizing:border-box!important;flex:0 0 100%!important;width:100%!important;min-width:0!important;max-width:100%!important;}\n html.homepagescript-active .section-title-v2-wrapper .week-day-wrapper {\n  box-sizing:border-box!important;display:grid!important;grid-template-columns:minmax(72px,1.6fr) repeat(7,minmax(0,1fr))!important;\n  width:100%!important;max-width:100%!important;min-width:0!important;margin:0!important;padding:2px!important;overflow:visible!important;\n }\n html.homepagescript-active .section-title-v2-wrapper .week-day-item {box-sizing:border-box!important;min-width:0!important;padding:6px 4px!important;white-space:nowrap!important;text-align:center!important;}\n html.homepagescript-active .time-line-body .timeline-common-content {box-sizing:border-box!important;width:100%!important;min-width:0!important;margin:0!important;padding:8px!important;}\n html.homepagescript-active .time-line-wrapper .time-line-body {overflow:visible!important;}\n html.homepagescript-active .time-line-body .timeline-weekday-item {min-width:0!important;width:100%!important;}\n /* 日期标签伸出卡片顶部，展开时一并遮住相邻卡片的标签。 */\n html.homepagescript-active .time-line-body .timeline-weekday-item.is-hover-active::before {content:'';position:absolute;inset:-12px 0 0;background:var(--bg1,#171819);z-index:-1;}\n html.homepagescript-active .time-line-body :is(.timeline-special-content-left,.timeline-special-content-right) {display:none!important;}\n html.homepagescript-active .recommend-feed-line-rank-wrapper .subject-titles {position:relative!important;inset:auto!important;width:100%!important;}\n html.homepagescript-active .recommend-feed-line-rank-wrapper .subject-picture {pointer-events:none!important;}\n html.homepagescript-active .recommend-feed-line-rank-wrapper .feed-line-rank-body-inner {flex:none!important;}\n}\n\n/* 宽屏保留原生导航的位置和可访问性。 */\n@media(min-width:1100px) {\n html.homepagescript-active .anime-sidebar {display:contents;}\n html.homepagescript-active .anime-sidebar-toggle {display:none;}\n}\n\n@media(max-width:1099px) {\n /* 独立时间表：日期行切换对应日程，标题与条目不再挤在三列固定宽度内。 */\n html.homepagescript-active #app :is(.bread-crumb,.timeline-container) {box-sizing:border-box!important;width:100%!important;min-width:0!important;margin:0!important;padding-left:8px!important;padding-right:8px!important;}\n html.homepagescript-active #app .timeline-container {padding-top:0!important;}\n html.homepagescript-active #app .timeline-header {position:sticky!important;inset:auto!important;top:56px!important;box-sizing:border-box!important;width:100%!important;height:76px!important;margin:0!important;}\n html.homepagescript-active #app .timeline-header :is(.arrow-left,.arrow-right) {display:none!important;}\n html.homepagescript-active #app .tl-weeks {height:76px!important;overflow-x:auto!important;overflow-y:hidden!important;}\n html.homepagescript-active #app .tl-head-list {display:flex!important;width:max-content!important;transform:none!important;transition:none!important;}\n html.homepagescript-active #app .tl-head {float:none!important;flex:0 0 130px!important;width:130px!important;animation:none!important;cursor:pointer;}\n html.homepagescript-active #app .tl-head .tl-day {left:0!important;}\n html.homepagescript-active #app .tl-head[data-anime-selected] .indicator {background:var(--brand_blue,#00aeec)!important;}\n html.homepagescript-active #app .tl-head:focus-visible {outline:2px solid #00aeec;outline-offset:-2px;}\n html.homepagescript-active #app .timeline-wrapper {width:100%!important;overflow:visible!important;}\n html.homepagescript-active #app .tl-body-list {width:100%!important;transform:none!important;transition:none!important;}\n html.homepagescript-active #app .season-timeline {box-sizing:border-box!important;float:none!important;width:100%!important;animation:none!important;}\n html.homepagescript-active #app .season-timeline:not([data-anime-selected]) {display:none!important;}\n html.homepagescript-active #app .season-group {box-sizing:border-box!important;left:12px!important;padding-right:20px!important;}\n html.homepagescript-active #app .season-item .season-body {min-height:72px!important;}\n html.homepagescript-active #app .season-item .season-desc {position:relative!important;width:auto!important;max-width:100%!important;margin-top:8px!important;}\n html.homepagescript-active #app .bread-crumb ul {display:flex!important;gap:16px!important;flex-wrap:wrap!important;}\n html.homepagescript-active #app .bread-crumb li {float:none!important;margin-left:0!important;}\n\n /* 索引：筛选控件先于结果，保持原生筛选、排序和翻页。 */\n html.homepagescript-active .bangumi-index-wrapper {box-sizing:border-box!important;width:100%!important;min-width:0!important;padding:0 8px!important;margin:0!important;}\n html.homepagescript-active .bangumi-index-body {display:grid!important;grid-template-columns:minmax(0,1fr)!important;}\n html.homepagescript-active .bangumi-index-body :is(.filter-wrapper,.filter-body) {float:none!important;width:100%!important;min-width:0!important;}\n html.homepagescript-active .bangumi-index-body .filter-wrapper {grid-row:1;}\n html.homepagescript-active .bangumi-index-body .filter-body {grid-row:2;}\n html.homepagescript-active .bangumi-index-wrapper .filter-list {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr))!important;gap:0 16px!important;align-items:start!important;}\n html.homepagescript-active .bangumi-index-wrapper .filter-block {display:grid!important;grid-template-columns:52px minmax(0,1fr)!important;align-items:start!important;}\n html.homepagescript-active .bangumi-index-wrapper .filter-item-wrapper {position:relative!important;float:none!important;width:100%!important;min-width:0!important;height:var(--anime-filter-height,auto)!important;transition:none!important;}\n html.homepagescript-active .bangumi-index-wrapper .btn-expand {right:0!important;}\n html.homepagescript-active .bangumi-index-wrapper .btn-expand::after {display:none!important;}\n html.homepagescript-active .bangumi-index-wrapper .btn-expand[data-anime-filter-toggle=hidden] {display:none!important;}\n html.homepagescript-active .bangumi-index-wrapper .sort-banner {height:auto!important;display:flex!important;flex-wrap:wrap!important;gap:16px 8px!important;margin-bottom:16px!important;}\n html.homepagescript-active .bangumi-index-wrapper .sort-item {float:none!important;margin-right:0!important;flex:0 0 80px!important;}\n html.homepagescript-active .bangumi-index-wrapper .bangumi-list {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(140px,100%),1fr))!important;gap:20px 12px!important;}\n html.homepagescript-active .bangumi-index-wrapper .bangumi-item {box-sizing:border-box!important;width:100%!important;height:auto!important;margin-right:0!important;min-width:0!important;}\n html.homepagescript-active .bangumi-index-wrapper .cover-wrapper {height:auto!important;aspect-ratio:3/4;}\n html.homepagescript-active .bangumi-index-wrapper .cover-wrapper img {object-fit:cover;}\n html.homepagescript-active .bangumi-index-wrapper .pagelistbox {display:flex!important;flex-wrap:wrap!important;gap:4px!important;height:auto!important;padding-right:0!important;margin:20px 0!important;}\n html.homepagescript-active .bangumi-index-wrapper .pagelistbox :is(.p,strong,.custom-right) {float:none!important;margin-right:0!important;}\n html.homepagescript-active .bangumi-index-crumb ul {display:flex!important;flex-wrap:wrap!important;gap:16px!important;}\n html.homepagescript-active .bangumi-index-crumb li {padding:0!important;float:none!important;}\n}\n\n@media(max-width:479px) {\n html.homepagescript-active .section-title-v2-wrapper .week-day-wrapper {grid-template-columns:repeat(4,minmax(0,1fr))!important;}\n html.homepagescript-active .new-hot-wrap .carousel-wrap {grid-template-columns:repeat(2,minmax(0,1fr))!important;}\n}\n";
 
   // src/common/card-hover-layout.css
-  var card_hover_layout_default = "@media(max-width:1099px) {\n html.homepagescript-active :is(.feenline-vcard-wrapper,.home-page-switch-wrapper .inner-content-body:has(> .hot-ranking-cell-wrapper),.time-line-body .timeline-common-content-list-container:not(.is-empty),.module .list-c:has(> .hover-c)) {display:grid!important;grid-template-columns:repeat(var(--pgc-card-columns,2),minmax(0,1fr))!important;gap:16px 12px!important;overflow:visible!important;}\n html.homepagescript-active :is(.hot-ranking-cell-wrapper,.time-line-body .timeline-weekday-item,.module .list-c > .hover-c) {position:relative!important;left:0!important;min-width:0!important;width:100%!important;max-width:none!important;margin-right:0!important;transition:none!important;}\n html.homepagescript-active :is(.hot-ranking-cell-wrapper.is-hover-active-play,.time-line-body .timeline-weekday-item.is-hover-active,.module .list-c > .hover-c.hoverShow) {width:var(--pgc-hover-width,100%)!important;left:var(--pgc-hover-offset,0px)!important;z-index:20!important;}\n /* Cover the full expanded caption as well as the preview so neighbours cannot show through. */\n html.homepagescript-active :is(.hot-ranking-cell-wrapper.is-hover-active-play,.module .list-c > .hover-c.hoverShow) {background:var(--bg1,#171819)!important;border-radius:8px 8px 0 0!important;}\n html.homepagescript-active :is(.hot-ranking-cell-wrapper .ranking-ratio-item-container,.time-line-body .img-cover-ratio-item-container,.module .list-c > .hover-c .hover-item,.module .list-c > .hover-c .season-cover-c) {height:var(--pgc-card-height,200px)!important;}\n html.homepagescript-active .module .list-c > .hover-c .hover-item {border-radius:8px;overflow:hidden;}\n html.homepagescript-active .module .list-c > .hover-c .season-cover {height:100%!important;aspect-ratio:auto!important;}\n html.homepagescript-active .hot-ranking-cell-wrapper .ranking-cell-desc {box-sizing:border-box!important;min-width:0!important;}\n html.homepagescript-active .hot-ranking-cell-wrapper .ranking-cell-index {flex-shrink:0!important;}\n html.homepagescript-active .hot-ranking-cell-wrapper .hotranking-content-item-desc {min-width:0!important;}\n}\n";
+  var card_hover_layout_default = "@media(max-width:1099px) {\n html.homepagescript-active :is(.feenline-vcard-wrapper,.module .list-c:has(> .hover-c)) {display:grid!important;grid-template-columns:repeat(var(--pgc-card-columns,2),minmax(0,1fr))!important;gap:16px 12px!important;overflow:visible!important;}\n html.homepagescript-active :is(.feenline-vcard-wrapper > .hot-ranking-cell-wrapper,.module .list-c > .hover-c) {position:relative!important;left:0!important;min-width:0!important;width:100%!important;max-width:none!important;margin-right:0!important;transition:width .3s,left .3s!important;}\n html.homepagescript-active :is(.feenline-vcard-wrapper > .hot-ranking-cell-wrapper.is-hover-active-play,.module .list-c > .hover-c.hoverShow) {width:var(--pgc-hover-width,100%)!important;left:var(--pgc-hover-offset,0px)!important;z-index:20!important;}\n /* Cover the full expanded caption as well as the preview so neighbours cannot show through. */\n html.homepagescript-active :is(.hot-ranking-cell-wrapper.is-hover-active-play,.module .list-c > .hover-c.hoverShow) {background:var(--bg1,#171819)!important;border-radius:8px 8px 0 0!important;}\n html.homepagescript-active :is(.feenline-vcard-wrapper .ranking-ratio-item-container,.module .list-c > .hover-c .hover-item,.module .list-c > .hover-c .season-cover-c) {height:var(--pgc-card-height,200px)!important;}\n html.homepagescript-active .module .list-c > .hover-c .hover-item {border-radius:8px;overflow:hidden;}\n html.homepagescript-active .module .list-c > .hover-c .season-cover {height:100%!important;aspect-ratio:auto!important;}\n html.homepagescript-active .hot-ranking-cell-wrapper .ranking-cell-desc {box-sizing:border-box!important;min-width:0!important;}\n html.homepagescript-active .hot-ranking-cell-wrapper .ranking-cell-index {flex-shrink:0!important;}\n html.homepagescript-active .hot-ranking-cell-wrapper .hotranking-content-item-desc {min-width:0!important;}\n}\n";
+
+  // src/common/native-single-row.css
+  var native_single_row_default = "@media(max-width:1099px) {\n html.homepagescript-active [data-native-single-row-container] {position:relative!important;display:block!important;min-width:0!important;}\n html.homepagescript-active [data-native-single-row-container] > :is(.prev-page,.next-page) {position:absolute!important;top:50%!important;margin:-24px 0 0!important;z-index:30!important;width:48px!important;min-width:48px!important;max-width:48px!important;height:48px!important;min-height:48px!important;max-height:48px!important;flex:none!important;}\n html.homepagescript-active [data-native-single-row-container] > .prev-page {left:0!important;right:auto!important;}\n html.homepagescript-active [data-native-single-row-container] > .next-page {right:0!important;left:auto!important;}\n html.homepagescript-active [data-native-single-row]:is(.inner-content-body,.timeline-common-content-list-container) {\n  position:relative!important;display:flex!important;flex-flow:row nowrap!important;justify-content:flex-start!important;\n  gap:0 var(--single-row-gap)!important;width:100%!important;min-width:0!important;overflow:hidden!important;\n }\n /* Native date badges extend 12px above the card. Keep them inside the\n    vertical clipping area while the row still clips horizontal expansion. */\n html.homepagescript-active [data-native-single-row].timeline-common-content-list-container {padding-top:12px!important;}\n html.homepagescript-active [data-native-single-row]:is(.inner-content-body,.timeline-common-content-list-container) > :is(.hot-ranking-cell-wrapper,.horizontal-cell-wrapper,.timeline-weekday-item) {\n  box-sizing:border-box!important;position:relative!important;left:var(--single-row-hover-offset,0px)!important;\n  flex:0 0 var(--single-row-card-width)!important;width:var(--single-row-card-width)!important;max-width:none!important;min-width:0!important;margin:0!important;\n }\n html.homepagescript-active [data-native-single-row]:is(.inner-content-body,.timeline-common-content-list-container) > :is(.is-hover-active-play,.is-hover-active) {\n  flex-basis:var(--single-row-expanded-width)!important;width:var(--single-row-expanded-width)!important;z-index:20!important;\n }\n html.homepagescript-active [data-native-single-row]:is(.inner-content-body,.timeline-common-content-list-container) > :is(.hot-ranking-cell-wrapper,.timeline-weekday-item) :is(.ranking-ratio-item-container,.img-cover-ratio-item-container) {height:var(--single-row-cover-height)!important;}\n html.homepagescript-active [data-native-single-row]:is(.inner-content-body,.timeline-common-content-list-container) > .horizontal-cell-wrapper .horizontal-ratio-item-container {height:var(--single-row-cover-height)!important;padding-top:0!important;}\n html.homepagescript-active [data-native-single-row]:is(.inner-content-body,.timeline-common-content-list-container) > .timeline-common-content-list-blank {display:none!important;}\n /* Left follows the measured flex animation on every frame. A second native\n    left transition would lag behind the cover and leave the right edge loose. */\n html.homepagescript-active [data-native-single-row]:is(.inner-content-body,.timeline-common-content-list-container) > :is(.hot-ranking-cell-wrapper,.horizontal-cell-wrapper,.timeline-weekday-item) {transition-property:flex-basis,flex-grow,width!important;}\n}\n";
 
   // src/WebPage/Anime/style.js
-  var pageStyle5 = homeStyle() + content_default7 + card_hover_layout_default;
+  var pageStyle5 = homeStyle() + content_default7 + card_hover_layout_default + native_single_row_default;
 
   // src/common/card-hover-layout.js
   function mountCardHoverLayout({ rowSelector, cardSelector }) {
@@ -4529,15 +5460,242 @@ ${content2}
     } };
   }
 
+  // src/common/card-hover-motion.js
+  function expandedRowOffset({ rowWidth, cardWidth, expandedWidth, index, gap = 0, priorExpansion = 0, center = false }) {
+    const left = index * (cardWidth + gap) + priorExpansion;
+    const overflow = left + expandedWidth - rowWidth;
+    const preferred = center && index > 0 ? (expandedWidth - cardWidth) / 2 : 0;
+    return -Math.max(0, Math.min(left, Math.max(overflow, preferred)));
+  }
+
+  // src/common/native-single-row.js
+  function mountNativeSingleRows({ selector, describe }) {
+    const narrow = matchMedia("(max-width:1099px)"), events = new AbortController();
+    const states = /* @__PURE__ */ new Map();
+    let frame = 0, motionFrame = 0, stopped = false;
+    function property(state, element, name, value) {
+      let saved = state.properties.get(element);
+      if (!saved) state.properties.set(element, saved = /* @__PURE__ */ new Map());
+      if (!saved.has(name)) saved.set(name, { value: element.style.getPropertyValue(name), priority: element.style.getPropertyPriority(name) });
+      if (element.style.getPropertyValue(name) !== value) element.style.setProperty(name, value);
+    }
+    function attribute(state, element, name) {
+      let saved = state.attributes.get(element);
+      if (!saved) state.attributes.set(element, saved = /* @__PURE__ */ new Map());
+      if (!saved.has(name)) saved.set(name, element.getAttribute(name));
+      if (!element.hasAttribute(name)) element.setAttribute(name, "");
+    }
+    function restoreGeometry(state) {
+      resize.unobserve(state.row);
+      for (const [element, saved] of state.properties) for (const [name, original] of saved) {
+        if (original.value) element.style.setProperty(name, original.value, original.priority);
+        else element.style.removeProperty(name);
+      }
+      for (const [element, saved] of state.attributes) for (const [name, original] of saved) {
+        if (original === null) element.removeAttribute(name);
+        else element.setAttribute(name, original);
+      }
+      state.properties.clear();
+      state.attributes.clear();
+      state.hovered = null;
+    }
+    function release(state) {
+      restoreGeometry(state);
+      state.adapter.destroy();
+    }
+    function hover(state) {
+      const cards2 = [...state.row.children].filter((card2) => card2.matches(state.cardSelector));
+      const active = cards2.find((card2) => card2.matches(state.activeSelector));
+      if (active) state.hovered = active;
+      const card = state.hovered;
+      if (!card || !state.row.contains(card)) {
+        state.hovered = null;
+        property(state, state.row, "--single-row-hover-offset", "0px");
+        return false;
+      }
+      const index = cards2.indexOf(card), rect = card.getBoundingClientRect(), width = rect.width;
+      const priorExpansion = rect.left - state.row.getBoundingClientRect().left - (parseFloat(getComputedStyle(card).left) || 0) - index * (state.cell + state.gap);
+      const offset = expandedRowOffset({
+        rowWidth: state.width,
+        cardWidth: state.cell,
+        expandedWidth: width,
+        index,
+        gap: state.gap,
+        priorExpansion,
+        center: cards2.length === state.columns
+      });
+      property(state, state.row, "--single-row-hover-offset", `${offset}px`);
+      const target = active ? state.expanded : state.cell;
+      const running = Math.abs(width - target) > 0.05;
+      if (!active && !running) state.hovered = null;
+      return running;
+    }
+    function animate() {
+      motionFrame = 0;
+      let running = false;
+      for (const state of states.values()) if (hover(state)) running = true;
+      if (!stopped && running) motionFrame = requestAnimationFrame(animate);
+    }
+    function update() {
+      frame = 0;
+      if (stopped) return;
+      const candidates = new Map([...document.querySelectorAll(selector)].map((row) => [row.parentElement, row]));
+      for (const [container, state] of states) if (!narrow.matches || !candidates.has(container) || !state.valid()) {
+        release(state);
+        states.delete(container);
+      }
+      if (!narrow.matches) return;
+      for (const [container, row] of candidates) {
+        let state = states.get(container);
+        if (!state) {
+          const description = describe(row, schedule);
+          if (!description) continue;
+          state = { ...description, row, properties: /* @__PURE__ */ new Map(), attributes: /* @__PURE__ */ new Map(), hovered: null };
+          states.set(container, state);
+          resize.observe(row);
+        } else if (state.row !== row) {
+          restoreGeometry(state);
+          state.row = row;
+          resize.observe(row);
+        }
+        const width = row.clientWidth;
+        if (!width) continue;
+        const columns = Math.max(1, Math.floor((width + state.gap) / (state.minWidth + state.gap)));
+        state.width = width;
+        state.columns = columns;
+        state.cell = (width - (columns - 1) * state.gap) / columns;
+        state.expanded = Math.min(width, state.cell * 2 + state.gap);
+        attribute(state, row, "data-native-single-row");
+        attribute(state, state.container, "data-native-single-row-container");
+        property(state, row, "--single-row-gap", `${state.gap}px`);
+        property(state, row, "--single-row-card-width", `${state.cell}px`);
+        property(state, row, "--single-row-expanded-width", `${state.expanded}px`);
+        property(state, row, "--single-row-cover-height", `${state.cell * state.coverRatio}px`);
+        state.adapter.resize(columns);
+        hover(state);
+      }
+      if (!motionFrame) motionFrame = requestAnimationFrame(animate);
+    }
+    function schedule() {
+      if (!stopped && !frame) frame = requestAnimationFrame(update);
+    }
+    const resize = new ResizeObserver(schedule);
+    resize.observe(document.documentElement);
+    const mutations = new MutationObserver((records) => {
+      if (records.some((record) => record.type === "childList" || record.attributeName === "class")) schedule();
+    });
+    mutations.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+    narrow.addEventListener("change", schedule, { signal: events.signal });
+    window.addEventListener("resize", schedule, { signal: events.signal });
+    for (const type of ["transitionrun", "transitionend", "transitioncancel"]) document.addEventListener(type, (event) => {
+      if (!["flex-basis", "flex-grow", "width"].includes(event.propertyName) || ![...states.values()].some((state) => state.row === event.target.parentElement)) return;
+      if (!motionFrame) motionFrame = requestAnimationFrame(animate);
+    }, { capture: true, signal: events.signal });
+    update();
+    return { destroy() {
+      stopped = true;
+      events.abort();
+      resize.disconnect();
+      mutations.disconnect();
+      cancelAnimationFrame(frame);
+      cancelAnimationFrame(motionFrame);
+      for (const state of states.values()) release(state);
+      states.clear();
+    } };
+  }
+
+  // src/WebPage/Anime/pagination.js
+  function categoryAdapter(vm, schedule) {
+    if (!vm?._props || !Number.isFinite(vm.pageCategory) || !Number.isFinite(vm.pageSize) || !Array.isArray(vm.itemsAll) || typeof vm.$watch !== "function") return null;
+    const original = vm.pageCategory;
+    const unwatch = ["pageCategory", "screenCategory", "SCREEN_CATEGORY"].map((name) => vm.$watch(name, schedule));
+    return {
+      resize(columns) {
+        if (vm.pageSize === columns) return;
+        const first = vm.curPage * vm.pageSize;
+        const adjustment = vm.pageCategory - vm.pageSize;
+        vm._props.pageCategory = columns + adjustment;
+        vm.curPage = Math.min(Math.max(0, Math.ceil(vm.itemsAll.length / columns) - 1), Math.floor(first / columns));
+      },
+      destroy() {
+        unwatch.forEach((stop) => stop());
+        if (vm._isDestroyed) return;
+        const first = vm.curPage * vm.pageSize;
+        vm._props.pageCategory = original;
+        vm.curPage = Math.min(Math.max(0, Math.ceil(vm.itemsAll.length / vm.pageSize) - 1), Math.floor(first / vm.pageSize));
+      }
+    };
+  }
+  function timelineAdapter(vm, schedule) {
+    if (!vm?._computedWatchers?.pageSize || !Number.isFinite(vm.pageSize) || !Array.isArray(vm.weekdayItems) || typeof vm.setPage !== "function") return null;
+    const watcher = vm._computedWatchers.pageSize, original = watcher.getter;
+    let columns = vm.pageSize;
+    watcher.getter = function() {
+      original.call(this, this);
+      return columns;
+    };
+    const unwatch = vm.$watch("SCREEN_CATEGORY", schedule);
+    function refresh() {
+      watcher.dirty = true;
+      if (vm._computedWatchers.pageSum) vm._computedWatchers.pageSum.dirty = true;
+      vm.setPage();
+      vm.$forceUpdate();
+    }
+    return {
+      resize(size) {
+        if (columns === size) return;
+        const first = vm.curPage * vm.pageSize;
+        columns = size;
+        watcher.dirty = true;
+        vm.curPage = Math.min(Math.max(0, Math.ceil(vm.weekdayItems.length / size) - 1), Math.floor(first / size));
+        refresh();
+      },
+      destroy() {
+        unwatch();
+        if (vm._isDestroyed) return;
+        const first = vm.curPage * vm.pageSize;
+        watcher.getter = original;
+        watcher.dirty = true;
+        vm.curPage = Math.min(Math.max(0, Math.ceil(vm.weekdayItems.length / vm.pageSize) - 1), Math.floor(first / vm.pageSize));
+        refresh();
+      }
+    };
+  }
+  function mountAnimePagination() {
+    return mountNativeSingleRows({
+      selector: ".home-page-switch-wrapper .inner-content-body,.time-line-body .timeline-common-content-list-container:not(.is-empty)",
+      describe(row, schedule) {
+        if (!row.querySelector(":scope > :is(.hot-ranking-cell-wrapper,.horizontal-cell-wrapper,.timeline-weekday-item)")) return null;
+        const timeline = row.matches(".timeline-common-content-list-container");
+        const owner = row.closest(timeline ? ".time-line-wrapper" : ".home-page-switch-wrapper");
+        const vm = owner?.__vue__;
+        const adapter = timeline ? timelineAdapter(vm, schedule) : categoryAdapter(vm, schedule);
+        if (!adapter) return null;
+        const horizontal = row.firstElementChild?.matches(".horizontal-cell-wrapper");
+        return {
+          adapter,
+          container: row.parentElement,
+          valid: () => owner.isConnected && owner.__vue__ === vm,
+          minWidth: horizontal ? 156 : 160,
+          gap: timeline ? 0 : 20,
+          coverRatio: horizontal ? 9 / 16 : 4 / 3,
+          cardSelector: ".hot-ranking-cell-wrapper,.horizontal-cell-wrapper,.timeline-weekday-item",
+          activeSelector: ".is-hover-active-play,.is-hover-active"
+        };
+      }
+    });
+  }
+
   // src/WebPage/Anime/content-layout.js
   function mountAnimeContent() {
     const narrow = matchMedia("(max-width:1099px)");
     const events = new AbortController();
     const properties = /* @__PURE__ */ new Map(), attributes = /* @__PURE__ */ new Map(), rails = /* @__PURE__ */ new Map(), timelines = /* @__PURE__ */ new Map(), filters = /* @__PURE__ */ new Map();
     const cards2 = mountCardHoverLayout({
-      rowSelector: ".feenline-vcard-wrapper,.home-page-switch-wrapper .inner-content-body:has(> .hot-ranking-cell-wrapper),.timeline-common-content-list-container:not(.is-empty)",
+      rowSelector: ".feenline-vcard-wrapper",
       cardSelector: ":scope > .hot-ranking-cell-wrapper,:scope > .timeline-weekday-item"
     });
+    const pagination = mountAnimePagination();
     let frame = 0, stopped = false;
     function property(element, name, value) {
       let saved = properties.get(element);
@@ -4673,6 +5831,7 @@ ${content2}
     update();
     return { destroy() {
       cards2.destroy();
+      pagination.destroy();
       stopped = true;
       events.abort();
       mutations.disconnect();
@@ -4786,6 +5945,539 @@ ${content2}
   var early15 = () => createPageOpening();
   var mount15 = () => mountHomeLayout(pageStyle9, () => pageId(location.href) === "Podcast");
 
+  // src/WebPage/Music/module.js
+  var module_exports16 = {};
+  __export(module_exports16, {
+    early: () => early16,
+    mount: () => mount16
+  });
+
+  // src/WebPage/Music/content.css
+  var content_default12 = `/* Music uses CSS modules. Match component names, not their generated hashes;
+   keep generic names local to their component, never to the site header. */
+html.musicscript-active { color-scheme:dark!important; }
+
+@media (max-width:1099px) {
+  html.musicscript-active #app {
+    box-sizing:border-box!important; width:100%!important; min-width:0!important; max-width:100%!important;
+  }
+  html.musicscript-active #app > :is([class*="_newMusic_"],[class*="_hotRank_"],[class*="_musician_"],[class*="_originalMusic_"],[class*="_reviews_"],[class*="_moreMusic_"]) {
+    box-sizing:border-box!important; width:100%!important; min-width:0!important; max-width:100%!important;
+    padding:0 8px!important; margin:0 0 24px!important;
+  }
+  html.musicscript-active #app > :is([class*="_newMusic_"],[class*="_hotRank_"],[class*="_musician_"],[class*="_originalMusic_"],[class*="_reviews_"],[class*="_moreMusic_"]) > [class*="_header_"] {
+    width:100%!important; min-width:0!important; height:auto!important; flex-wrap:wrap!important; gap:8px!important; margin-bottom:12px!important;
+  }
+
+  /* The native banner retains its carousel and thumbnail controls. */
+  html.musicscript-active #app > [class*="_bannerTop_"] {
+    width:100%!important; min-width:0!important; height:clamp(130px,20.75vw,228px)!important;
+    padding:0!important; margin:0 0 16px!important;
+  }
+  html.musicscript-active #app > [class*="_bannerTop_"] :is([class*="_slideShow_"],[class*="_containerWraper_"],[class*="_container_"],[class*="_item_"]) {
+    width:100%!important; min-width:0!important; height:100%!important;
+  }
+  html.musicscript-active #app > [class*="_bannerTop_"] [class*="_item_"] > [class*="_img_"] { width:100%!important; height:100%!important; }
+  html.musicscript-active #app > [class*="_bannerTop_"] [class*="_smallPic_"] { width:100%!important; }
+  html.musicscript-active #app > [class*="_bannerTop_"] [class*="_content_"] { box-sizing:border-box!important; width:100%!important; padding:0 8px!important; }
+  html.musicscript-active #app > [class*="_bannerTop_"] [class*="_content_"] > span { min-width:0!important; overflow:hidden!important; text-overflow:ellipsis!important; white-space:nowrap!important; }
+  html.musicscript-active #app > [class*="_nav_"] {
+    box-sizing:border-box!important; width:100%!important; min-width:0!important; height:auto!important;
+    padding:0 8px 6px!important; margin:0 0 20px!important; gap:8px!important; overflow-x:auto!important; overflow-y:hidden!important;
+  }
+  html.musicscript-active #app > [class*="_nav_"] > a { flex:0 0 148px!important; }
+
+  /* Two rows retain the native arrow/counter pagination. The page module
+     updates the column count and slide distance from the real list width. */
+  html.musicscript-active #app > :is([class*="_newMusic_"],[class*="_hotRank_"]) > [class*="_main_"] {
+    display:flex!important; flex-direction:column!important; width:100%!important; min-width:0!important; height:auto!important; gap:12px!important;
+  }
+  html.musicscript-active #app > [class*="_newMusic_"] [class*="_banner_"] {
+    width:100%!important; max-width:480px!important; height:auto!important; aspect-ratio:16/9!important; padding:0!important; margin:0 auto!important;
+  }
+  html.musicscript-active #app > [class*="_newMusic_"] [class*="_banner_"] :is([class*="_slideShow_"],[class*="_containerWraper_"],[class*="_container_"],[class*="_item_"],[class*="_imgContainer_"]) {
+    width:100%!important; height:100%!important; padding:0!important;
+  }
+  html.musicscript-active #app > [class*="_hotRank_"] :is([class*="_banner_"],[class*="_topFive_"]) {
+    box-sizing:border-box!important; width:100%!important; min-width:0!important; height:auto!important; padding:0!important;
+  }
+  html.musicscript-active #app > [class*="_hotRank_"] [class*="_topFive_"] { position:relative!important; }
+  /* Native em sizing shrinks this whole panel with the desktop column width.
+     Fix its base unit; only the metadata column gives up horizontal space. */
+  html.musicscript-active #app > [class*="_hotRank_"] [class*="_topFive_"] { font-size:10px!important; zoom:1!important; transform:none!important; }
+  html.musicscript-active #app [class*="_topFiveHeader_"] { box-sizing:border-box!important; height:auto!important; min-height:48px!important; padding:10px 12px!important; gap:8px!important; }
+  html.musicscript-active #app [class*="_topFiveHeaderLeft_"] { flex:1!important; min-width:0!important; height:auto!important; flex-wrap:wrap!important; gap:6px!important; }
+  html.musicscript-active #app [class*="_topFiveHeaderLeft_"] > img { flex:none!important; width:128px!important; height:auto!important; }
+  html.musicscript-active #app [class*="_topFiveHeaderLeft_"] > span { font-size:12px!important; line-height:18px!important; }
+  html.musicscript-active #app [class*="_topFiveHeaderRight_"] { flex:none!important; width:auto!important; height:auto!important; font-size:12px!important; white-space:nowrap!important; }
+  html.musicscript-active #app [class*="_topFiveBody_"] { width:100%!important; height:auto!important; }
+  html.musicscript-active #app [class*="_topFiveBodyLine_"] { box-sizing:border-box!important; width:100%!important; height:auto!important; min-height:84px!important; padding:8px 12px!important; }
+  html.musicscript-active #app [class*="_topFiveBodyLineContent_"] { width:100%!important; height:auto!important; min-height:64px!important; align-items:center!important; }
+  html.musicscript-active #app [class*="_topFiveBodyLineContent_"] > [class*="_rank_"] { flex:0 0 24px!important; width:24px!important; }
+  html.musicscript-active #app [class*="_topFiveBodyLineContent_"] > [class*="_body_"] { flex:1!important; min-width:0!important; width:auto!important; margin-left:8px!important; }
+  html.musicscript-active #app [class*="_topFiveBodyLineContent_"] [class*="_cover_"] { flex:none!important; width:64px!important; height:64px!important; margin-right:10px!important; }
+  html.musicscript-active #app [class*="_topFiveCenter_"] { flex:1!important; min-width:0!important; width:auto!important; height:auto!important; }
+  html.musicscript-active #app [class*="_topFiveBodyLineContent_"] > [class*="_hot_"] { flex:0 0 76px!important; width:76px!important; }
+  html.musicscript-active #app > :is([class*="_newMusic_"],[class*="_hotRank_"]) > [class*="_main_"] > [class*="_container_"],
+  html.musicscript-active #app > [class*="_reviews_"] > [class*="_container_"] {
+    box-sizing:border-box!important; width:100%!important; min-width:0!important; height:auto!important; margin:0!important;
+    padding:0!important; overflow:hidden!important;
+  }
+  html.musicscript-active #app > :is([class*="_newMusic_"],[class*="_hotRank_"],[class*="_reviews_"]) :is([class*="_first-floor_"],[class*="_second-floor_"]) {
+    display:grid!important; grid-auto-flow:column!important;
+    grid-auto-columns:calc((100% - (var(--musicscript-columns,1) - 1) * 12px) / var(--musicscript-columns,1))!important;
+    width:100%!important; height:auto!important; gap:12px!important; left:0!important;
+    transform:translateX(calc(-1 * var(--musicscript-page,0) * (100% + 12px)))!important;
+    transition:transform .3s ease!important;
+  }
+  html.musicscript-active #app > :is([class*="_newMusic_"],[class*="_hotRank_"],[class*="_reviews_"]) :is([class*="_first-floor_"],[class*="_second-floor_"]) > * {
+    box-sizing:border-box!important; width:100%!important; min-width:0!important; margin:0!important;
+  }
+  html.musicscript-active #app .musicscript-page-out { visibility:hidden!important; pointer-events:none!important; }
+  /* Native width transitions also drive the row offset, keeping the first
+     column's left edge and the last column's right edge fixed in every frame. */
+  html.musicscript-active #app > :is([class*="_newMusic_"],[class*="_hotRank_"]) :is([class*="_first-floor_"],[class*="_second-floor_"]) {
+    grid-auto-columns:max-content!important; transition:transform .3s ease!important;
+    left:var(--musicscript-hover-offset,0px)!important;
+  }
+  html.musicscript-active #app .musicscript-paged :is([class*="_first-floor_"],[class*="_second-floor_"]) > [style*="--musicscript-hover-offset"] {
+    width:var(--musicscript-cover-size)!important; left:0!important;
+    transition:width .3s ease!important;
+  }
+  html.musicscript-active #app .musicscript-paged :is([class*="_first-floor_"],[class*="_second-floor_"]) > [class*="_expandItem_"] {
+    width:var(--musicscript-hover-width)!important;
+    z-index:20!important; background:#111!important;
+  }
+  html.musicscript-active #app .musicscript-paged [class*="_inlineVideoSquare_"] {
+    box-sizing:border-box!important; flex:none!important; min-height:0!important;
+    width:100%!important; height:var(--musicscript-cover-size)!important; padding:0!important;
+  }
+  html.musicscript-active #app .musicscript-paged [class*="_expandItem_"] > [class*="_inlineVideoSquare_"] {
+    height:var(--musicscript-hover-height)!important;
+  }
+  html.musicscript-active #app .musicscript-paged [class*="_inlineVideoSquare_"] > :is([class*="_imgCon_"],[class*="_video_"]) {
+    box-sizing:border-box!important; width:100%!important; height:100%!important; top:0!important; left:0!important;
+  }
+  html.musicscript-active #app .musicscript-paged [class*="_headerControl_"] { display:flex!important; width:auto!important; height:30px!important; gap:8px!important; margin-left:auto!important; }
+  html.musicscript-active #app .musicscript-paged [class*="_headerControl_"] > span:not(.musicscript-page-count) { display:none!important; }
+  html.musicscript-active #app .musicscript-page-count { min-width:42px; text-align:center; font-size:14px; white-space:nowrap; }
+  html.musicscript-active #app [data-musicscript-page-action] {
+    display:flex!important; align-items:center!important; justify-content:center!important; width:28px!important; height:28px!important;
+    color:#e3e5e7!important; background:#ffffff14!important; border-radius:6px!important; opacity:1!important; cursor:pointer!important;
+  }
+  html.musicscript-active #app [data-musicscript-page-action][aria-disabled="true"] { opacity:.35!important; cursor:default!important; }
+  html.musicscript-active #app [data-musicscript-page-action] svg path { fill:currentColor!important; }
+  html.musicscript-active #app [data-musicscript-page-action]:focus-visible { outline:2px solid #00aeec; outline-offset:2px; }
+  /* Every numbered pager belongs immediately above its own list. Featured
+     banners and rank summaries precede the pager in narrow layouts. Flatten
+     only layout wrappers; keep the native nodes and events intact. */
+  html.musicscript-active #app > :is([class*="_newMusic_"],[class*="_hotRank_"],[class*="_reviews_"]) {
+    display:grid!important; grid-template-columns:minmax(0,1fr) auto!important; gap:12px!important;
+  }
+  html.musicscript-active #app > :is([class*="_newMusic_"],[class*="_hotRank_"],[class*="_reviews_"]) > :is([class*="_header_"],[class*="_main_"]) { display:contents!important; }
+  html.musicscript-active #app > :is([class*="_newMusic_"],[class*="_hotRank_"],[class*="_reviews_"]) > [class*="_header_"] > [class*="_title_"] { grid-column:1 / -1!important; grid-row:1!important; }
+  html.musicscript-active #app > :is([class*="_newMusic_"],[class*="_hotRank_"]) > [class*="_main_"] > [class*="_banner_"] { grid-column:1 / -1!important; grid-row:2!important; }
+  html.musicscript-active #app > :is([class*="_newMusic_"],[class*="_hotRank_"],[class*="_reviews_"]) > [class*="_header_"] > [class*="_headerControl_"] { grid-column:2!important; grid-row:3!important; justify-self:end!important; }
+  html.musicscript-active #app > :is([class*="_newMusic_"],[class*="_hotRank_"]) > [class*="_main_"] > [class*="_container_"] { grid-column:1 / -1!important; grid-row:4!important; }
+  html.musicscript-active #app > [class*="_reviews_"] > [class*="_header_"] > [class*="_headerControl_"] { grid-row:2!important; }
+  html.musicscript-active #app > [class*="_reviews_"] > [class*="_container_"] { grid-column:1 / -1!important; grid-row:3!important; }
+  html.musicscript-active #app > [class*="_musician_"] :is([class*="_title_"],[class*="_tabs_"]) { flex-wrap:wrap!important; height:auto!important; gap:8px!important; }
+  html.musicscript-active #app > [class*="_musician_"] [class*="_container_"] { width:100%!important; overflow-x:auto!important; overflow-y:hidden!important; padding-bottom:6px!important; }
+  html.musicscript-active #app > [class*="_musician_"] [class*="_content_"] { display:flex!important; width:max-content!important; transform:none!important; gap:12px!important; }
+  html.musicscript-active #app > [class*="_musician_"] [class*="_content_"] > * { box-sizing:border-box!important; flex:0 0 320px!important; width:320px!important; margin:0!important; transform:none!important; }
+  html.musicscript-active #app > [class*="_musician_"] [class*="_nextBtn_"] { display:none!important; }
+
+  /* Video grids: let native cover ratios and click handlers do their work. */
+  html.musicscript-active #app > [class*="_originalMusic_"] > [class*="_cardList_"],
+  html.musicscript-active #app .appMainList .videoList {
+    display:grid!important; grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr))!important;
+    width:100%!important; gap:16px 12px!important; height:auto!important; overflow:visible!important;
+  }
+  html.musicscript-active #app > [class*="_moreMusic_"] > [class*="_cardList_"] {
+    display:grid!important; grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr))!important; gap:12px!important; width:100%!important;
+  }
+  html.musicscript-active #app > :is([class*="_originalMusic_"],[class*="_moreMusic_"]) > [class*="_cardList_"] > *,
+  html.musicscript-active #app .appMainList .videoList > .card {
+    box-sizing:border-box!important; width:100%!important; min-width:0!important; height:auto!important; margin:0!important;
+  }
+  html.musicscript-active #app :is(.appMain,.appMainList,.appMainList > .container) {
+    box-sizing:border-box!important; width:100%!important; min-width:0!important; max-width:100%!important; margin-left:0!important; margin-right:0!important;
+  }
+  html.musicscript-active #app .appMain { padding:0 8px!important; }
+  html.musicscript-active #app .appMainInfo { box-sizing:border-box!important; width:100%!important; min-width:0!important; height:auto!important; padding:0!important; gap:12px!important; align-items:flex-start!important; }
+  html.musicscript-active #app .appMainInfo > .left { flex:0 0 96px!important; width:96px!important; height:96px!important; }
+  html.musicscript-active #app .appMainInfo > .left .cover { flex:none!important; width:96px!important; min-width:0!important; max-width:100%!important; height:96px!important; margin:0!important; object-fit:cover!important; }
+  html.musicscript-active #app .appMainInfo > .right { flex:1!important; width:auto!important; min-width:0!important; height:auto!important; }
+  html.musicscript-active #app .appMainInfo :is(.titleWrapper,.center,.centerContent,.ups,[class*="_musicInfo_"]) { min-width:0!important; max-width:100%!important; }
+  html.musicscript-active #app .appMainInfo :is(.centerContent,.ups,[class*="_desc_"],.musicInfoBtns) { flex-wrap:wrap!important; height:auto!important; row-gap:6px!important; }
+  html.musicscript-active #app .appMainInfo .fewSinger { flex-shrink:1!important; min-width:0!important; }
+  html.musicscript-active #app .appMainInfo .musicInfoBtns .btn { padding:0 10px!important; white-space:nowrap!important; }
+  html.musicscript-active #app .appMainList .noMore { width:100%!important; height:auto!important; }
+  html.musicscript-active #app .appMainList .bottomBtn { box-sizing:border-box!important; width:min(280px,100%)!important; margin:0 auto!important; }
+
+  /* Rank shell and both tab contents. Background artwork must not set width. */
+  html.musicscript-active #app > :is([class*="_pcBackground_"],[class*="_basic-"]) { width:100%!important; min-width:0!important; max-width:100%!important; }
+  html.musicscript-active #app > :is([class*="_detailArea_"],[class*="_appContent_"]) {
+    box-sizing:border-box!important; width:100%!important; min-width:0!important; margin:0!important; padding:12px 8px!important;
+  }
+  html.musicscript-active #app > [class*="_detailArea_"] { flex-wrap:wrap!important; height:auto!important; gap:16px!important; }
+  html.musicscript-active #app > [class*="_detailArea_"] > [class*="_left_"] { width:auto!important; min-width:0!important; margin:0!important; }
+  html.musicscript-active #app > [class*="_detailArea_"] [class*="_headerPortal_"] { margin-bottom:16px!important; }
+  html.musicscript-active #app > [class*="_detailArea_"] > [class*="_right_"] { width:100%!important; height:auto!important; }
+  html.musicscript-active #app > [class*="_detailArea_"] [class*="_actions_"] { flex-wrap:wrap!important; width:auto!important; min-width:0!important; gap:8px!important; }
+  html.musicscript-active #app > [class*="_detailArea_"] [class*="_cover_"] { width:88px!important; height:88px!important; margin-left:auto!important; }
+  html.musicscript-active #app > [class*="_appContent_"] [class*="_cardList_"] {
+    display:grid!important; grid-template-columns:repeat(auto-fit,minmax(min(360px,100%),1fr))!important; width:100%!important; gap:12px!important;
+  }
+  html.musicscript-active #app > [class*="_appContent_"] [class*="_cardList_"] > [class*="_card_"] {
+    box-sizing:border-box!important; width:100%!important; min-width:0!important; height:auto!important; margin:0!important; padding:10px!important;
+  }
+  html.musicscript-active #app [class*="_cardList_"] > [class*="_card_"] > [class*="_right_"] { flex:1!important; min-width:0!important; width:auto!important; }
+  html.musicscript-active #app [class*="_cardList_"] > [class*="_card_"] :is([class*="_musicInfo_"],[class*="_info_"],[class*="_top_"],[class*="_left_"],[class*="_vidoInfo_"]) { min-width:0!important; }
+  html.musicscript-active #app [class*="_vidoInfo_"] > [class*="_cover_"] { flex:0 0 112px!important; width:112px!important; height:63px!important; }
+  html.musicscript-active #app [class*="_vidoInfo_"] [class*="_coverImg_"] { width:100%!important; height:100%!important; object-fit:cover!important; }
+  html.musicscript-active #app [class*="_cardContainer_"] { box-sizing:border-box!important; flex-direction:column!important; width:100%!important; height:auto!important; padding:12px 8px!important; gap:12px!important; }
+  html.musicscript-active #app [class*="_cardContainer_"] [class*="_cardLeft_"] { width:100%!important; height:auto!important; }
+  html.musicscript-active #app [class*="_cardContainer_"] [class*="_musicSection_"] { flex:1!important; flex-direction:row!important; width:auto!important; height:auto!important; gap:12px!important; }
+  html.musicscript-active #app [class*="_cardContainer_"] [class*="_musicMeta_"] { flex:1!important; width:auto!important; min-width:0!important; height:auto!important; }
+  html.musicscript-active #app [class*="_cardContainer_"] [class*="_divider_"] { display:none!important; }
+  html.musicscript-active #app [class*="_cardContainer_"] [class*="_videoList_"] { flex:none!important; width:100%!important; min-width:0!important; height:auto!important; overflow-x:auto!important; overflow-y:hidden!important; padding-bottom:6px!important; }
+  html.musicscript-active #app [class*="_bottomTermSelect_"] { box-sizing:border-box!important; width:100%!important; max-width:100%!important; min-width:0!important; }
+  html.musicscript-active #app [class*="_scrollWrapper_"] { width:100%!important; min-width:0!important; }
+  html.musicscript-active #app [class*="_scrollContainer_"] { min-width:0!important; overflow-x:auto!important; }
+  html.musicscript-active #app [class*="_floatBox_"] { right:8px!important; }
+}
+
+@media (prefers-reduced-motion:reduce) {
+  /* Preserve native card expansion even when the host reports reduced motion.
+     Its width drives the anchored row offset; only pagination skips sliding. */
+  html.musicscript-active #app .musicscript-paged :is([class*="_first-floor_"],[class*="_second-floor_"]) { transition:none!important; }
+}
+
+@media (max-width:399px) {
+  html.musicscript-active #app [class*="_topFiveHeaderLeft_"] > span { flex:1 0 100%!important; width:100%!important; min-width:0!important; }
+  html.musicscript-active #app .appMainInfo { flex-wrap:wrap!important; }
+  html.musicscript-active #app .appMainInfo > .right { flex-basis:100%!important; }
+  html.musicscript-active #app > [class*="_detailArea_"] [class*="_cover_"] { display:none!important; }
+  html.musicscript-active #app > [class*="_musician_"] [class*="_content_"] > * { flex-basis:280px!important; width:280px!important; padding:12px!important; }
+  html.musicscript-active #app [class*="_cardList_"] > [class*="_card_"] [class*="_musicInfo_"] {
+    display:grid!important; position:relative!important; grid-template-columns:90px minmax(0,1fr)!important;
+    grid-template-rows:auto auto!important; gap:4px 10px!important; height:auto!important; min-height:90px!important;
+  }
+  html.musicscript-active #app [class*="_musicInfo_"] > svg { grid-column:1!important; grid-row:1 / 3!important; margin:0!important; }
+  html.musicscript-active #app [class*="_musicInfo_"] > [class*="_cover_"] { left:0!important; top:0!important; }
+  html.musicscript-active #app [class*="_musicInfo_"] > [class*="_info_"] { grid-column:2!important; grid-row:1!important; width:auto!important; height:auto!important; margin:0!important; }
+  html.musicscript-active #app [class*="_musicInfo_"] > [class*="_otherInfo_"] { grid-column:2!important; grid-row:2!important; width:auto!important; }
+  html.musicscript-active #app [class*="_cardList_"] > [class*="_card_"] [class*="_top_"] { flex-direction:column!important; align-items:flex-start!important; height:auto!important; }
+  html.musicscript-active #app [class*="_cardList_"] > [class*="_card_"] [class*="_top_"] > [class*="_left_"] { flex:none!important; width:100%!important; }
+  html.musicscript-active #app [class*="_cardList_"] > [class*="_card_"] [class*="_otherInfo_"] { height:auto!important; margin-top:4px!important; }
+  html.musicscript-active #app [class*="_cardList_"] > [class*="_card_"] [class*="_heat_"] { margin-bottom:0!important; }
+}
+`;
+
+  // src/WebPage/Music/pagination.js
+  var sections = '#app > [class*="_newMusic_"],#app > [class*="_hotRank_"],#app > [class*="_reviews_"]';
+  var floors = '[class*="_first-floor_"],[class*="_second-floor_"]';
+  var actionAttribute = "data-musicscript-page-action";
+  function mountMusicPagination() {
+    const narrow = matchMedia("(max-width:1099px)");
+    const events = new AbortController();
+    const states = /* @__PURE__ */ new Map();
+    let frame = 0, hoverFrame = 0, stopped = false;
+    function remember(state, element, name, value) {
+      let attributes = state.attributes.get(element);
+      if (!attributes) state.attributes.set(element, attributes = /* @__PURE__ */ new Map());
+      if (!attributes.has(name)) attributes.set(name, { original: element.getAttribute(name), value });
+      attributes.get(name).value = value;
+      if (element.getAttribute(name) !== value) element.setAttribute(name, value);
+    }
+    function release(state) {
+      resize.unobserve(state.container);
+      for (const card of state.hidden) card.classList.remove("musicscript-page-out");
+      for (const [card, original] of state.offsets) restoreOffset(card, original);
+      for (const [element, attributes] of state.attributes) for (const [name, saved] of attributes) {
+        if (element.getAttribute(name) !== saved.value) continue;
+        if (saved.original === null) element.removeAttribute(name);
+        else element.setAttribute(name, saved.original);
+      }
+      for (const [name, original] of state.variables) {
+        if (original.value) state.section.style.setProperty(name, original.value, original.priority);
+        else state.section.style.removeProperty(name);
+      }
+      state.section.classList.remove("musicscript-paged");
+      state.count.remove();
+    }
+    function create(section, container, control) {
+      const previous = control.querySelector('[class*="_headerControlLeft_"]');
+      const next = control.querySelector('[class*="_headerControlRight_"]');
+      if (!previous || !next) return null;
+      const count = document.createElement("span");
+      count.className = "musicscript-page-count";
+      count.setAttribute("aria-live", "polite");
+      control.insertBefore(count, next);
+      const variables = new Map([
+        "--musicscript-columns",
+        "--musicscript-page",
+        "--musicscript-cover-size",
+        "--musicscript-hover-width",
+        "--musicscript-hover-height"
+      ].map((name) => [name, {
+        value: section.style.getPropertyValue(name),
+        priority: section.style.getPropertyPriority(name)
+      }]));
+      const state = {
+        section,
+        container,
+        control,
+        previous,
+        next,
+        count,
+        variables,
+        attributes: /* @__PURE__ */ new Map(),
+        hidden: /* @__PURE__ */ new Set(),
+        offsets: /* @__PURE__ */ new Map(),
+        hovered: /* @__PURE__ */ new Map(),
+        animating: /* @__PURE__ */ new Set(),
+        columns: 1,
+        page: 0,
+        pages: 1
+      };
+      for (const [element, direction, label] of [[previous, -1, "上一页"], [next, 1, "下一页"]]) {
+        remember(state, element, actionAttribute, String(direction));
+        remember(state, element, "role", "button");
+        remember(state, element, "tabindex", "0");
+        remember(state, element, "aria-label", label);
+      }
+      resize.observe(container);
+      section.classList.add("musicscript-paged");
+      return state;
+    }
+    function restoreOffset(card, original) {
+      if (original.value) card.style.setProperty("--musicscript-hover-offset", original.value, original.priority);
+      else card.style.removeProperty("--musicscript-hover-offset");
+    }
+    function setOffset(state, element, value) {
+      if (!state.offsets.has(element)) state.offsets.set(element, {
+        value: element.style.getPropertyValue("--musicscript-hover-offset"),
+        priority: element.style.getPropertyPriority("--musicscript-hover-offset")
+      });
+      if (element.style.getPropertyValue("--musicscript-hover-offset") !== value) {
+        element.style.setProperty("--musicscript-hover-offset", value);
+      }
+    }
+    function syncHover(state, row) {
+      const active = [...row.children].find((card2) => card2.matches('[class*="_expandItem_"]'));
+      if (active) state.hovered.set(row, active);
+      const card = state.hovered.get(row);
+      if (!card || !row.contains(card)) {
+        state.hovered.delete(row);
+        return;
+      }
+      let offset = 0;
+      if (parseFloat(card.style.getPropertyValue("--musicscript-hover-offset")) < 0) {
+        const size2 = parseFloat(state.section.style.getPropertyValue("--musicscript-cover-size"));
+        const index = [...row.children].indexOf(card);
+        offset = expandedRowOffset({
+          rowWidth: state.container.clientWidth,
+          cardWidth: size2,
+          expandedWidth: card.getBoundingClientRect().right - row.getBoundingClientRect().left - index * (size2 + 12),
+          index: index % state.columns,
+          gap: 12
+        });
+      }
+      setOffset(state, row, `${offset}px`);
+      const size = parseFloat(state.section.style.getPropertyValue("--musicscript-cover-size"));
+      if (!active && Math.abs(card.getBoundingClientRect().width - size) < 0.02 && ![...state.animating].some((item) => item.parentElement === row)) state.hovered.delete(row);
+    }
+    function animateHover() {
+      hoverFrame = 0;
+      let running = false;
+      for (const state of states.values()) {
+        for (const row of state.hovered.keys()) if (row.isConnected) syncHover(state, row);
+        if (state.animating.size || [...state.hovered.values()].some((card) => {
+          const name = card.matches('[class*="_expandItem_"]') ? "--musicscript-hover-width" : "--musicscript-cover-size";
+          const target = parseFloat(state.section.style.getPropertyValue(name));
+          return card.isConnected && Math.abs(card.getBoundingClientRect().width - target) >= 0.02;
+        })) running = true;
+      }
+      if (!stopped && running) hoverFrame = requestAnimationFrame(animateHover);
+    }
+    function transition(event) {
+      if (!narrow.matches || event.propertyName !== "width" || !(event.target instanceof Element)) return;
+      const card = event.target, row = card.parentElement;
+      const state = row?.matches(floors) && states.get(card.closest(sections));
+      if (!state || !state.offsets.has(card)) return;
+      if (event.type === "transitionrun") {
+        state.animating.add(card);
+        if (!state.hovered.has(row)) state.hovered.set(row, card);
+        if (!hoverFrame) hoverFrame = requestAnimationFrame(animateHover);
+      } else state.animating.delete(card);
+      syncHover(state, row);
+    }
+    function render(state) {
+      const rows = [...state.container.querySelectorAll(floors)];
+      const width = state.container.clientWidth;
+      const cardWidth = state.section.matches('[class*="_reviews_"]') ? 240 : 156;
+      const columns = Math.max(1, Math.floor((width + 12) / (cardWidth + 12)));
+      const first = state.page * state.columns;
+      state.columns = columns;
+      state.pages = Math.max(1, Math.ceil(Math.max(0, ...rows.map((row) => row.children.length)) / columns));
+      state.page = Math.min(state.pages - 1, Math.floor(first / columns));
+      const coverSize = Math.max(0, (width - (columns - 1) * 12) / columns);
+      const hoverWidth = Math.min(width, coverSize * 16 / 9);
+      const properties = {
+        "--musicscript-columns": String(columns),
+        "--musicscript-page": String(state.page),
+        "--musicscript-cover-size": `${coverSize}px`,
+        "--musicscript-hover-width": `${hoverWidth}px`,
+        "--musicscript-hover-height": `${hoverWidth * 9 / 16}px`
+      };
+      for (const [name, value] of Object.entries(properties)) {
+        if (state.section.style.getPropertyValue(name) !== value) state.section.style.setProperty(name, value);
+      }
+      const label = `${state.page + 1} / ${state.pages}`;
+      if (state.count.textContent !== label) state.count.textContent = label;
+      remember(state, state.previous, "aria-disabled", String(state.page === 0));
+      remember(state, state.next, "aria-disabled", String(state.page === state.pages - 1));
+      const cards2 = new Set(rows.flatMap((row) => [...row.children]));
+      for (const card of state.hidden) if (!cards2.has(card)) {
+        card.classList.remove("musicscript-page-out");
+        state.hidden.delete(card);
+      }
+      for (const [card, original] of state.offsets) if (!cards2.has(card) && !rows.includes(card)) {
+        restoreOffset(card, original);
+        state.offsets.delete(card);
+      }
+      for (const row of rows) [...row.children].forEach((card, index) => {
+        if (card.querySelector(':scope > [class*="_inlineVideoSquare_"]')) {
+          const offset = `${Math.min(0, width - hoverWidth - index % columns * (coverSize + 12))}px`;
+          setOffset(state, card, offset);
+        }
+        const hidden = index < state.page * columns || index >= (state.page + 1) * columns;
+        if (hidden && !card.classList.contains("musicscript-page-out")) {
+          card.classList.add("musicscript-page-out");
+          state.hidden.add(card);
+        } else if (!hidden && state.hidden.delete(card)) card.classList.remove("musicscript-page-out");
+      });
+      for (const card of state.animating) if (!cards2.has(card)) state.animating.delete(card);
+      for (const row of state.hovered.keys()) if (!rows.includes(row)) state.hovered.delete(row);
+      for (const row of rows) syncHover(state, row);
+      if (state.hovered.size && !hoverFrame) hoverFrame = requestAnimationFrame(animateHover);
+    }
+    function update() {
+      frame = 0;
+      for (const [section, state] of states) {
+        if (!narrow.matches || !section.isConnected || !section.contains(state.control) || !section.contains(state.container)) {
+          release(state);
+          states.delete(section);
+        }
+      }
+      if (!narrow.matches) return;
+      for (const section of document.querySelectorAll(sections)) {
+        const container = [...section.children].find((child) => child.matches('[class*="_container_"]')) || section.querySelector(':scope > [class*="_main_"] > [class*="_container_"]');
+        const control = section.querySelector(':scope > [class*="_header_"] > [class*="_headerControl_"]');
+        if (!container || !control) continue;
+        let state = states.get(section);
+        if (!state) {
+          state = create(section, container, control);
+          if (!state) continue;
+          states.set(section, state);
+        }
+        render(state);
+      }
+    }
+    function schedule() {
+      if (!stopped && !frame) frame = requestAnimationFrame(update);
+    }
+    function navigate(event) {
+      if (!narrow.matches || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (event.type === "click" && event.button !== 0) return;
+      if (event.type === "keydown" && !["Enter", " "].includes(event.key)) return;
+      const button = event.target instanceof Element ? event.target.closest(`[${actionAttribute}]`) : null;
+      const state = button && states.get(button.closest(sections));
+      if (!state || button !== state.previous && button !== state.next) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      state.page = Math.max(0, Math.min(state.pages - 1, state.page + Number(button.getAttribute(actionAttribute))));
+      render(state);
+    }
+    const resize = new ResizeObserver(schedule);
+    resize.observe(document.documentElement);
+    const mutations = new MutationObserver((records) => {
+      if (records.some((record) => record.type === "childList" || record.target.matches?.('[style*="--musicscript-hover-offset"]'))) schedule();
+    });
+    mutations.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+    narrow.addEventListener("change", schedule, { signal: events.signal });
+    document.addEventListener("click", navigate, { capture: true, signal: events.signal });
+    document.addEventListener("keydown", navigate, { capture: true, signal: events.signal });
+    for (const type of ["transitionrun", "transitionend", "transitioncancel"]) {
+      document.addEventListener(type, transition, { capture: true, signal: events.signal });
+    }
+    update();
+    return { destroy() {
+      if (stopped) return;
+      stopped = true;
+      events.abort();
+      mutations.disconnect();
+      resize.disconnect();
+      cancelAnimationFrame(frame);
+      cancelAnimationFrame(hoverFrame);
+      for (const state of states.values()) release(state);
+      states.clear();
+    } };
+  }
+
+  // src/WebPage/Music/module.js
+  var early16 = () => createPageOpening();
+  function mount16() {
+    const layout = mountHomeLayout(homeStyle() + content_default12, () => pageId(location.href) === "Music");
+    if (!layout) return;
+    const html = document.documentElement;
+    html.classList.add("musicscript-active");
+    const pagination = mountMusicPagination();
+    let stopped = false;
+    return {
+      destroy() {
+        if (stopped) return;
+        stopped = true;
+        pagination.destroy();
+        layout.destroy();
+        html.classList.remove("musicscript-active");
+      }
+    };
+  }
+
+  // src/WebPage/Article/module.js
+  var module_exports17 = {};
+  __export(module_exports17, {
+    early: () => early17,
+    mount: () => mount17
+  });
+
+  // src/WebPage/Article/content.css
+  var content_default13 = "/* /read/home and /opus/:id use different native layouts. Scope all rules\n   to Article and restore the site's content layout above 1099px. */\nhtml.articlescript-active:has(#app.dark_mode) { color-scheme:dark!important; }\n\n@media (max-width:1099px) {\n  html.articlescript-active { --articlescript-content-inset:12px; }\n  html.articlescript-active #app {\n    box-sizing:border-box!important; width:100%!important; min-width:0!important; max-width:100%!important;\n  }\n\n  /* Recommendation list: remove its fixed 680px content width. */\n  html.articlescript-active .page-home,\n  html.articlescript-active .page-home :is(.main,.content,.feed) {\n    box-sizing:border-box!important; width:100%!important; min-width:0!important; max-width:100%!important;\n  }\n  html.articlescript-active .page-home .main { padding:0 8px!important; margin-left:0!important; margin-right:0!important; }\n  html.articlescript-active .page-home .header { width:100%!important; min-width:0!important; height:auto!important; flex-wrap:wrap!important; gap:8px!important; }\n  html.articlescript-active .page-home .header > * { min-width:0!important; max-width:100%!important; }\n  html.articlescript-active .page-home .article-item { width:100%!important; min-width:0!important; height:auto!important; align-items:flex-start!important; padding:16px 0!important; }\n  html.articlescript-active .page-home :is(.article-item__left,.article-item__details) { min-width:0!important; height:auto!important; }\n  html.articlescript-active .page-home .article-item__title { display:-webkit-box!important; -webkit-box-orient:vertical!important; -webkit-line-clamp:2!important; white-space:normal!important; height:auto!important; }\n  html.articlescript-active .page-home :is(.article-item__title,.article-item__desc) { overflow-wrap:anywhere!important; }\n  html.articlescript-active .page-home .article-item__right { margin-left:12px!important; }\n  html.articlescript-active .page-home .article-item__meta { flex-wrap:wrap!important; height:auto!important; gap:6px 10px!important; }\n  html.articlescript-active .page-home :is(.article-item__author,.article-item__label,.article-item__stat) { margin-right:0!important; }\n  html.articlescript-active .page-home .article-item__author { min-width:0!important; max-width:100%!important; }\n  html.articlescript-active .page-home .article-item__avatar { flex:none!important; }\n  html.articlescript-active .page-home .article-item__uname { min-width:0!important; overflow:hidden!important; text-overflow:ellipsis!important; white-space:nowrap!important; }\n  html.articlescript-active .page-home .article-item__stats { flex-wrap:wrap!important; width:auto!important; min-width:0!important; gap:6px 10px!important; }\n\n  /* Opus: use available width for text and constrain native media. */\n  html.articlescript-active #app:has(.opus-detail) { padding-bottom:calc(76px + env(safe-area-inset-bottom,0px))!important; }\n  html.articlescript-active .opus-detail {\n    box-sizing:border-box!important; width:calc(100% - 16px)!important; min-width:0!important; max-width:100%!important;\n    margin-left:8px!important; margin-right:8px!important;\n  }\n  html.articlescript-active .opus-detail :is(.bili-opus-view,.opus-tabs,.bili-tabs__content,.comment-wrap,.bili-comment-container) {\n    box-sizing:border-box!important; width:100%!important; min-width:0!important; max-width:100%!important;\n  }\n  html.articlescript-active .bili-opus-view > :is(.opus-module-title,.opus-module-author,.opus-module-collection,.opus-module-content,.opus-module-copyright) {\n    box-sizing:border-box!important; width:100%!important; min-width:0!important;\n    padding-left:var(--articlescript-content-inset)!important; padding-right:var(--articlescript-content-inset)!important;\n  }\n  html.articlescript-active .opus-module-bottom { margin-left:var(--articlescript-content-inset)!important; margin-right:var(--articlescript-content-inset)!important; flex-wrap:wrap!important; gap:12px!important; }\n  html.articlescript-active :is(.opus-module-title__inner,.opus-module-content) { overflow-wrap:anywhere!important; }\n  html.articlescript-active .opus-module-author { gap:8px!important; }\n  html.articlescript-active .opus-module-author__left { flex:none!important; }\n  html.articlescript-active .opus-module-author__center { flex:1!important; min-width:0!important; width:auto!important; margin:0!important; }\n  html.articlescript-active .opus-module-author__right { flex:none!important; width:auto!important; }\n  html.articlescript-active .opus-module-author__name-row { min-width:0!important; max-width:100%!important; flex-wrap:wrap!important; }\n  html.articlescript-active .opus-module-author__pub { white-space:normal!important; }\n  html.articlescript-active .opus-module-collection__box { min-width:0!important; max-width:100%!important; }\n  html.articlescript-active .opus-module-copyright { flex-wrap:wrap!important; gap:8px!important; }\n  html.articlescript-active .opus-module-top :is(.opus-module-top__display,.opus-module-top__album,.opus-module-top__album__cover,.b-img,.b-img__inner) {\n    width:100%!important; max-width:100%!important; height:auto!important;\n  }\n  html.articlescript-active .opus-module-top img { width:100%!important; height:auto!important; }\n  html.articlescript-active .opus-module-content :is(.opus-para-pic,.opus-pic-view,.bili-dyn-pic,.bili-dyn-pic__img,.b-img,.b-img__inner) { max-width:100%!important; height:auto!important; }\n  html.articlescript-active .opus-module-content :is(img,video) { max-width:100%!important; height:auto!important; }\n  html.articlescript-active .opus-module-content pre { max-width:100%!important; overflow-x:auto!important; white-space:pre!important; }\n  html.articlescript-active .opus-module-content table { display:block!important; max-width:100%!important; overflow-x:auto!important; }\n  /* Native comments retain 56px padding and tabs add a 30px leading gap.\n     Share the article inset, shifting the whole nav strip so item offsets\n     and the native active underline still agree after tab changes. */\n  html.articlescript-active .opus-tabs :is(.bili-tabs__header,.bili-comment-container,.reaction-list) {\n    box-sizing:border-box!important; width:100%!important; min-width:0!important;\n    padding-left:var(--articlescript-content-inset)!important; padding-right:var(--articlescript-content-inset)!important;\n  }\n  html.articlescript-active .opus-tabs .bili-tabs__nav__items { margin-left:-30px!important; width:calc(100% + 30px)!important; }\n\n  /* Keep all seven native actions accessible while reading. No cloned\n     buttons: collection, comment and back-to-top retain their events. */\n  html.articlescript-active .opus-detail .right-sidebar-wrap {\n    position:fixed!important; z-index:100!important; left:8px!important; right:8px!important; top:auto!important;\n    bottom:calc(8px + env(safe-area-inset-bottom,0px))!important; width:auto!important; min-width:0!important; margin:0!important; transform:none!important;\n  }\n  html.articlescript-active .right-sidebar-wrap .side-toolbar {\n    display:flex!important; align-items:center!important; justify-content:space-around!important;\n    box-sizing:border-box!important; width:100%!important; height:56px!important; padding:4px!important;\n    background:var(--bg1,#fff)!important; border:1px solid var(--line_regular,#e3e5e7)!important; border-radius:8px!important;\n  }\n  html.articlescript-active .side-toolbar :is(.side-toolbar__top,.side-toolbar__box,.side-toolbar__bottom) { display:contents!important; }\n  html.articlescript-active .side-toolbar :is(.side-toolbar__action,.side-toolbar__btn) { box-sizing:border-box!important; flex:1 1 0!important; width:auto!important; min-width:0!important; height:46px!important; margin:0!important; padding:0!important; }\n  html.articlescript-active .side-toolbar .ring-progress { left:calc(50% - 15px)!important; }\n  html.articlescript-active .right-sidebar-wrap .opus-collection {\n    position:fixed!important; left:8px!important; right:8px!important; top:auto!important; bottom:calc(72px + env(safe-area-inset-bottom,0px))!important;\n    box-sizing:border-box!important; width:auto!important; max-width:480px!important; max-height:calc(100dvh - 180px)!important; overflow-y:auto!important; transform:none!important;\n  }\n  html.articlescript-active #app > .bili-popup .bili-popup__wrap { box-sizing:border-box!important; max-width:calc(100vw - 16px)!important; }\n}\n\n@media (max-width:399px) {\n  html.articlescript-active { --articlescript-content-inset:8px; }\n  html.articlescript-active .page-home .article-item__right,\n  html.articlescript-active .page-home .article-item__cover { width:88px!important; }\n  html.articlescript-active .page-home .article-item__cover { height:66px!important; }\n  html.articlescript-active .page-home .article-item__cover :is(.b-img,.b-img__inner,img) { width:100%!important; height:100%!important; object-fit:cover!important; }\n}\n";
+
+  // src/WebPage/Article/style.js
+  var pageStyle10 = homeStyle() + content_default13;
+
+  // src/WebPage/Article/module.js
+  var early17 = () => createPageOpening();
+  function mount17() {
+    const layout = mountHomeLayout(pageStyle10, () => pageId(location.href) === "Article");
+    if (!layout) return;
+    const html = document.documentElement;
+    html.classList.add("articlescript-active");
+    let stopped = false;
+    return {
+      destroy() {
+        if (stopped) return;
+        stopped = true;
+        layout.destroy();
+        html.classList.remove("articlescript-active");
+      }
+    };
+  }
+
   // src/entry.js
-  startDispatcher({ HomePage: module_exports, LiveHome: module_exports2, LiveArea: module_exports3, Feed: module_exports4, History: module_exports5, Watchlater: module_exports6, Follow: module_exports7, Space: module_exports8, Search: module_exports9, Popular: module_exports10, Anime: module_exports11, PGC: module_exports12, Charity: module_exports13, UHD: module_exports14, Podcast: module_exports15 });
+  startDispatcher({ HomePage: module_exports, LiveHome: module_exports2, LiveArea: module_exports3, Feed: module_exports4, History: module_exports5, Watchlater: module_exports6, Follow: module_exports7, Space: module_exports8, Search: module_exports9, Popular: module_exports10, Anime: module_exports11, PGC: module_exports12, Charity: module_exports13, UHD: module_exports14, Podcast: module_exports15, Music: module_exports16, Article: module_exports17 });
 })();

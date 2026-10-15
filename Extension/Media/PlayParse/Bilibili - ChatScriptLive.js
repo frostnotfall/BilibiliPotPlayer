@@ -1,12 +1,4 @@
-// ==UserScript==
-// @name         Bilibili 直播窄屏聊天
-// @namespace    bilibili-live-chat
-// @version      1.1.18
-// @description  保留原生头部、聊天、礼物、PK 和特效的窄屏布局
-// @match        https://live.bilibili.com/blanc/*
-// @grant        none
-// @run-at       document-idle
-// ==/UserScript==
+// 版本：1.1.19
 
 (() => {
   'use strict';
@@ -322,6 +314,16 @@
         margin: 0 !important; overflow: visible !important; z-index: 10 !important;
       }
       & #rank-list-vm, & #chat-control-panel-vm { flex-shrink: 0 !important; }
+      /* 只调整名字最大宽度；保留原生条目排列、头像位置与对齐方式。 */
+      & #rank-list-vm .top3-name {
+        max-width: max(0px, calc((100vw - 64px) / 3 - 29px)) !important;
+      }
+      & #rank-list-vm .top3-name-2 {
+        max-width: max(0px, calc((100vw - 52px) / 2 - 29px)) !important;
+      }
+      & #rank-list-vm .top3-name-1 {
+        max-width: max(0px, calc(100vw - 69px)) !important;
+      }
       & #aside-area-vm .chat-history-panel {
         flex: 1 1 0 !important; min-height: 0 !important;
         overflow: visible !important;

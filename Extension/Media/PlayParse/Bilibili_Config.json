@@ -1,7 +1,7 @@
 {
     // 遇到问题先查看：https://github.com/frostnotfall/BilibiliPotPlayer/wiki
 
-    // 同时启用字幕与弹幕时，若需要设置快捷键，参考文档：https://github.com/frostnotfall/BilibiliPotPlayer/wiki/使用指南#1-常用快捷键
+    // 同时启用字幕与弹幕时，若需要设置快捷键，参考文档：https://github.com/frostnotfall/BilibiliPotPlayer/wiki/使用技巧#1-常用快捷键
     // 视频字幕
     "subtitle": {
         // 是否启用字幕。默认：false。如果不存在视频自有字幕，则使用ai字幕。注：使用内置解析生成字幕会增加视频打开延迟，推荐按需开启。

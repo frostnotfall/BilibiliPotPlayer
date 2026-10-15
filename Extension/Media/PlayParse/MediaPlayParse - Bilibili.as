@@ -95,7 +95,7 @@ string GetTitle() {
 }
 
 string GetVersion() {
-	return "3.7.35";
+	return "3.7.36";
 }
 
 string GetDesc() {
@@ -106,7 +106,7 @@ string GetDesc() {
 		"\r\n"
 		"教程: "
 		"<a href=\"https://github.com/frostnotfall/BilibiliPotPlayer/wiki/安装与快速开始\">安装与快速开始</a>, "
-		"<a href=\"https://github.com/frostnotfall/BilibiliPotPlayer/wiki/使用指南\">使用指南</a>\r\n"
+		"<a href=\"https://github.com/frostnotfall/BilibiliPotPlayer/wiki/使用技巧\">使用技巧</a>\r\n"
 		"\r\n"
 		"基于原项目<a href=\"" + GitHub_OriginalLink + "\">BilibiliPotPlayer</a>\r\n"
 		" ";
@@ -739,6 +739,7 @@ void CheckUpdate() {
 			"https://ghfast.top",
 			"https://ghproxy.net",
 			"https://mirror.houlang.cloud",
+			"https://proxy.vvvv.ee"
         };
 
         string latestVersion;
@@ -1141,8 +1142,6 @@ string getCodec(int codecid) {
 }
 
 string GetM3u8RealURL(string url) {
-	status = 7;
-
 	if ( ConfigData.parseM3u8RealUrlFastMode && !ConfigData.m3u8RedirectDomains.isEmpty()) {
 		bool matched = false;
 
@@ -1154,7 +1153,6 @@ string GetM3u8RealURL(string url) {
 		}
 
 		if (!matched) {
-			status = 5;
 			return url;
 		}
 	}
@@ -1173,11 +1171,9 @@ string GetM3u8RealURL(string url) {
 			}
 		}
 		if (!found) log("!-------------------found redirect m3u8, origin url", url);
-		status = 5;
 		return lines[j + 1].Trim();
 	}
 
-	status = 5;
 	return url;
 }
 
@@ -2573,6 +2569,7 @@ string getFixedURL(JsonValue&in data) {
 	}
 
 	log("getFixedURL: all backup URLs are P2P CDN, returning base URL");
+
 	return base_url;
 }
 
@@ -4101,10 +4098,6 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 							continue;
 						}
 
-						if (!ConfigData.useHttpStream && ConfigData.parseM3u8RealUrl) {
-							url_info_url = GetM3u8RealURL(url_info_url);
-						}
-
 						url = url_info_url;
 
 						JsonValue video_color_info = codec["video_color_info"];
@@ -4176,6 +4169,20 @@ string Live(string id, const string&in path, dictionary& MetaData, array<diction
 					}
 				}
 			}
+		}
+	}
+
+	if (!ConfigData.useHttpStream && ConfigData.parseM3u8RealUrl) {
+		status = 7;
+
+		for (int i = 0; i < QualityList.size(); i++) {
+			string item_url;
+			QualityList[i].get("url", item_url);
+			if (item_url.isEmpty()) continue;
+
+			item_url = GetM3u8RealURL(item_url);
+			QualityList[i]["url"] = item_url;
+			url = item_url;
 		}
 	}
 

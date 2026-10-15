@@ -1,6 +1,6 @@
 # BilibiliPotPlayer
 
-适用于 PotPlayer 的 Bilibili 插件，可直接解析并播放 Bilibili 视频、番剧、影视、直播等内容。
+适用于 PotPlayer 的 Bilibili 插件，可直接解析并播放 Bilibili 视频、番剧、影视、直播等内容。既可直接打开链接，也可通过 `直播/VOD` 窗口浏览窄布局网页并点击播放。
 
 配合 [BilibiliPotPlayer-改](https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-%E6%94%B9) 油猴脚本，可直接从 Bilibili 网页调用 PotPlayer 播放，并支持精准空降等功能。
 
@@ -25,7 +25,7 @@
 
 > 如果你不希望手动获取 Cookie，这是本项目与上游版本最明显的区别。
 
-**_注意：由于登录机制的改变，从上游项目迁移过来的同学， 旧的 Cookie、Header、Referer 一定要删除。参考 [wiki](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/常见问题与故障排查#播放视频时一直转圈右下角画质选项不断跳动)。_**
+**_注意：由于登录机制的改变，从上游项目迁移过来的同学， 旧的 Cookie、Header、Referer 一定要删除。参考 [wiki](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/常见问题与故障排查#1-播放视频时一直转圈右下角画质选项不断跳动)。_**
 
 **_提示：后续Cookie刷新参考 [突然出现账号未登录](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/常见问题与故障排查#2-突然出现账号未登录)_**
 
@@ -50,7 +50,7 @@
 - 增加心跳上报功能，用于历史记录同步。
 - 支持新版本更新检测。
 - 首次打开时，账号异常弹出对话框。
-- 支持原生聊天窗口。
+- 支持 PotPlayer 聊天窗口，设置方法见 [聊天窗口](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/聊天窗口)。
 
 ### 📺 直播
 
@@ -60,7 +60,7 @@
 - 增加 解析真实 M3U8 开关。规避画质选项 potplayer 自动覆盖成 HLS 的问题。详见配置项注释。
 - 聊天窗口支持：
   - 官方原生页面。
-  - 自建 [Bilibili_Danmuji](https://github.com/BanqiJane/Bilibili_Danmuji) 服务（[Bilibili_Danmuji接入教程](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/Bilibili_Danmuji-弹幕接入)）
+  - 自建 [Bilibili_Danmuji](https://github.com/BanqiJane/Bilibili_Danmuji) 服务（[Bilibili_Danmuji接入教程](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/使用Bilibili_Danmuji)）
 - 遇到直播间未开播、大航海专属的情况，弹出对话框提醒。
 - 从单个直播间打开时，播放列表增加推荐的直播间。
 
@@ -107,9 +107,9 @@
 
 第一次使用建议按以下顺序阅读：
 
-1. [安装与快速开始](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E5%AE%89%E8%A3%85%E4%B8%8E%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B)
-2. [使用指南](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97)
-3. [直播VOD窗口与聊天窗口](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/直播-VOD-窗口-与-聊天窗口)
+1. [安装与快速开始](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/安装与快速开始)：安装、登录，以及打开链接和侧边栏网页浏览两种使用方式。
+2. [使用技巧](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/使用技巧)：快捷键、播放列表、字幕与弹幕等日常操作。
+3. [聊天窗口](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/聊天窗口)：直播与点播聊天窗口的完整设置方法及使用技巧。
 
 其他文档：
 
