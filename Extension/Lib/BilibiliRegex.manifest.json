@@ -1,0 +1,21 @@
+{
+  "abi": 1,
+  "engine": "QuickJS-NG v0.17.0 libregexp",
+  "source_commit": "6d46d07d04041b40f4f49eaa7fdebe44c314c699",
+  "verification": {
+    "cases": 17116,
+    "actual_log_cases": 0,
+    "node": "v24.19.0",
+    "v8": "13.6.233.17-node.51",
+    "upstream": "6d46d07d04041b40f4f49eaa7fdebe44c314c699",
+    "result": "PASS"
+  },
+  "artifacts": [
+    {
+      "path": "Extension/Lib/BilibiliRegex.dll",
+      "bytes": 256512,
+      "sha256": "054ca934091ca058be4f4533d2248bf3f8d80553af22a27933e3e003bc511a03",
+      "architecture": "x64"
+    }
+  ]
+}

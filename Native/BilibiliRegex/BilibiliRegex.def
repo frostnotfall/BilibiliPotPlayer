@@ -1,0 +1,15 @@
+LIBRARY BilibiliRegex
+EXPORTS
+    BiliRegexCreateSet
+    BiliRegexSetRule
+    BiliRegexTestSet
+    BiliRegexFreeSet
+    BiliRegexGetLastErrorRule
+    BiliRegexCompile
+    BiliRegexCompileRule
+    BiliRegexTest
+    BiliRegexFree
+    BiliRegexGetLastErrorCode
+    BiliRegexGetLastError
+    BiliRegexGetAbiVersion
+    BiliRegexGetEngineVersion

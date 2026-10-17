@@ -1,4 +1,4 @@
-// 版本：1.1.19
+// 版本：1.1.24
 
 (() => {
   'use strict';
@@ -162,6 +162,7 @@
     '#head-info-vm .more-panel', '#head-info-vm .room-manage-panel',
     '#head-info-vm .head-share-qr-popover', '#game-id',
     '.side-bar-cntr:has(> .side-bar-toggle)', '#sidebar-vm .side-bar-popup-cntr',
+    '.recharge-store-box > .cntr',
     '[role="dialog"]', '[role="tooltip"]',
   ].join(',');
 
@@ -196,13 +197,14 @@
         top: 50dvh !important;
         left: auto !important; right: 8px !important; bottom: auto !important;
         box-sizing: content-box !important;
-        transform: translateY(-50%) !important; transition: none !important;
-        pointer-events: auto !important; background: #222; border-radius: 8px;
+        transform: translateY(-50%) !important;
+        /* 原生背景、边框、圆角、阴影和高度过渡继续由官方样式控制。 */
+        pointer-events: auto !important;
         & > .side-bar-toggle {
           position: absolute; right: 100%; top: 50%; transform: translateY(-50%);
           width: 16px; height: 40px; padding: 0; box-sizing: border-box;
-          border: 1px solid #ffffff60; border-right: 0; border-radius: 6px 0 0 6px;
-          background: #333; color: #fff; font: bold 20px/38px sans-serif;
+          border: 1px solid var(--Ga2); border-right: 0; border-radius: 6px 0 0 6px;
+          background: var(--bg1_float); color: var(--text2); font: bold 20px/38px sans-serif;
           box-shadow: 0 1px 4px #0006; cursor: pointer; user-select: none;
         }
         &.collapsed {
@@ -219,7 +221,7 @@
         height: 100dvh !important;
         min-width: 0 !important; margin: 0 !important;
         padding: 0 !important; gap: 0 !important;
-        background: #101010; overflow: visible !important;
+        overflow: visible !important;
       }
       & #player-ctnr {
         position: absolute !important; inset: 0 !important;
@@ -415,6 +417,88 @@
       & #game-id iframe { max-height: calc(100dvh - 61px); }
       /* 保留官方浮层的溢出方式；透明的悬停连接区不应撑出滚动条。 */
       & .gift-sender-panel::before, & .gift-sender-panel::after { width: 100% !important; }
+
+      /* 充值卡片使用原生表单与事件；缩窄卡片，内容过高时只滚动表单。 */
+      & .recharge-store-box > .cntr {
+        display: flex !important; flex-direction: column;
+        position: fixed !important; inset: 50% auto auto 50% !important;
+        transform: translate(-50%, -50%) !important;
+        width: min(440px, calc(100vw - 16px)) !important; height: auto !important;
+        max-height: calc(100dvh - 16px) !important; margin: 0 !important;
+        min-width: 0 !important; box-sizing: border-box;
+        & > .tab-box { flex: 0 0 auto; width: 100% !important; height: 44px !important; }
+        & > .tab-box > .list { display: flex; width: 100% !important; height: 44px !important; }
+        & > .tab-box .item {
+          flex: 1; min-width: 0; width: auto !important; height: 44px !important;
+          top: 0 !important; line-height: 44px !important;
+        }
+        & > .tab-box .item-cntr {
+          /* 原生斜切背景的层级为 1，文字需位于装饰层上方。 */
+          position: relative !important; inset: auto !important; z-index: 2;
+          display: block; transform: none !important;
+          font-size: 16px !important; padding: 0 24px 0 8px; white-space: nowrap;
+        }
+        & > .close { top: 12px !important; right: 8px !important; z-index: 2; }
+        & > .store-content {
+          flex: 0 1 auto; min-height: 0; width: 100% !important; height: auto !important;
+          overflow: auto !important; overscroll-behavior: contain;
+        }
+        & > .wechat-buy {
+          position: relative !important; inset: auto !important; flex: 0 0 auto;
+          width: auto !important; height: 32px !important; margin: 0 12px;
+        }
+        & .gold-seed-store, & .silver-seed-store {
+          width: 100% !important; height: auto !important; overflow: visible !important;
+        }
+        & .sub-tab-box { display: block !important; width: 100% !important; height: auto !important; }
+        & .sub-tab-box > .list { display: flex; width: 100% !important; height: auto !important; }
+        & .sub-tab-box .item { flex: 1; width: auto !important; height: 40px !important; line-height: 40px; }
+        & .gold-seed-store > .content, & .silver-seed-store > .content {
+          display: block !important; width: 100% !important; height: auto !important;
+        }
+        /* 购买与 B 币兑换按内容撑高，避免固定高度产生多余滚动条。 */
+        & .buy-gold-seed-store, & .gold-seed-store .gold-exchange-store {
+          height: auto !important; min-height: 0 !important;
+        }
+        & .gold-seed-store .gold-exchange-store .btn-box { margin-bottom: 0 !important; }
+        & .content-cntr { width: auto !important; height: auto !important; padding: 12px !important; }
+        /* 协议是充值表单最后一项，不再叠加表单行与内容容器的底部留白。 */
+        & .content-cntr:has(.buy-gold-seed-store),
+        & .buy-gold-seed-store .recharge-form > dd:last-child { padding-bottom: 0 !important; }
+        & .recharge-form { display: block; width: 100% !important; height: auto !important; }
+        & .recharge-form > dt {
+          display: block !important; width: auto !important; height: auto !important;
+          margin: 0 0 6px !important; line-height: 20px; text-align: left !important;
+          &:empty { display: none !important; }
+        }
+        & .recharge-form > dd {
+          display: block !important; width: 100% !important; height: auto !important;
+          min-width: 0; margin: 0 !important; padding: 0 0 12px !important; box-sizing: border-box;
+        }
+        & .balance-value { width: auto !important; max-width: 40%; margin-right: 24px; }
+        & .fast-amount-list { width: 100% !important; height: auto !important; }
+        & .select-list {
+          display: grid !important; grid-template-columns: repeat(auto-fit, minmax(min(100%, 96px), 1fr));
+          gap: 8px; width: 100% !important; height: auto !important;
+        }
+        & .select-list > .item { width: auto !important; min-width: 0; margin: 0 !important; box-sizing: border-box; }
+        & .select-list > .free-amount { grid-column: 1 / -1; width: 100% !important; }
+        & .ipt-free-amount { width: 100% !important; min-width: 0 !important; padding-right: 64px; box-sizing: border-box; }
+        & .ipt-number { max-width: calc(100% - 48px); min-width: 0; box-sizing: border-box; }
+        & .recharge-rule {
+          width: auto !important; height: auto !important; white-space: normal !important;
+          overflow-wrap: anywhere; line-height: 20px;
+        }
+        & .pay-method-box > .content { width: 100% !important; margin: 12px 0 0 !important; }
+        & .qrcode-box { width: 100% !important; height: auto !important; margin: 0 !important; }
+        & .qrcode-box .tip { height: auto !important; white-space: normal; overflow-wrap: anywhere; line-height: 20px; }
+        & .user-protocol {
+          display: block !important; width: 100% !important; height: auto !important;
+          margin: 0 !important; white-space: normal; overflow-wrap: anywhere; line-height: 22px;
+          & > .ic-agree { display: inline-block; vertical-align: middle; }
+          & > .clickable, & > .protocol { display: inline; }
+        }
+      }
     }
   `;
   document.head.append(style);

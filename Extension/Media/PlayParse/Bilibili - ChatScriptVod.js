@@ -1,19 +1,11 @@
-// ==UserScript==
-// @name         Bilibili 视频 / 番剧窄屏评论
-// @namespace    bilibili-video-comments
-// @version      1.0.34
-// @description  保留官方简介、标签、番剧信息和评论，支持 480px，将标签、音乐视频、简介及评论播放链接交给 PotPlayer。
-// @match        https://www.bilibili.com/video/BV*
-// @match        https://www.bilibili.com/bangumi/play/ep*
-// @run-at       document-end
-// @grant        none
-// ==/UserScript==
+// @version      1.0.40
 
 (() => {
   'use strict';
 
-  // true 屏蔽评论和弹幕列表的时间跳转；false 将跳转交给 PotPlayer，修改后重新注入。
-  const BLOCK_VIDEO_SEEK = true;
+  // 弹幕列表仍默认屏蔽跳转；简介和评论的时间链接由下方 PotPlayer 点击功能处理。
+  const BLOCK_DANMAKU_SEEK = true;
+  const playbackScope = 'bili-comments, .bb-comment, .video-desc-container';
 
   const pageType = () => {
     if (location.hostname !== 'www.bilibili.com') return '';
@@ -147,34 +139,14 @@
     window.potplayerSeek?.(JSON.stringify({ pid, url: location.href, position: ms }));
   }
   function seekSeconds(node) {
-    // 评论链接使用官方秒数；弹幕时间文字和旧版评论兼容 mm:ss / hh:mm:ss。
+    // 弹幕列表兼容 mm:ss / hh:mm:ss。
     const value = node?.getAttribute('data-video-time');
     if (value != null && value.trim()) return Number(value);
     const text = node?.textContent?.trim().replace(/^\d+#/, '') || '';
     if (!/^\d+(?::[0-5]\d){1,2}$/.test(text)) return NaN;
     return text.split(':').reduce((seconds, part) => seconds * 60 + Number(part), 0);
   }
-  function seekComment(node) {
-    // 只有明确的 n# 前缀表示分P；无前缀的时间始终在当前视频 seek。
-    const part = node.textContent.trim().match(/^(\d+)#/);
-    if (pageType() === 'ugc' && part) {
-      const targetPart = Number(part[1]);
-      if (!Number.isSafeInteger(targetPart) || targetPart <= 0) return;
-      const url = new URL(location.href);
-      const currentPart = Number(url.searchParams.get('p') || 1);
-      if (targetPart !== currentPart) {
-        url.searchParams.set('p', String(targetPart));
-        // 跨P只打开对应视频，不向当前 PotPlayer 发送该时间的 seek。
-        try {
-          window.chrome?.webview?.postMessage?.({ type: 'potPlayer.video-click', url: url.href });
-        } catch { /* 桥接失败时仍不执行网页跳转或当前视频 seek。 */ }
-        return;
-      }
-    }
-    seekPotPlayer(seekSeconds(node));
-  }
-
-  // 两种状态都先阻止官方跳转/播放；桥接不可用或时间无效时也不恢复网页 seek。
+  // 先阻止官方跳转/播放；简介和评论的单击交给下方处理，双击不重复打开。
   listen('click auxclick dblclick', event => {
     if (!pageType()) return;
     const path = event.composedPath();
@@ -183,25 +155,463 @@
     // 官方时间 span 禁用指针命中，实际由整行的 dblclick 触发 seek；单击选中仍保留。
     const row = event.type === 'dblclick' && path.find(node => node.matches?.('#danmukuBox .dm-info-row'));
     if (!seek && !time && !row) return;
+    if (seek && event.type !== 'dblclick' && typeof window.chrome?.webview?.postMessage === 'function'
+      && path.some(node => node.matches?.(playbackScope))) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    if (BLOCK_VIDEO_SEEK || !event.isTrusted || ![0, 1].includes(event.button)) return;
-    // 评论由 click / auxclick 发送，避免 dblclick 再发一次；弹幕仅在左键双击时发送。
-    if (seek && event.type !== 'dblclick') seekComment(seek);
-    else if (!seek && event.type === 'dblclick' && event.button === 0)
+    if (BLOCK_DANMAKU_SEEK || !event.isTrusted) return;
+    // 弹幕仅在左键双击时发送。
+    if (!seek && event.type === 'dblclick' && event.button === 0)
       seekPotPlayer(seekSeconds(time || row?.querySelector('.dm-info-time')));
   }, { capture: true, passive: false });
+  // MEDIA_MENU_START
+  const scopes = [{"id":"HomePage","host":"www.bilibili.com","paths":["/","/index.html","/c/douga","/c/game","/c/kichiku","/c/music","/c/dance","/c/cinephile","/c/ent","/c/knowledge","/c/tech","/c/information","/c/food","/c/shortplay","/c/car","/c/fashion","/c/sports","/c/animal","/c/vlog","/c/painting","/c/ai","/c/home","/c/outdoors","/c/gym","/c/handmake","/c/travel","/c/rural","/c/parenting","/c/health","/c/emotion","/c/life_joy","/c/life_experience"]},{"id":"LiveHome","host":"live.bilibili.com","paths":["/","/all"],"protocols":["https:"]},{"id":"LiveArea","host":"live.bilibili.com","paths":["/p/eden/area-tags"]},{"id":"Feed","host":"t.bilibili.com","pathPattern":"^/.*$"},{"id":"History","host":"www.bilibili.com","paths":["/history"]},{"id":"Watchlater","host":"www.bilibili.com","paths":["/watchlater/list"]},{"id":"Follow","host":"link.bilibili.com","paths":["/p/center/index"],"hashPattern":"^#/user-center/follow/1/?(?:\\?.*)?$"},{"id":"Space","host":"space.bilibili.com","pathPattern":"^/\\d+(?:/(?:dynamic|upload(?:/(?:video|opus))?|lists|bangumi)|/(?:favlist|fav)(?:/.*)?)?/?$"},{"id":"Search","host":"search.bilibili.com","paths":["/all","/video","/bangumi","/pgc","/live","/article","/upuser"]},{"id":"Popular","host":"www.bilibili.com","paths":["/v/popular/all","/v/popular/weekly","/v/popular/history","/v/popular/rank/all","/v/popular/rank/anime","/v/popular/rank/bangumi","/v/popular/rank/guochuang","/v/popular/rank/documentary","/v/popular/rank/movie","/v/popular/rank/tv","/v/popular/rank/variety","/v/popular/rank/douga","/v/popular/rank/game","/v/popular/rank/kichiku","/v/popular/rank/music","/v/popular/rank/dance","/v/popular/rank/cinephile","/v/popular/rank/ent","/v/popular/rank/knowledge","/v/popular/rank/tech","/v/popular/rank/food","/v/popular/rank/car","/v/popular/rank/fashion","/v/popular/rank/sports","/v/popular/rank/animal","/v/popular/music"]},{"id":"Anime","host":"www.bilibili.com","paths":["/anime","/guochuang","/anime/timeline","/anime/index","/guochuang/timeline","/guochuang/index"]},{"id":"PGC","host":"www.bilibili.com","paths":["/movie","/tv","/variety","/documentary"]},{"id":"Charity","host":"love.bilibili.com","paths":["/"]},{"id":"UHD","host":"www.bilibili.com","paths":["/blackboard/era/Vp41b8bsU9Wkog3X.html","/blackboard/era/LqwJ5qsaKiEE0yj8.html"]},{"id":"Podcast","host":"www.bilibili.com","paths":["/blackboard/era/jpyPhRRrMn3fmZ2B.html","/blackboard/era/V9NZUSEYujbTPmT0.html"]},{"id":"Music","host":"music.bilibili.com","paths":["/pc/music-center","/pc/music-detail","/pc/rank","/h5/rank"]},{"id":"Article","host":"www.bilibili.com","paths":["/read/home","/opus"],"pathPattern":"^/(?:opus/\\d+|read/cv\\d+)/?$"}];
+  function urlOf(value, base = location.href) {
+    if (typeof value !== 'string' || !value.trim()) return null;
+    try {
+      const url = new URL(value, base);
+      return ['http:', 'https:'].includes(url.protocol) ? url : null;
+    } catch { return null; }
+  }
+
+  // 与 BroadcastListScript 的适配页面列表保持一致，决定页面菜单的类型。
+  function pageId(value) {
+    const url = value instanceof URL ? value : urlOf(value);
+    if (!url || !['http:', 'https:'].includes(url.protocol)) return null;
+    const path = url.pathname.replace(/\/$/, '') || '/';
+    for (const scope of scopes) {
+      if (url.hostname !== scope.host) continue;
+      if (scope.protocols && !scope.protocols.includes(url.protocol)) continue;
+      if (scope.hashPattern && !new RegExp(scope.hashPattern).test(url.hash)) continue;
+      if (scope.paths?.includes(path) || scope.pathPattern && new RegExp(scope.pathPattern).test(url.pathname)) return scope.id;
+    }
+    return null;
+  }
+  const isPageUrl = value => Boolean(pageId(value));
+  // PlayitemParse support only; playlist-only URLs must not get the video menu.
+  function isPlayitemUrl(value) {
+    const url = value instanceof URL ? value : urlOf(value);
+    if (!url || !['http:', 'https:'].includes(url.protocol)) return false;
+    const path = url.pathname;
+    if (url.hostname === 'live.bilibili.com') return /^\/\d+\/?$/.test(path);
+    if (url.hostname !== 'www.bilibili.com') return false;
+    return /^\/video\/(?:BV[a-z\d]+|av\d+)\/?$/i.test(path)
+      || /^\/bangumi\/(?:media\/md|play\/(?:ep|ss))\d+\/?$/i.test(path)
+      || /^\/audio\/au\d+\/?$/i.test(path);
+  }
+  const isShortUrl = value => urlOf(value)?.hostname === 'b23.tv';
+  // Playback/playlist support is independent of the pages this script can lay out.
+  // Mirrors the supplied BilibiliPotPlayer parser branches, excluding gettid().
+  // Match real hosts and path boundaries rather than substrings in another URL.
+  function isPlaylistUrl(value) {
+    const url = value instanceof URL ? value : urlOf(value);
+    if (!url || !['http:', 'https:'].includes(url.protocol)) return false;
+    const path = url.pathname;
+    if (['t.bilibili.com','search.bilibili.com','live.bilibili.com'].includes(url.hostname)) return true;
+    if (url.hostname === 'space.bilibili.com') return /^\/\d+(?:\/|$)/.test(path);
+    if (url.hostname === 'link.bilibili.com') return /\/user-center\/follow(?:\/|$)/.test(path + url.hash);
+    if (url.hostname !== 'www.bilibili.com') return false;
+    return path === '/'
+      || /^\/v\/popular\/(?:all|weekly|history|rank)(?:\/|$)/.test(path)
+      || /^\/list\//.test(path)
+      || /^\/(?:watchlater|history)(?:\/|$)/.test(path)
+      || /^\/medialist\/detail\/ml\d+\/?$/i.test(path)
+      || /^\/audio\/am\d+\/?$/i.test(path)
+      || /^\/bangumi\/(?:media\/md|play\/(?:ep|ss))\d+\/?$/i.test(path)
+      || /^\/video\/(?:BV[a-z\d]+|av\d+)\/?$/i.test(path);
+  }
+  const isPlayerUrl = value => isPlayitemUrl(value) || isPlaylistUrl(value);
+  // PotPlayer internally splits the URI's trailing CLI switches even when the
+  // Windows protocol registration passes the whole URI as one quoted argument.
+  function playerCommandUri(value, command, seconds) {
+    const url = urlOf(value);
+    if (!url || !isPlayerUrl(url) || !['current', 'new', 'insert', 'add'].includes(command)) return '';
+    let uri = 'potplayer://' + url.href + (command === 'new' ? ' /new' : ' /current');
+    if (['insert', 'add'].includes(command)) uri += ' /' + command;
+    if (seconds !== undefined) {
+      const ms = Math.round(seconds * 1000);
+      if (!Number.isSafeInteger(ms) || ms < 0) return '';
+      const pad = value => String(value).padStart(2, '0');
+      uri += ` /seek=${pad(Math.floor(ms / 3600000))}:${pad(Math.floor(ms / 60000) % 60)}:${pad(Math.floor(ms / 1000) % 60)}.${String(ms % 1000).padStart(3, '0')}`;
+    }
+    return uri;
+  }
+
+  const mediaMenuCSS = `
+    :host {
+      all: initial; position: fixed; z-index: 2147483647;
+      --menu-bg: #fff; --menu-text: #18191c; --menu-muted: #74787d;
+      --menu-border: #e3e5e7; --menu-hover: #f1f3f5; --menu-shadow: #0002;
+      color-scheme: light;
+    }
+    :host([data-theme="dark"]) {
+      --menu-bg: #242628; --menu-text: #f1f2f3; --menu-muted: #a1a6ac;
+      --menu-border: #45484c; --menu-hover: #363a3e; --menu-shadow: #0007;
+      color-scheme: dark;
+    }
+    [role="menu"] {
+      box-sizing: border-box; display: flex; flex-direction: column;
+      width: max-content; max-width: calc(100vw - 12px);
+      max-height: calc(100vh - 12px); overflow: auto; padding: 4px;
+      border: 1px solid var(--menu-border); border-radius: 7px;
+      background: var(--menu-bg); color: var(--menu-text);
+      box-shadow: 0 4px 16px var(--menu-shadow); font: 12px/1.5 system-ui, sans-serif;
+    }
+    button {
+      all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 8px;
+      min-height: 27px; padding: 4px 7px; border-radius: 4px; cursor: default;
+    }
+    button:hover, button:focus-visible { background: var(--menu-hover); }
+    button:focus-visible { outline: 1px solid #00aeec; outline-offset: -1px; }
+    .icon { display: flex; flex: 0 0 16px; width: 16px; height: 16px; }
+    svg, img { display: block; width: 16px; height: 16px; }
+    .label { min-width: 0; overflow-wrap: anywhere; }
+    .hint { color: var(--menu-muted); font-size: 11px; }
+    [role="separator"] { height: 1px; flex-shrink: 0; margin: 4px 5px; background: var(--menu-border); }
+    .copy-status { padding: 0 7px; color: var(--menu-muted); font-size: 11px; }
+    .copy-status:empty { display: none; }
+    dialog {
+      box-sizing: border-box; width: max-content; max-width: calc(100vw - 24px);
+      max-height: calc(100vh - 24px); overflow: auto; padding: 10px 16px;
+      border: 2px solid var(--menu-border); border-radius: 8px;
+      background: var(--menu-bg); color: var(--menu-text);
+      box-shadow: 0 4px 24px var(--menu-shadow); font: 14px/1.6 system-ui, sans-serif;
+    }
+    dialog::backdrop { background: #0006; }
+    dialog p { margin: 0 0 10px; overflow-wrap: anywhere; }
+    .dialog-actions { display: flex; justify-content: center; gap: 30px; }
+    .dialog-actions button {
+      justify-content: center; width: 90px; min-width: 0; min-height: 28px;
+      border: 2px solid var(--menu-border); cursor: pointer;
+    }
+    @media (pointer: coarse) {
+      .dialog-actions button { min-height: 44px; }
+    }
+  `;
+  // 菜单样式、图标和交互移植自 BroadcastListScript/src/common/media-menu。
+  const icons = {
+    bilibili:`<img src="data:image/x-icon;base64,AAABAAEAICAAAAEAIACoEAAAFgAAACgAAAAgAAAAQAAAAAEAIAAAAAAAABAAABMLAAATCwAAAAAAAAAAAAD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A1qEAANahAADWoQAG1qEAb9ahAMvWoQD01qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD01qEAy9ahAG/WoQAG1qEAANahAADWoQAA1qEAG9ahAM/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahANDWoQAb1qEAANahAAfWoQDQ1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahANHWoQAH1qEAbtahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAG7WoQDH1qEA/9ahAP/WoQD/1qEAtdahABjWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahABvWoQC11qEA/9ahAP/WoQD/1qEAx9ahAPnWoQD/1qEA/9ahAP/WoQAZ1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahABjWoQD/1qEA/9ahAP/WoQDz1qEA/9ahAP/WoQD/1qEA/9ahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEAANahAADWoQAA1qEAANahAErWoQDn1qEA5NahAErWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAErWoQDn1qEA5NahAErWoQAA1qEAANahAADWoQAA1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQAA1qEAANahAADWoQAA1qEA5tahAP/WoQD/1qEA59ahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEA5tahAP/WoQD/1qEA59ahAADWoQAA1qEAANahAADWoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAADWoQAA1qEAANahAADWoQD/1qEA/9ahAP/WoQD/1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQD/1qEA/9ahAP/WoQD/1qEAANahAADWoQAA1qEAANahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEAANahAADWoQAA1qEAANahAP/WoQD/1qEA/9ahAP/WoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAP/WoQD/1qEA/9ahAP/WoQAA1qEAANahAADWoQAA1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQAA1qEAANahAADWoQAA1qEA5tahAP/WoQD/1qEA5tahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEA5tahAP/WoQD/1qEA5tahAADWoQAA1qEAANahAADWoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAADWoQAA1qEAANahAADWoQBJ1qEA5tahAObWoQBJ1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQBJ1qEA5tahAObWoQBJ1qEAANahAADWoQAA1qEAANahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQD/1qEA/9ahAP/WoQD/1qEA+dahAP/WoQD/1qEA/9ahABnWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAGdahAP/WoQD/1qEA/9ahAPjWoQDH1qEA/9ahAP/WoQD/1qEAttahABnWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahABnWoQC21qEA/9ahAP/WoQD/1qEAx9ahAG3WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQBt1qEABtahAM/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA0NahAAfWoQAA1qEAG9ahAM/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAM/WoQAb1qEAANahAADWoQAA1qEABtahAG7WoQDH1qEA89ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA89ahAMfWoQBu1qEABtahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEADtahAMXWoQD/1qEA/9ahAP/WoQD/1qEAxdahAA/WoQAA1qEAANahAADWoQAA1qEADtahAMXWoQD/1qEA/9ahAP/WoQD/1qEAxdahAA/WoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAAbWoQDF1qEA/9ahAP/WoQD/1qEA/9ahAMXWoQAP1qEAANahAADWoQAA1qEAANahAADWoQAA1qEADtahAMXWoQD/1qEA/9ahAP/WoQD/1qEAxdahAAbWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAYtahAP/WoQD/1qEA/9ahAP/WoQDF1qEADtahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEADtahAMXWoQD/1qEA/9ahAP/WoQD/1qEAY9ahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQBf1qEA/9ahAP/WoQD/1qEAxdahAA7WoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEADtahAMXWoQD/1qEA/9ahAP/WoQBf1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAATWoQCg1qEA6tahAKjWoQAO1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEADtahAKjWoQDr1qEAoNahAATWoQAA1qEAANahAADWoQAA1qEAAP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A///////////AAAADgAAAAQAAAAAAAAAAA///wAf//+AP///wD///8A////AP///wDw/w8A8P8PAPD/DwDw/w8A8P8PAPD/DwD///8A////AH///gA///wAAAAAAAAAAAgAAAAcAAAAP8A8A/+AfgH/gP8B/4H/gf+D/8H/////8=" width="16" height="16" alt="" />`,
+    player:`<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAGxSURBVDhPjZO7L0RREMZXoxCN/a4gUeiERKJSqxSi4e/RKYWIiIpCJRqliLBIPMcj+7Ae13sJGW+7yy6LYXb3rnNvCF8yOTe5M785c2bGxwSfKSbUMqGbCVtMSDHhlQkHTBhkQpPLOR/gnMVM6GVC5jFkyVPUkvROzp6jlsTDljDhgwmjTChzAfLBUw9BFIJ+M/VhQogJ5SagzwxORiy53UT29AIMyIQDqNNrmw6XK365Ph6QvZkKuVlHtgQvRBMwoVUBPVqz+fMgUCaq5/i+2Evtcrrgl4eQJantbx+9HRMmFRD1ZtibzgEcXcfGZXeuXi5X/ZLc+vZjQloBae/1vADVWyYpsUinnC3XFDp0tQZRwMt/AKpU4lDO15slEXYD7L9KeMs8yUmkS+xApdxuoPAWOmQK6I97HtE2AFr/zmxDrn6jrfoWTAgooJEJ7yYgtuCX5P2G2IttP3ZA7S7Xxg5nkIbNQboPWtmM6uQNVNO2M2GeCUUOoIQJS/8Z5XzwEROqvctUyoQRXRhdHDOzfify4607w4Qq1zKZ0pVlwhATLrRNTFm7YsIYE1pczl/6BGPfkAuxnOXwAAAAAElFTkSuQmCC" width="16" height="16" alt="" />`,
+    playlist:`<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAEHSURBVDhPlZIxL0NhFIZr9CP4CUfSxGCwiNitGkTjN5isFsxmjTdMJCxaI0lnFrU0MYgY25hIex85tJ97P3pz75N823mf8+bkq5iom7g0sWViqlIWE28mGL2miZl4JhcPzgmWL4Kkb2K7cBsPrV3DMIGTDsyflWzjw5stAs99WG+WaBMLHG9z/Jhp0zIxG2e/+U8wptuDWtQmzucKnEECRw9BkphYLCVwrrpB4G+1sKD3ATt3ITg0sf/noJMEty+wdB7CTyYWMsExseD9E3bbma2HJqbjXMAHN0aC9ius/P7IyVvT+HD1FOo3P1/axMDEQe7WNCbuUxfuFNqaxgMmGib2Cm9N8QXQeLETIuHdxQAAAABJRU5ErkJggg==" width="16" height="16" alt="" />`,
+    browser:'<svg viewBox="0 0 20 20" fill="none" stroke="#3199dc" stroke-width="1.4"><circle cx="10" cy="10" r="8"/><ellipse cx="10" cy="10" rx="3.7" ry="8"/><path d="M2 10h16M3.5 5.5h13M3.5 14.5h13"/></svg>',
+  };
+
+  function pageTheme(media) {
+    const navigation = document.getElementById('broadcast-navigation');
+    if (['dark','light'].includes(navigation?.dataset.theme)) return navigation.dataset.theme;
+    const html = document.documentElement;
+    const sheet = document.querySelector('link#__css-map__')?.getAttribute('href') || '';
+    const marker = (html.getAttribute('data-theme') || html.getAttribute('lab-style') || '').toLowerCase();
+    if (sheet.includes('/dark.css')) return 'dark';
+    if (sheet.includes('/light.css')) return 'light';
+    if (html.classList.contains('bili_dark') || marker.includes('dark')) return 'dark';
+    if (marker.includes('light')) return 'light';
+    const scheme = getComputedStyle(html).colorScheme;
+    return ['dark','light'].includes(scheme) ? scheme : media.matches ? 'dark' : 'light';
+  }
+
+  async function copyLink(value) {
+    try {
+      if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(value); return; }
+    } catch { /* Older/permission-limited WebViews can still allow native copy. */ }
+    let focused = document.activeElement;
+    while (focused?.shadowRoot?.activeElement) focused = focused.shadowRoot.activeElement;
+    const selection = getSelection();
+    const ranges = selection ? Array.from({length:selection.rangeCount}, (_, i) => selection.getRangeAt(i).cloneRange()) : [];
+    const input = document.createElement('textarea'); input.value = value; input.readOnly = true;
+    input.style.cssText = 'position:fixed;left:-10000px;top:0;'; document.body.append(input);
+    try { input.select(); if (!document.execCommand('copy')) throw new Error('Copy denied'); }
+    finally {
+      input.remove(); if (focused?.isConnected) focused.focus({preventScroll:true});
+      if (selection) { selection.removeAllRanges(); for (const range of ranges) selection.addRange(range); }
+    }
+  }
+
+  // One delegated listener covers dynamic cards and open shadow roots. The owner
+  // supplies the same link eligibility and playback rules as its normal clicks.
+  function createMediaMenu({getTarget, openPage, play, openNew, openExternal, addNext, addLast}) {
+    const events = new AbortController();
+    const media = matchMedia('(prefers-color-scheme: dark)');
+    let host = null, previousFocus = null, menuEvents = null, themeObserver = null, stopped = false;
+    const scrollPositions = new Map();
+    let dialogHost = null, dialogEvents = null, dialogFocus = null;
+    function syncTheme() {
+      if (!host && !dialogHost) return;
+      const theme = pageTheme(media);
+      for (const element of [host, dialogHost]) if (element && element.dataset.theme !== theme) element.dataset.theme = theme;
+    }
+    function watchTheme() {
+      themeObserver?.disconnect();
+      themeObserver = new MutationObserver(syncTheme);
+      themeObserver.observe(document.documentElement, {attributes:true, attributeFilter:['class','style','data-theme','lab-style']});
+      if (document.head) themeObserver.observe(document.head, {childList:true, subtree:true, attributes:true, attributeFilter:['href']});
+      const navigation = document.getElementById('broadcast-navigation');
+      if (navigation) themeObserver.observe(navigation, {attributes:true, attributeFilter:['data-theme']});
+      syncTheme();
+    }
+    function releaseTheme() {
+      if (host || dialogHost) return;
+      themeObserver?.disconnect(); themeObserver = null;
+    }
+    function close(restoreFocus = false) {
+      const focused = host?.shadowRoot?.activeElement;
+      menuEvents?.abort(); menuEvents = null;
+      host?.remove(); host = null;
+      scrollPositions.clear();
+      releaseTheme();
+      if (restoreFocus && focused && previousFocus?.isConnected) previousFocus.focus({preventScroll:true});
+      previousFocus = null;
+    }
+    function closeDialog(restoreFocus = false) {
+      dialogEvents?.abort(); dialogEvents = null;
+      dialogHost?.shadowRoot.querySelector('dialog')?.close();
+      dialogHost?.remove(); dialogHost = null;
+      releaseTheme();
+      if (restoreFocus && dialogFocus?.isConnected) dialogFocus.focus({preventScroll:true});
+      dialogFocus = null;
+    }
+    function confirmExternal(url) {
+      if (stopped || !document.body) return false;
+      // A single modal consumes duplicate site handlers for the same click.
+      if (dialogHost) return true;
+      close(true);
+      dialogFocus = document.activeElement;
+      dialogHost = document.createElement('div'); dialogHost.id = 'bilibili-vod-external-dialog';
+      const root = dialogHost.attachShadow({mode:'open'});
+      const style = document.createElement('style'); style.textContent = mediaMenuCSS;
+      const dialog = document.createElement('dialog'); dialog.setAttribute('aria-labelledby','external-question');
+      const message = document.createElement('p'); message.id = 'external-question';
+      message.textContent = '不支持此页面，是否从外置浏览器打开？';
+      const actions = document.createElement('div'); actions.className = 'dialog-actions';
+      dialogEvents = new AbortController();
+      for (const [label, accepted] of [['是',true],['否',false]]) {
+        const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
+        button.addEventListener('click', event => {
+          if (!event.isTrusted || event.button !== 0) return;
+          event.preventDefault(); event.stopPropagation(); closeDialog(true);
+          if (accepted) openExternal({url});
+        }, {signal:dialogEvents.signal});
+        actions.append(button);
+      }
+      dialog.addEventListener('cancel', event => {event.preventDefault(); closeDialog(true);}, {signal:dialogEvents.signal});
+      // Prevent page click handlers (including the window.open wrapper) from
+      // interpreting dialog buttons as another navigation request.
+      root.addEventListener('click', event => event.stopPropagation(), {signal:dialogEvents.signal});
+      dialog.append(message,actions); root.append(style,dialog); document.body.append(dialogHost); watchTheme();
+      try { dialog.showModal(); return true; }
+      catch { closeDialog(true); return false; }
+    }
+    function itemsFor(target) {
+      if (target.kind === 'seek') return [
+        {label:'使用当前进程播放(精准空降)', hint:'(鼠标左键)', icon:'player', action:play},
+        {label:'新开一个进程播放', icon:'player', action:openNew},
+        {label:'新开一个进程播放(精准空降)', icon:'player', action:value => openNew({...value, precise:true})}, null,
+        {label:'从外部浏览器打开', icon:'browser', action:openExternal},
+        {label:'从外部浏览器打开(精准空降)', hint:'(鼠标中键)', icon:'browser', action:value => openExternal({...value, url:value.preciseUrl})}, null,
+        {label:'复制链接地址', copy:true},
+        {label:'复制链接地址(精准空降)', copy:true, precise:true},
+      ];
+      if (target.kind === 'native') return [
+        {label:'不支持当前页面，从外置浏览器打开', action:openExternal},
+      ];
+      const external = {label:'从外部浏览器打开', hint:'(鼠标中键)', icon:'browser', action:openExternal};
+      const copy = {label:'复制链接地址', copy:true};
+      if (target.kind === 'page') {
+        const items = [
+          {label:'在当前标签页打开该页面', hint:'(鼠标左键)', icon:'bilibili', action:openPage}, external,
+        ];
+        if (target.playlist) items.push(
+          {label:'播放该页面内视频', icon:'player', action:play},
+          {label:'新开一个进程播放该页面内视频', icon:'player', action:openNew}, null,
+          {label:'将该页面内视频添加到默认播放列表（下一个）', icon:'playlist', action:addNext},
+          {label:'将该页面内视频添加到默认播放列表（末尾）', icon:'playlist', action:addLast},
+        );
+        return [...items, null, copy];
+      }
+      return [
+        {label:'使用当前进程播放', hint:'(鼠标左键)', icon:'player', action:play},
+        {label:'新开一个进程播放', icon:'player', action:openNew}, external, null,
+        {label:'添加到默认播放列表（下一个）', icon:'playlist', action:addNext},
+        {label:'添加到默认播放列表（末尾）', icon:'playlist', action:addLast}, null, copy,
+      ];
+    }
+    function onContextMenu(event) {
+      if (stopped || !event.isTrusted || event.defaultPrevented || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      close();
+      const target = getTarget(event);
+      if (!target || !document.body || dialogHost) return;
+      event.preventDefault(); event.stopImmediatePropagation();
+      // Only scrolling an ancestor moves the menu's target. Native live banners
+      // also scroll their own overflow-hidden contents during animation; those
+      // unrelated events must not dismiss another card's menu. Snapshot offsets
+      // to ignore scroll-into-view events already queued before contextmenu.
+      const path = event.composedPath();
+      // composedPath also includes ancestors outside an open shadow root.
+      for (const node of new Set([...path.slice(path.indexOf(target.anchor) + 1), document.scrollingElement])) {
+        if (node instanceof Element && node !== target.anchor) scrollPositions.set(node, [node.scrollLeft, node.scrollTop]);
+      }
+      previousFocus = document.activeElement;
+      menuEvents = new AbortController();
+      host = document.createElement('div'); host.id = 'bilibili-vod-media-menu';
+      const root = host.attachShadow({mode:'open'});
+      const style = document.createElement('style'); style.textContent = mediaMenuCSS;
+      const menu = document.createElement('div'); menu.setAttribute('role','menu'); menu.setAttribute('aria-label','媒体打开方式');
+      const status = document.createElement('div'); status.className = 'copy-status'; status.setAttribute('role','status');
+      function place() {
+        const bounds = host.getBoundingClientRect(), anchorBounds = target.anchor.getBoundingClientRect();
+        const x = event.clientX || anchorBounds.left, y = event.clientY || anchorBounds.bottom;
+        host.style.left = Math.max(6, Math.min(x, innerWidth - bounds.width - 6)) + 'px';
+        host.style.top = Math.max(6, Math.min(y, innerHeight - bounds.height - 6)) + 'px';
+      }
+      const buttons = [];
+      for (const item of itemsFor(target)) {
+        if (!item) { const separator = document.createElement('div'); separator.setAttribute('role','separator'); menu.append(separator); continue; }
+        const button = document.createElement('button'); button.type = 'button'; button.setAttribute('role','menuitem');
+        button.setAttribute('aria-label', item.label + (item.hint || ''));
+        const image = document.createElement('span'); image.className = 'icon'; image.setAttribute('aria-hidden','true'); image.innerHTML = icons[item.icon] || '';
+        const label = document.createElement('span'); label.className = 'label'; label.textContent = item.label;
+        if (item.hint) { const hint = document.createElement('span'); hint.className = 'hint'; hint.textContent = item.hint; label.append(hint); }
+        button.append(image,label);
+        button.addEventListener('click', async event => {
+          if (!event.isTrusted || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+          event.preventDefault(); event.stopPropagation();
+          if (item.copy) {
+            const current = host;
+            try { await copyLink(item.precise ? target.preciseUrl : target.url); if (host === current) close(true); }
+            catch { if (host === current) { status.textContent = '复制失败，请重试'; place(); } }
+          } else { close(true); item.action(target); }
+        }, {signal:menuEvents.signal});
+        menu.append(button); buttons.push(button);
+      }
+      menu.append(status); root.append(style,menu); document.body.append(host); watchTheme();
+      place();
+      root.addEventListener('keydown', event => {
+        if (event.key === 'Escape') {event.preventDefault(); close(true);}
+        else if (event.key === 'Tab') close();
+        else if (['ArrowDown','ArrowUp','Home','End'].includes(event.key)) {
+          event.preventDefault();
+          const index = buttons.indexOf(root.activeElement);
+          buttons[event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length].focus();
+        }
+      }, {signal:menuEvents.signal});
+      buttons[0].focus({preventScroll:true});
+    }
+    window.addEventListener('contextmenu', onContextMenu, {capture:true, signal:events.signal});
+    document.addEventListener('pointerdown', event => {if (host && !event.composedPath().includes(host)) close();}, {capture:true, signal:events.signal});
+    document.addEventListener('scroll', event => {
+      if (!host || event.composedPath().includes(host)) return;
+      const node = event.target === document ? document.scrollingElement : event.target;
+      const position = scrollPositions.get(node);
+      if (!position || node.scrollLeft === position[0] && node.scrollTop === position[1]) return;
+      close();
+    }, {capture:true, signal:events.signal});
+    window.addEventListener('resize', () => close(), {signal:events.signal});
+    window.addEventListener('blur', () => close(), {signal:events.signal});
+    media.addEventListener('change', syncTheme, {signal:events.signal});
+    return {confirmExternal, close() {close(); closeDialog();}, destroy() {if (stopped) return; stopped = true; events.abort(); close(); closeDialog();}};
+  }
+  // MEDIA_MENU_END
 
   // 点击功能随布局实例安装/卸载；普通浏览器中不改变跳转。
   function installPotPlayerClick() {
     const webview = window.chrome?.webview;
-    if (typeof webview?.postMessage !== 'function') return { prepare() {}, destroy() {} };
+    if (typeof webview?.postMessage !== 'function') return { prepare() {}, close() {}, destroy() {} };
     const originalOpen = window.open;
     const clickScope = '.video-tag-container, #bgm-entry #musicApp .videoList :is(.coverWrap, .videoTitle)';
-    const playbackScope = 'bili-comments, .bb-comment, .video-desc-container';
     let click = null;
     let timer = 0;
     const shortLinks = new Map();
+
+    function clearClick() {
+      clearTimeout(timer);
+      timer = 0;
+      click = null;
+    }
+
+    async function resolveMenuUrl(url) {
+      if (!isShortUrl(url)) return url;
+      const resolver = window.__potPlayerBilibiliClick;
+      if (typeof resolver?.resolveUrl === 'function') {
+        try { return urlOf(await resolver.resolveUrl(url))?.href || ''; }
+        catch { return ''; }
+      }
+      prepareLink(url);
+      return shortLinks.get(url)?.promise || '';
+    }
+
+    function seekTarget(path) {
+      if (!path.some(node => node.matches?.(playbackScope))) return null;
+      const anchor = path.find(node => node.matches?.('[data-type="seek"]'));
+      const value = anchor?.getAttribute('data-video-time');
+      // 官方提供的值为秒数，不从显示文字推算时间（例如 149608 = 41:33:28）。
+      if (value == null || !value.trim()) return null;
+      const seconds = Number(value);
+      if (!Number.isFinite(seconds) || seconds < 0 || !Number.isSafeInteger(Math.round(seconds * 1000))) return null;
+      const current = new URL(location.href);
+      const url = new URL(current.origin + current.pathname);
+      if (pageType() === 'ugc') {
+        // -1 表示未指定分P，使用当前页面的 p；显式分P优先使用官方属性。
+        const partValue = anchor.getAttribute('data-video-part');
+        const part = partValue == null || !partValue.trim()
+          ? Number(anchor.textContent.trim().match(/^(\d+)#/)?.[1] || -1) : Number(partValue);
+        const targetPart = part === -1 ? Number(current.searchParams.get('p') || 1) : part;
+        if (!Number.isSafeInteger(targetPart) || targetPart <= 0) return null;
+        if (targetPart !== 1) url.searchParams.set('p', String(targetPart));
+      }
+      const precise = new URL(url);
+      precise.searchParams.set('t', String(seconds));
+      return {anchor, url:url.href, preciseUrl:precise.href, seconds, kind:'seek', playbackOnly:true};
+    }
+
+    function menuTarget(event) {
+      if (!pageType()) return null;
+      const path = event.composedPath();
+      const seek = seekTarget(path);
+      if (seek) return seek;
+      if (path.some(node => node.matches?.('[data-type="seek"], .dm-info-time, input, textarea, [contenteditable="true"]'))) return null;
+      const anchor = path.find(node => node.matches?.('a[href]'));
+      if (!anchor || anchor.hasAttribute('download') || avatarNavigation.isLink(anchor)) return null;
+      const url = urlOf(anchor.getAttribute('href'))?.href;
+      if (!url || anchor.getAttribute('href').trim().startsWith('#')) return null;
+      const resolved = shortLinks.get(url)?.url || url;
+      const playbackOnly = path.some(node => node.matches?.(clickScope) || node.matches?.(playbackScope));
+      const kind = isPlayitemUrl(resolved) || isShortUrl(resolved) ? 'media' : !playbackOnly && isPageUrl(resolved) ? 'page' : 'native';
+      return {anchor, url, kind, playbackOnly, playlist:!playbackOnly && isPlaylistUrl(resolved)};
+    }
+
+    let destroyed = false;
+    function external(url) {
+      clearClick();
+      Reflect.apply(originalOpen, window, [url, '_blank', 'noopener']);
+    }
+    async function menuPlay(target) {
+      if (target.kind === 'seek') { menuCommand({...target, precise:true}, 'current'); return; }
+      const {url, playbackOnly} = target;
+      clearClick();
+      const resolved = await resolveMenuUrl(url);
+      if (destroyed || !pageType()) return;
+      if (!(playbackOnly ? isPlayitemUrl(resolved) : isPlayerUrl(resolved)) || !send(resolved)) mediaMenu.confirmExternal(resolved || url);
+    }
+    async function menuCommand({url, kind, playbackOnly, precise, seconds}, command) {
+      clearClick();
+      // 时间节点已生成完整视频 URL，保持在用户点击的同步调用栈中打开协议链接。
+      const resolved = kind === 'seek' ? url : await resolveMenuUrl(url);
+      if (destroyed || !pageType()) return;
+      const uri = (!playbackOnly || isPlayitemUrl(resolved)) && playerCommandUri(resolved, command, precise ? seconds : undefined);
+      // _blank 经系统协议入口解析完整命令；_self 的内部媒体打开路径不处理相同的 /seek。
+      if (uri) Reflect.apply(originalOpen, window, [uri, '_blank']);
+      else mediaMenu.confirmExternal(resolved || url);
+    }
+    const mediaMenu = createMediaMenu({
+      getTarget:menuTarget,
+      openPage({url}) { clearClick(); location.assign(url); },
+      play:menuPlay,
+      openNew:target => menuCommand(target, 'new'),
+      addNext:target => menuCommand(target, 'insert'),
+      addLast:target => menuCommand(target, 'add'),
+      openExternal:({url}) => external(url),
+    });
+    listen('popstate', () => mediaMenu.close());
 
     function prepare(root) {
       if (root === document) {
@@ -209,100 +619,119 @@
         return;
       }
       for (const anchor of root.querySelectorAll('a[href]')) {
-        let url;
-        try { url = new URL(anchor.getAttribute('href'), location.href).href; } catch { continue; }
-        if (!/^https?:\/\/b23\.tv\/[a-z\d]+\/?(?:[?#].*)?$/i.test(url) || shortLinks.has(url)) continue;
-        // 简介和评论共用解析与缓存；禁用框架脚本，避免目标页自动播放。
-        const iframe = document.createElement('iframe');
-        const entry = { url: '', cancel() {} };
-        shortLinks.set(url, entry);
-        iframe.hidden = true;
-        iframe.setAttribute('sandbox', 'allow-same-origin');
-        const timeout = setTimeout(() => entry.cancel(), 8000);
-        entry.cancel = () => {
-          clearTimeout(timeout);
-          iframe.onload = null;
-          iframe.remove();
-          entry.cancel = () => {};
-        };
-        iframe.onload = () => {
-          try { entry.url = supportedUrl(iframe.contentDocument?.URL, true); } catch { /* 非同源目标保留原链接。 */ }
-          entry.cancel();
-        };
-        iframe.src = url;
-        document.body.append(iframe);
+        const url = urlOf(anchor.getAttribute('href'))?.href;
+        if (url) prepareLink(url);
       }
     }
 
-    function supportedUrl(value, playbackOnly = false) {
-      if (!value) return '';
-      try {
-        const u = new URL(value, location.href);
-        if (!['https:', 'http:'].includes(u.protocol)) return '';
-        const host = u.hostname.toLowerCase();
-        const path = u.pathname;
-        if (host === 'b23.tv') return shortLinks.get(u.href)?.url || '';
-        if (playbackOnly) return host === 'live.bilibili.com' && /^\/(?:blanc\/)?\d+\/?$/.test(path)
-          || host === 'www.bilibili.com' && /^\/(?:video\/(?:BV[a-z\d]+|av\d+)|bangumi\/play\/(?:ep|ss)\d+)(?:\/|$)/i.test(path)
-          ? u.href : '';
-        if (['t.bilibili.com', 'search.bilibili.com', 'live.bilibili.com'].includes(host)
-          || (host === 'space.bilibili.com' && /^\/\d+(?:\/|$)/.test(path))
-          || (host === 'link.bilibili.com' && path.includes('/user-center/follow'))) return u.href;
-        if (host !== 'www.bilibili.com') return '';
-        return path === '/' || /^\/v\/popular\/(?:all|weekly|history|rank)(?:\/|$)/.test(path)
-          || /^\/(?:watchlater|history)(?:\/|$)/.test(path)
-          || path.includes('/medialist/detail/ml')
-          || /^\/audio\/(?:am|au)\d+(?:\/|$)/i.test(path)
-          || /^\/bangumi\/(?:media\/md|play\/(?:ep|ss))\d+(?:\/|$)/i.test(path)
-          || /^\/video\/(?:BV[a-z\d]+|av\d+)(?:\/|$)/i.test(path) ? u.href : '';
-      } catch { return ''; }
+    function prepareLink(url) {
+      if (!/^https?:\/\/b23\.tv\/[a-z\d]+\/?(?:[?#].*)?$/i.test(url) || shortLinks.has(url)) return;
+      // 简介和评论共用解析与缓存；禁用框架脚本，避免目标页自动播放。
+      const iframe = document.createElement('iframe');
+      let finish;
+      const entry = { url: '', promise:new Promise(resolve => { finish = resolve; }), cancel() {} };
+      shortLinks.set(url, entry);
+      iframe.hidden = true;
+      iframe.setAttribute('sandbox', 'allow-same-origin');
+      const timeout = setTimeout(() => entry.cancel(), 8000);
+      entry.cancel = () => {
+        clearTimeout(timeout);
+        iframe.onload = null;
+        iframe.remove();
+        entry.cancel = () => {};
+        finish(entry.url);
+      };
+      iframe.onload = () => {
+        try {
+          const resolved = urlOf(iframe.contentDocument?.URL)?.href;
+          if (resolved && !isShortUrl(resolved)) entry.url = resolved;
+        } catch { /* 非同源目标保留原链接。 */ }
+        entry.cancel();
+      };
+      iframe.src = url;
+      document.body.append(iframe);
     }
 
     function send(url) {
-      if (click?.sent === url) return true;
       try {
         webview.postMessage({ type: 'potPlayer.video-click', url });
-        if (click) click.sent = url;
         return true;
       } catch { return false; }
     }
 
+    function dispatch(url, state) {
+      if (destroyed || !pageType() || state.route !== location.href) return;
+      if (state.sent.has(url)) return;
+      state.sent.add(url);
+      if (state.middle) { external(url); return; }
+      // 简介、评论和标签只播放 PlayitemParse 支持的单项媒体；其他页面先确认外部打开。
+      if (!isPlayitemUrl(url) || !send(url)) mediaMenu.confirmExternal(url);
+    }
+
+    function handle(value, state) {
+      const url = urlOf(value)?.href;
+      if (!url) return false;
+      if (!isShortUrl(url)) dispatch(url, state);
+      else if (!state.pending.has(url)) {
+        state.pending.add(url);
+        resolveMenuUrl(url).then(resolved => dispatch(resolved || url, state));
+      }
+      return true;
+    }
+
     function onClick(event) {
-      clearTimeout(timer);
-      click = null;
+      clearClick();
       if (!pageType() || !event.isTrusted || ![0, 1].includes(event.button)) return;
       const path = event.composedPath();
-      // 事件路径可读取开放 Shadow DOM 内的链接，不局限于 retarget 后的 target。
-      const anchor = path.find(node => node.matches?.('a[href]'));
-      const inScope = path.some(node => node.matches?.(clickScope));
-      // 评论和简介只接管明确带 href 的播放链接，不启用 window.open 后备处理。
-      if (!inScope && !path.some(node => node.matches?.(playbackScope))) return;
-      const url = supportedUrl(anchor?.getAttribute('href'), !inScope);
-      if (url) {
-        if (send(url)) {
-          event.preventDefault();
-          event.stopImmediatePropagation();
+      if (path.some(node => node.matches?.('[data-type="seek"]')) && path.some(node => node.matches?.(playbackScope))) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const target = seekTarget(path);
+        if (target) {
+          if (event.button === 1) external(target.preciseUrl);
+          else menuPlay(target);
         }
         return;
       }
+      // 事件路径可读取开放 Shadow DOM 内的链接，不局限于 retarget 后的 target。
+      const anchor = path.find(node => node.matches?.('a[href]'));
+      const inScope = path.some(node => node.matches?.(clickScope));
+      if (!inScope && !path.some(node => node.matches?.(playbackScope))) return;
+      if (anchor?.hasAttribute('download') || avatarNavigation.isLink(anchor)) return;
+      const href = anchor?.getAttribute('href');
+      if (href?.trim().startsWith('#')) return;
+      const state = {sent:new Set(), pending:new Set(), middle:event.button === 1, route:location.href};
+      if (urlOf(href)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        handle(href, state);
+        return;
+      }
       // 无 href 时保留官方处理器，由其 window.open 提供实际目标地址。
-      if (inScope) {
-        click = { sent: '' };
+      if (inScope || anchor) {
+        click = state;
         timer = setTimeout(() => { click = null; }, 0);
       }
     }
 
     function open(...args) {
-      const url = click && pageType() && supportedUrl(args[0]);
-      if (url && send(url)) return null;
+      if (click && pageType() && handle(args[0], click)) return null;
       return Reflect.apply(originalOpen, this, args);
     }
 
     window.open = open;
+    listen('mousedown', event => {
+      if (!pageType() || !event.isTrusted || event.button !== 1 || !seekTarget(event.composedPath())) return;
+      // 官方时间节点没有 href；可滚动页面上的中键默认会启动自动滚屏，吞掉 auxclick。
+      // 先取消该默认动作，再由 auxclick 统一执行一次精准外部打开。
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }, { capture: true, passive: false });
     listen('click auxclick', onClick, { capture: true, passive: false });
-    return { prepare, destroy() {
-      clearTimeout(timer);
-      click = null;
+    return { prepare, close:mediaMenu.close, destroy() {
+      destroyed = true;
+      mediaMenu.destroy();
+      clearClick();
       for (const entry of shortLinks.values()) entry.cancel();
       shortLinks.clear();
       if (window.open === open) window.open = originalOpen;
@@ -389,7 +818,7 @@
       display: flex !important; align-items: center; flex-wrap: wrap !important;
       height: auto !important; min-height: 40px; padding: 12px 0 !important; gap: 6px 12px;
     }
-    ${ugc} .video-toolbar-left {
+    ${ugc} :is(.video-toolbar-left, .video-toolbar-left-main) {
       display: flex !important; align-items: center; flex: 1 1 auto !important;
       width: auto !important; max-width: 100% !important; margin: 0 !important;
       min-width: 0 !important; height: auto !important; min-height: 0 !important;
@@ -402,7 +831,30 @@
       max-width: 100% !important; min-height: 0 !important;
       margin-left: auto !important; flex-wrap: wrap !important; gap: 6px 8px;
     }
-    ${ugc} :is(.video-toolbar-left, .video-toolbar-right) > * { flex: 0 0 auto !important; margin-right: 0 !important; }
+    ${ugc} :is(.video-toolbar-left, .video-toolbar-left-main, .video-toolbar-right) > * { flex: 0 0 auto !important; margin-right: 0 !important; }
+
+    /* 整张分享卡片等比缩小，独立 scale / translate 保留官方 Popper 的 transform 定位。 */
+    ${ugc} .video-share-popover {
+      width: max-content !important; max-width: none !important;
+      transform-origin: top left !important;
+      scale: var(--bilibili-video-comments-share-scale, 1) !important;
+      translate: var(--bilibili-video-comments-share-shift, 0px) 0 !important;
+    }
+
+    /* 举报保持原字号；弹窗和同源 iframe 一起适配可用宽高。 */
+    ${scope} .bili-dialog-bomb:has(> .appeal-box) {
+      width: min(600px, calc(100% - 16px)) !important;
+      min-width: 0 !important; margin: 0 !important;
+    }
+    ${scope} .appeal-box:has(> iframe[name="appeal"]) {
+      width: 100% !important;
+      height: min(560px, calc(100vh - 16px)) !important;
+      height: min(560px, calc(100dvh - 16px)) !important;
+      min-width: 0 !important; min-height: 0 !important;
+    }
+    ${scope} .appeal-box > iframe[name="appeal"] {
+      display: block; width: 100% !important; height: 100% !important; border: 0;
+    }
 
     /* 音乐挂载节点关闭时为空；只给实际打开的官方面板设置窗口尺寸。 */
     ${ugc} #bgm-entry:empty { display: none !important; }
@@ -547,6 +999,55 @@
     }
   `;
 
+  // 举报表单在同源 iframe 中；用实际列宽重排选项，不缩放文字或控件。
+  const appealCSS = `
+    html, body { width: 100%; height: 100%; min-width: 0 !important; margin: 0; overflow: hidden; }
+    .web-app {
+      display: flex !important; flex-direction: column;
+      width: 100% !important; height: 100% !important; min-width: 0; min-height: 0;
+      padding: 0 !important; box-sizing: border-box;
+      --header-height: 48px !important;
+    }
+    .web-app > .header {
+      position: relative !important; flex: 0 0 48px; height: 48px !important;
+      width: 100% !important; padding: 0 clamp(12px, 3vw, 24px) !important; box-sizing: border-box;
+    }
+    .web-app > .body {
+      flex: 1 1 auto; width: 100% !important; height: auto !important; min-height: 0;
+      padding: 0 clamp(12px, 3vw, 24px) 12px !important; box-sizing: border-box;
+      overflow: auto !important; overscroll-behavior: contain; scrollbar-width: thin;
+    }
+    .web-tags-section .tags-area {
+      display: grid !important;
+      grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr));
+      gap: 4px 12px; margin-top: 8px !important;
+    }
+    .tags-area > .web-tag {
+      width: auto !important; height: auto !important; min-width: 0;
+      margin: 0 !important; padding: 8px 0 !important; align-items: flex-start;
+    }
+    .web-tag .text-info { min-width: 0; }
+    .web-tag :is(.name, .extra) {
+      white-space: normal !important; overflow-wrap: anywhere;
+      overflow: visible !important; text-overflow: clip !important;
+    }
+    .tags-area > .tools { grid-column: 1 / -1; width: 100% !important; min-width: 0; box-sizing: border-box; }
+    .tools :is(.tool-item, .web-textarea, .web-image-uploader) { min-width: 0; max-width: 100%; box-sizing: border-box; }
+    .tools .tool-item { margin-top: 12px !important; }
+    .tools textarea { width: 100% !important; min-width: 0; box-sizing: border-box; }
+    .discipline-tips { padding: 12px 0 !important; }
+    .discipline-tips .link { white-space: normal; overflow-wrap: anywhere; }
+    .web-app > .footer {
+      position: static !important; flex: 0 0 auto; width: 100% !important; height: auto !important;
+      display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px;
+      padding: 12px clamp(12px, 3vw, 24px) !important; box-sizing: border-box;
+    }
+    .footer .extra-actions { min-width: 0; flex: 1 1 160px; }
+    .footer .extra-actions:empty { display: none; }
+    .footer .operations { display: flex; flex: 0 0 auto; margin-left: auto; gap: 12px; }
+    .footer .operation-btn { width: clamp(76px, 17vw, 100px) !important; margin: 0 !important; }
+  `;
+
   // 仅补足公共 CSS 变量无法覆盖的窄屏规则；不强制展开官方隐藏节点。
   const commentInset = 'var(--bilibili-video-comments-content-inset)';
   const shadowCSS = {
@@ -562,7 +1063,25 @@
     'bili-comment-thread-renderer': `#div { margin-left: ${commentInset} !important; }`,
     'bili-comment-replies-renderer': `#expander { padding-left: ${commentInset} !important; }`,
     'bili-comments-header-renderer': `
+      #vote { min-width: 0; max-width: 100%; }
       #disabled-commentbox #user-avatar { justify-content: flex-start !important; width: ${commentInset} !important; }
+    `,
+    'bili-comments-vote-card': `
+      :host { display: block !important; min-width: 0 !important; max-width: 100% !important; }
+      /* 与评论头部一起适配；宽度不足时信息和选项换行，不裁切投票内容。 */
+      #card { height: auto !important; min-height: 80px; flex-wrap: wrap !important; gap: 12px 16px; }
+      #info { flex: 1 1 160px !important; min-width: 0 !important; }
+      #title span, .option-info { min-width: 0 !important; overflow-wrap: anywhere; }
+      #desc { flex-wrap: wrap !important; }
+      #duel {
+        flex: 1 1 260px !important; width: auto !important; min-width: 0 !important;
+        margin-left: 0 !important; height: auto !important; min-height: 40px;
+      }
+      #duel .option {
+        box-sizing: border-box !important; min-width: 0 !important;
+        height: auto !important; min-height: 40px; flex-shrink: 1 !important;
+        /* 保留官方 --option-width，投票后的结果比例仍由组件控制。 */
+      }
     `,
     'bili-comment-action-buttons-renderer': `
       :host { flex-wrap: wrap !important; gap: 2px 12px; }
@@ -633,6 +1152,62 @@
   let resizeFrame = 0;
   let responsiveRoute = '';
   const responsiveTargets = new Map();
+  const appealFrames = new Map();
+  function syncAppealFrames(type) {
+    const frames = new Set(type ? document.querySelectorAll('.appeal-box > iframe[name="appeal"]') : []);
+    for (const [iframe, state] of appealFrames) {
+      if (frames.has(iframe)) continue;
+      iframe.removeEventListener('load', state.load);
+      state.style?.remove();
+      appealFrames.delete(iframe);
+    }
+    for (const iframe of frames) {
+      if (!appealFrames.has(iframe)) {
+        const state = { style: null, load() {
+          let doc;
+          try { doc = iframe.contentDocument; } catch { return; }
+          if (!doc?.head) return;
+          if (state.style?.ownerDocument !== doc) {
+            state.style?.remove();
+            state.style = addStyle(doc.head, appealCSS);
+          } else if (!state.style.isConnected) doc.head.append(state.style);
+        } };
+        appealFrames.set(iframe, state);
+        iframe.addEventListener('load', state.load);
+      }
+      appealFrames.get(iframe).load();
+    }
+  }
+  const sharePanels = new Map();
+  const shareProperties = ['--bilibili-video-comments-share-scale', '--bilibili-video-comments-share-shift'];
+  function syncSharePanels(type) {
+    const panels = new Set(type === 'ugc' ? document.querySelectorAll('.video-share-popover') : []);
+    for (const [panel, values] of sharePanels) {
+      if (panels.has(panel)) continue;
+      values.forEach(([value, priority], i) => {
+        if (value) panel.style.setProperty(shareProperties[i], value, priority);
+        else panel.style.removeProperty(shareProperties[i]);
+      });
+      sharePanels.delete(panel);
+    }
+    for (const panel of panels) {
+      if (!sharePanels.has(panel)) sharePanels.set(panel, shareProperties.map(key =>
+        [panel.style.getPropertyValue(key), panel.style.getPropertyPriority(key)]));
+      // 官方显隐和 Popper 定位变化后再适配；重复写入相同值会引发无效的观察回调。
+      observer.observe(panel, { attributes: true, attributeFilter: ['style', 'class'] });
+      const width = parseFloat(getComputedStyle(panel).width);
+      if (!panel.getClientRects().length || !width) continue;
+      const available = Math.max(1, html.clientWidth - 16);
+      const scale = String(Math.min(1, available / width));
+      if (panel.style.getPropertyValue(shareProperties[0]) !== scale)
+        panel.style.setProperty(shareProperties[0], scale);
+      const rect = panel.getBoundingClientRect();
+      const shift = parseFloat(panel.style.getPropertyValue(shareProperties[1])) || 0;
+      const left = Math.max(8, Math.min(rect.left - shift, html.clientWidth - rect.width - 8));
+      if (Math.abs(left - rect.left) > 0.1)
+        panel.style.setProperty(shareProperties[1], `${shift + left - rect.left}px`);
+    }
+  }
   let shortcutPlayer = null;
   let restorePlayerShortcuts = () => {};
   function syncPlayerShortcuts(type) {
@@ -775,6 +1350,7 @@
     frame = 0;
     if (stopped) return;
     const type = pageType();
+    if (!type) potPlayerClick.close();
     syncPlayerShortcuts(type);
     if (type && !restoreMediaShortcuts) restoreMediaShortcuts = disableMediaShortcuts();
     else if (!type && restoreMediaShortcuts) {
@@ -793,6 +1369,8 @@
       for (const root of roots.keys()) observe(root);
     }
     if (type) visit(document);
+    syncAppealFrames(type);
+    syncSharePanels(type);
     syncResponsiveLayout(type);
   }
   observe(html);
@@ -813,6 +1391,8 @@
       sizeObserver.disconnect();
       responsiveTargets.clear();
       observer.disconnect();
+      syncAppealFrames('');
+      syncSharePanels('');
       for (const dispose of disposers) dispose();
       html.removeAttribute(panelAttr);
       for (const root of roots.keys()) removeRoot(root);
