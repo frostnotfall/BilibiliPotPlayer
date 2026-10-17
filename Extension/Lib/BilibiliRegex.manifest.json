@@ -13,9 +13,9 @@
   "artifacts": [
     {
       "path": "Extension/Lib/BilibiliRegex.dll",
+      "architecture": "x64",
       "bytes": 256512,
-      "sha256": "054ca934091ca058be4f4533d2248bf3f8d80553af22a27933e3e003bc511a03",
-      "architecture": "x64"
+      "sha256": "b00aa76c51375321e9637ddcb7ad9291b9cbd6690f1eee332dbaadc5cd625597"
     }
   ]
 }
