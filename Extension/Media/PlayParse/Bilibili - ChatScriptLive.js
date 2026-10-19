@@ -1,8 +1,22 @@
-// 版本：1.1.24
+// 版本：1.1.26
 
 (() => {
   'use strict';
-  if (!/^\/(?:blanc\/)?\d+\/?$/.test(location.pathname)) return;
+  // 与 BroadcastListScript 一样由 WebView2 在文档创建时注入；子框架不安装聊天布局。
+  if (window !== window.top) return;
+  window.__bilibiliLiveChatStartup?.abort();
+  const startup = new AbortController();
+  window.__bilibiliLiveChatStartup = startup;
+  function start() {
+    startup.abort();
+    if (window.__bilibiliLiveChatStartup === startup) delete window.__bilibiliLiveChatStartup;
+    mount();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once:true, signal:startup.signal });
+  else start();
+
+  function mount() {
+  if (location.hostname !== 'live.bilibili.com' || !/^\/(?:blanc\/)?\d+\/?$/.test(location.pathname)) return;
   window.bilibiliLiveChat?.destroy();
 
   // AVATAR_NAVIGATION_START
@@ -28,7 +42,9 @@
     }
     function isLink(link) { return Boolean(control(link) && link.hasAttribute('href') && destination(link.href)); }
     function ignored(url) {
-      return Boolean(active && destination(url.href)) || Array.from(document.querySelectorAll('a[href]'))
+      if (!destination(url.href)) return false;
+      return Boolean(active) || Array.from(document.querySelectorAll(
+        '.header-avatar-wrap a[href],.link-navbar a[href],.mini-header a[href],.international-header a[href],.charity-header a[href]'))
         .some(link => isLink(link) && link.href === url.href);
     }
     function sync() {
@@ -508,7 +524,10 @@
   const dimensions = ['--blc-head-height', '--blc-gift-height', '--blc-pk-scale'];
   const oldDimensions = dimensions.map(name => [root.style.getPropertyValue(name), root.style.getPropertyPriority(name)]);
   let measured = [];
-  const sizes = new ResizeObserver(schedule);
+  const MEASURE = 1, SIDEBARS = 2, POPUPS = 4, DISCOVER = 8, ALL = 15;
+  let dirty = ALL, stopped = false;
+  let popupCandidates = new Set();
+  const sizes = new ResizeObserver(() => schedule(MEASURE | POPUPS));
   const sidebars = new Map();
   function syncSidebars() {
     for (const [el, state] of sidebars) {
@@ -537,6 +556,7 @@
   }
   function measure() {
     let availableHeight = innerHeight;
+    const updates = [];
     ['head-info-vm', 'gift-control-vm'].forEach((id, index) => {
       const el = document.getElementById(id);
       if (measured[index] !== el) {
@@ -548,11 +568,12 @@
       availableHeight -= height ?? (index === 0 ? 60 : 84);
       const value = height == null ? '' : `${height}px`;
       if (value && root.style.getPropertyValue(dimensions[index]) !== value) {
-        root.style.setProperty(dimensions[index], value);
+        updates.push([dimensions[index], value]);
       }
     });
     const scale = String(Math.max(0, Math.min(1, root.clientWidth / 700, availableHeight / 410)));
-    if (root.style.getPropertyValue(dimensions[2]) !== scale) root.style.setProperty(dimensions[2], scale);
+    if (root.style.getPropertyValue(dimensions[2]) !== scale) updates.push([dimensions[2], scale]);
+    for (const [name, value] of updates) root.style.setProperty(name, value);
   }
   const translateParts = value => value === 'none' ? ['0px', '0px'] : value.match(/calc\([^)]*\)|\S+/g);
   function pixels(value = '0px', size) {
@@ -627,16 +648,22 @@
   let frame = 0;
   function fitPopups() {
     frame = 0;
-    syncSidebars();
-    measure();
+    if (stopped) return;
+    const work = dirty; dirty = 0;
+    if (work & SIDEBARS) syncSidebars();
+    if (work & MEASURE) measure();
+    if (!(work & POPUPS)) return;
+    if (work & DISCOVER) popupCandidates = new Set(document.querySelectorAll(popups));
     syncControlPopups();
+    const updates = [];
     for (const [el, saved] of shifted) {
       if (!el.isConnected || !el.matches(popups)) {
         restoreTranslate(el, saved);
         shifted.delete(el);
       }
     }
-    for (const el of document.querySelectorAll(popups)) {
+    for (const el of popupCandidates) {
+      if (!el.isConnected || !el.matches(popups)) { popupCandidates.delete(el); continue; }
       if (el.parentElement?.closest(popups)) continue;
       const box = el.getBoundingClientRect(), handle = sidebars.get(el)?.handle.getBoundingClientRect();
       // 侧栏把手在主体左侧；收起后宽度为零，仍按可见把手修正边界。
@@ -661,48 +688,76 @@
       Object.assign(saved, { x, y });
       shifted.set(el, saved);
       const [baseX, baseY = '0px', baseZ = ''] = saved.base;
-      el.style.setProperty('translate', `calc(${baseX} + ${x}px) calc(${baseY} + ${y}px) ${baseZ}`, 'important');
+      updates.push([el, `calc(${baseX} + ${x}px) calc(${baseY} + ${y}px) ${baseZ}`]);
     }
+    for (const [el, value] of updates) el.style.setProperty('translate', value, 'important');
   }
-  function schedule() { if (!frame) frame = requestAnimationFrame(fitPopups); }
+  function schedule(parts = ALL) {
+    if (stopped) return;
+    dirty |= typeof parts === 'number' ? parts : ALL;
+    if (!frame) frame = requestAnimationFrame(fitPopups);
+  }
   function restoreTranslate(el, saved) {
     if (saved.value) el.style.setProperty('translate', saved.value, saved.priority);
     else el.style.removeProperty('translate');
   }
   const animationLayers = '#businessContainerElement .pk-animation-box,#player-effect-vm,#gift-screen-animation-vm,#animation-mask-wrapper';
+  const layoutRoots = '#head-info-vm,#gift-control-vm,.side-bar-cntr';
+  const relevantNodes = `${layoutRoots},${popups}`;
   const observer = new MutationObserver(records => {
-    // 动画帧的 style/class 更新无需重测弹窗；节点增删和弹窗变化仍正常处理。
-    if (records.some(({ type, target }) => type === 'childList' || !target.closest(animationLayers) || target.closest(popups))) schedule();
+    let work = 0;
+    for (const {type, target, addedNodes, removedNodes} of records) {
+      if (target.closest?.('#head-info-vm,#gift-control-vm')) work |= MEASURE | POPUPS;
+      if (target.closest?.('.side-bar-cntr')) work |= SIDEBARS | POPUPS;
+      if (target.closest?.(popups) || target.closest?.('#chat-control-panel-vm')) work |= POPUPS;
+      if (target.matches?.(popups) && !popupCandidates.has(target)) work |= DISCOVER | POPUPS;
+      if (type === 'childList') {
+        for (const node of [...addedNodes, ...removedNodes]) {
+          if (node.nodeType === 1 && (node.matches(relevantNodes) || node.querySelector(relevantNodes))) work |= ALL;
+        }
+      } else if (!target.closest?.(animationLayers) && popupCandidates.size) {
+        // An ancestor can hide or move an existing popup without changing the popup itself.
+        if ([...popupCandidates].some(popup => target.contains(popup))) work |= POPUPS;
+      }
+    }
+    if (work) schedule(work);
   });
   observer.observe(document.body, {
     childList: true, subtree: true, attributes: true,
     attributeFilter: ['style', 'class', 'hidden'],
   });
   window.addEventListener('resize', schedule);
-  window.addEventListener('scroll', schedule, true);
-  document.addEventListener('pointerover', schedule, true);
-  document.addEventListener('pointerout', schedule, true);
-  document.addEventListener('focusin', schedule, true);
+  const schedulePopups = () => schedule(POPUPS);
+  const onPopupPointer = event => {
+    if (event.target.closest?.(`${popups},#chat-control-panel-vm,#head-info-vm,#gift-control-vm`)) schedule(POPUPS);
+  };
+  window.addEventListener('scroll', schedulePopups, true);
+  document.addEventListener('pointerover', onPopupPointer, true);
+  document.addEventListener('pointerout', onPopupPointer, true);
+  document.addEventListener('focusin', onPopupPointer, true);
   syncSidebars();
   measure();
   schedule();
   window.bilibiliLiveChat = {
     get videoState() { return playback.state; },
     destroy() {
+      if (stopped) return;
+      stopped = true;
       avatarNavigation.destroy();
       playback.destroy();
       observer.disconnect();
       sizes.disconnect();
       cancelAnimationFrame(frame);
       window.removeEventListener('resize', schedule);
-      window.removeEventListener('scroll', schedule, true);
-      document.removeEventListener('pointerover', schedule, true);
-      document.removeEventListener('pointerout', schedule, true);
-      document.removeEventListener('focusin', schedule, true);
+      window.removeEventListener('scroll', schedulePopups, true);
+      document.removeEventListener('pointerover', onPopupPointer, true);
+      document.removeEventListener('pointerout', onPopupPointer, true);
+      document.removeEventListener('focusin', onPopupPointer, true);
       for (const [el, saved] of raised) lowerPopup(el, saved);
       for (const [el, saved] of shifted) restoreTranslate(el, saved);
       for (const state of sidebars.values()) state.destroy();
       sidebars.clear();
+      popupCandidates.clear(); shifted.clear(); raised.clear();
       dimensions.forEach((name, i) => {
         if (oldDimensions[i][0]) root.style.setProperty(name, ...oldDimensions[i]);
         else root.style.removeProperty(name);
@@ -715,4 +770,5 @@
   };
   // 让按窗口大小计算位置的原生面板重新测量。
   window.dispatchEvent(new Event('resize'));
+  }
 })();

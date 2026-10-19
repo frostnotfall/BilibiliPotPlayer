@@ -27,7 +27,7 @@
 
 **_注意：由于登录机制的改变，从上游项目迁移过来的同学， 旧的 Cookie、Header、Referer 一定要删除。参考 [wiki](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/常见问题与故障排查#1-播放视频时一直转圈右下角画质选项不断跳动)。_**
 
-**_提示：后续Cookie刷新参考 [突然出现账号未登录](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/常见问题与故障排查#2-突然出现账号未登录)_**
+**_提示：3.7.38 请搭配 [PotPlayer 64 位测试版 26.10.19 或更新版本](https://t1.kakaocdn.net/potplayer/beta/PotPlayerSetup64.exe) 使用，支持 Cookie 自动同步与保存。登录失效时可在网页登录窗口重新登录。_**
 
 ### 侧边栏网页浏览
 

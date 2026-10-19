@@ -35,6 +35,14 @@ string GetDesc() {
 	return "https://www.bilibili.com";
 }
 
+string GetWebAccountUrl() {
+	return "https://passport.bilibili.com/login";
+}
+
+string GetWebAccountDomain() {
+	return "www.bilibili.com;bilibili.com";
+}
+
 
 void log(string item) {
 	HostPrintUTF8("[" + formatFloat(HostGetTickCount() / 1000.0, "", 3, 3) + "] - " + "PlaybackStatistics - Bilibili - " + item);
@@ -101,6 +109,16 @@ string GetIds() {
 
 string GetBiliJct() {
 	return HostLoadString("BilibiliPotPlayer.BiliJct()");
+}
+
+string GetCookieValue(const string &in cookies, const string &in name) {
+	array<string> fields = cookies.split(";");
+	for (uint i = 0; i < fields.length(); i++) {
+		string field = fields[i].Trim();
+		int equals = field.find("=");
+		if (equals >= 0 && field.substr(0, equals) == name) return field.substr(equals + 1);
+	}
+	return "";
 }
 
 string GetDanmujiServer() {
@@ -243,10 +261,12 @@ void liveHeartBeatThread(any@ param) {
 	JsonValue root;
 	if (!reader.parse(data, root) || !root.isObject()) return;
 
-	string biliJct = root["biliJct"].asString();
 	int id = root["id"].asInt();
+	string biliJct = GetCookieValue(HostGetCookie(), "bili_jct");
+	if (biliJct.empty()) biliJct = GetBiliJct();
+	if (biliJct.empty()) return;
 
-	string url = "https://api.live.bilibili.com/xlive/web-room/v1/index/roomEntryAction?csrf=" + biliJct;
+	string url = "https://api.live.bilibili.com/xlive/web-room/v1/index/roomEntryAction?csrf=" + HostUrlEncode(biliJct);
 	string postData = '{"room_id": ' + formatInt(id) + ',"platform":"pc"}';
 
 	string headers =
@@ -254,13 +274,13 @@ void liveHeartBeatThread(any@ param) {
 		"Referer: https://live.bilibili.com/" + formatInt(id) + "\r\n"
 		"Origin: https://live.bilibili.com\r\n";
 
-	string res = post(url, postData, headers);
+	string res = post(url, postData, headers, false);
 	JsonReader Reader;
 	JsonValue Root;
 	if (!Reader.parse(res, Root) || !Root.isObject()) return;
 
 	if (Root["code"].asInt() != 0) {
-		HostMessageBox("直播心跳上报有误，可能需要更新 bili_jct, code: " + formatInt(Root["code"].asInt()) + ", message: " + Root["message"].asString(), "直播心跳上报有误", 2, 0);
+		HostMessageBox("直播心跳上报有误，请在网页登录窗口刷新登录状态，code: " + formatInt(Root["code"].asInt()) + ", message: " + Root["message"].asString(), "直播心跳上报有误", 2, 0);
 	}
 }
 
@@ -272,13 +292,10 @@ void vodHeartBeat() {
 }
 
 void liveHeartBeat() {
-	string biliJct = GetBiliJct();
-	if (biliJct.isEmpty()) return;
-
 	int id = parseInt(HostGetPlayingFileName());
 	if (id <= 0) return;
 
-	string param = '{"biliJct":"' + biliJct + '","id":' + formatInt(id) + '}';
+	string param = '{"id":' + formatInt(id) + '}';
 
 	HostCreateThread(liveHeartBeatThread, param);
 }
@@ -300,6 +317,7 @@ void PlaybackOpen(const string &in path) {
 
 void PlaybackStart(const string &in path, int) {
 	// log("PlaybackStart()", path);
+	if (HostLoadInteger("BilibiliPotPlayer.HeartBeat()") == 0) return;
 
 	if (path.find("/upgcxcode/") >= 0) vodHeartBeat();
 	if (path.find("/live-bvc/") >= 0) liveHeartBeat();

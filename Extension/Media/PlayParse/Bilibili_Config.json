@@ -76,7 +76,7 @@
     // 空降助手镜像地址
     "sponsorBlockMirror": "",
 
-    // 心跳上报。默认：false。用于同步bilibili历史记录。目前默认只支持点播，直播需要指定 bili_jct。 
+    // 心跳上报。默认：false。用于同步bilibili历史记录。
     "heartBeat" : false,
 
     // 各类页面的视频生成数量。数字越大视频越多，但会增加加载时间，极端情况会因超时而加载失败，以及触发风控，需谨慎设置。
@@ -106,7 +106,9 @@
         // 是否显示番剧/电影预告片。默认：true。
         "showTrailer": true,
         // 点播视频启用网页版评论区，默认：false。观看视频时 potplayer 播放列表侧会展示该视频评论区。
-        "enableVodChatUrl": true
+        "enableVodChatUrl": true,
+        // 查询云端播放进度，默认：false。
+        "queryPlayPosition": false
     },
 
     // 直播
@@ -145,7 +147,7 @@
     // HDR优先。默认：false。跟随官方设定，“8K超高清” 优先级高于 “HDR/杜比视界”。设为 true：“杜比视界/HDR真彩色” 优先级高于“8K超高清”。
     "preferHDR": false,
 
-    // Bilibili CSRF Token，用于直播心跳上报。
+    // Bilibili CSRF Token，用于直播心跳上报。(PotPlayer测试版 26.10.19已不再需要此项配置)。
     // 获取方式：
     // 1. 下载 yt-dlp 2. 关闭 Potplayer 3. 注意 Potplayer 安装路径 4. 随便指定一个视频url
     // .\yt-dlp.exe --skip-download --cookies-from-browser "chrome:D:\Program Files\DAUM\PotPlayer\WebView2\EBWebView" --cookies potplayer-cookies.txt "https://www.bilibili.com/video/BVxxxx"

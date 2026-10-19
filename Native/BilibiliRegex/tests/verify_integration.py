@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+from verify_metadata import metadata_script, verify_chat_scripts
 
 ROOT = Path(__file__).resolve().parents[1]
 REPO = ROOT.parents[1]
@@ -17,6 +18,7 @@ REPO = ROOT.parents[1]
 PREFIX = r'''
 class TestConfig {
     bool debug = true;
+    bool queryPlayPosition = false;
     bool danmakuBlockRepeatedUser = false; bool danmakuMergeSame = false;
     int danmakuFontEffect = 0;
     bool danmakuBlockTop = true, danmakuBlockBottom = false, danmakuBlockColor = false;
@@ -405,6 +407,8 @@ void Run() {
             script = script.replace('    BenchmarkSort();', '    CheckRenderBaseline();\n    BenchmarkSort();')
     output = ROOT / "build/integration"
     output.mkdir(parents=True, exist_ok=True)
+    script += metadata_script(REPO)
+    script = script.replace("void Run() {", "void Run() { CheckMetadata();", 1)
     script_path = output / "playback-extract.as"
     script_path.write_text(script, encoding="utf-8")
     vswhere = Path(os.environ["ProgramFiles(x86)"]) / "Microsoft Visual Studio/Installer/vswhere.exe"
@@ -416,6 +420,7 @@ void Run() {
     sources = [str(sdk / "angelscript/source/*.cpp")] + [str(sdk / "add_on" / x / (x + ".cpp")) for x in
                ["scriptstdstring", "scriptarray", "scriptdictionary", "scriptany"]]
     sources.append(str(ROOT / "tests/integration_runner.cpp"))
+    sources.append(str(sdk / "add_on/scriptstdstring/scriptstdstring_utils.cpp"))
     executable = output / "integration.exe"
     command = ('@echo off\ncall "' + str(Path(install) / "VC/Auxiliary/Build/vcvars64.bat") + '" >nul\n'
                'cl /nologo /MP /EHsc /std:c++17 /O2 /utf-8 /DAS_MAX_PORTABILITY /DAS_USE_STLNAMES=1 ' +
@@ -434,6 +439,7 @@ void Run() {
         print(tested.stderr)
         raise SystemExit(tested.returncode)
     print(f"Actual log cases: {len(entries)}; PotPlayer Host* implementations still need manual verification.")
+    verify_chat_scripts(REPO)
 
 
 if __name__ == "__main__":

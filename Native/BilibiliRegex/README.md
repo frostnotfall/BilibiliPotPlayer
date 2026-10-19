@@ -186,6 +186,11 @@ python .\Native\BilibiliRegex\tests\verify_integration.py --sdk C:\path\to\sdk
 集成测试里的线程启动使用同步模拟；DLL 的真实八线程调用由前述 native_test 覆盖。
 PotPlayer 自身的 `Host*` 实现仍需在播放器内验证。
 
+此命令还通过 `tests/verify_metadata.py` 提取生产脚本的历史标识、起播时间、
+Cookie 字段提取、JS 文件读取及直播心跳控制流程，在同一 AngelScript 运行时中回归。
+Cookie/JSON/HTTP 使用测试替身，Node 检查原聊天 JS 的语法。
+完整范围和 PotPlayer 内的人工验收见仓库 `docs/PotPlayer-1.7.23156.md`。
+
 可加 `--benchmark` 运行 73,250 条短中文文本、11 条均未命中的实际规则的过滤基准。
 同机首轮对比：逐规则调用版本 968 ms、805,750 次匹配调用；规则集版本 593 ms、73,250 次。
 这些结果来自模拟宿主的过滤阶段，不能直接用作 PotPlayer 整个弹幕生成耗时的预测。

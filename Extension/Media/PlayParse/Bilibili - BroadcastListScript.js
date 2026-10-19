@@ -1,4 +1,4 @@
-// bilibili-broadcast-list-script version: 6
+// bilibili-broadcast-list-script version: 2026-10-20 02:00:37
 // 本文件可单独从 https://github.com/frostnotfall/BilibiliBroadcastListScript/releases 手动替换更新。
 // MIT License
 // 
@@ -117,7 +117,7 @@
     {
       id: "Space",
       host: "space.bilibili.com",
-      pathPattern: "^/\\d+(?:/(?:dynamic|upload(?:/(?:video|opus))?|lists|bangumi)|/(?:favlist|fav)(?:/.*)?)?/?$"
+      pathPattern: "^/\\d+(?:/(?:dynamic|upload(?:/(?:video|opus))?|lists(?:/\\d+)?|bangumi)|/(?:favlist|fav)(?:/.*)?)?/?$"
     },
     {
       id: "Search",
@@ -231,59 +231,69 @@
   ];
 
   // src/common/urls.js
+  var scopesByHost = /* @__PURE__ */ new Map();
+  for (const scope of page_scopes_default) {
+    const compiled = {
+      ...scope,
+      paths: new Set(scope.paths),
+      pathPattern: scope.pathPattern && new RegExp(scope.pathPattern),
+      hashPattern: scope.hashPattern && new RegExp(scope.hashPattern)
+    };
+    if (!scopesByHost.has(scope.host)) scopesByHost.set(scope.host, []);
+    scopesByHost.get(scope.host).push(compiled);
+  }
   function urlOf(value, base = location.href) {
     if (typeof value !== "string" || !value.trim()) return null;
     try {
-      const url = new URL(value, base);
-      return ["http:", "https:"].includes(url.protocol) ? url : null;
+      const url2 = new URL(value, base);
+      return ["http:", "https:"].includes(url2.protocol) ? url2 : null;
     } catch {
       return null;
     }
   }
   function pageId(value) {
-    const url = value instanceof URL ? value : urlOf(value);
-    if (!url || !["http:", "https:"].includes(url.protocol)) return null;
-    const path = url.pathname.replace(/\/$/, "") || "/";
-    for (const scope of page_scopes_default) {
-      if (url.hostname !== scope.host) continue;
-      if (scope.protocols && !scope.protocols.includes(url.protocol)) continue;
-      if (scope.hashPattern && !new RegExp(scope.hashPattern).test(url.hash)) continue;
-      if (scope.paths?.includes(path) || scope.pathPattern && new RegExp(scope.pathPattern).test(url.pathname)) return scope.id;
+    const url2 = value instanceof URL ? value : urlOf(value);
+    if (!url2 || !["http:", "https:"].includes(url2.protocol)) return null;
+    const path = url2.pathname.replace(/\/$/, "") || "/";
+    for (const scope of scopesByHost.get(url2.hostname) || []) {
+      if (scope.protocols && !scope.protocols.includes(url2.protocol)) continue;
+      if (scope.hashPattern && !scope.hashPattern.test(url2.hash)) continue;
+      if (scope.paths.has(path) || scope.pathPattern?.test(url2.pathname)) return scope.id;
     }
     return null;
   }
   var isPageUrl = (value) => Boolean(pageId(value));
   function isPlayitemUrl(value) {
-    const url = value instanceof URL ? value : urlOf(value);
-    if (!url || !["http:", "https:"].includes(url.protocol)) return false;
-    const path = url.pathname;
-    if (url.hostname === "live.bilibili.com") return /^\/(?:blanc\/)?\d+\/?$/.test(path);
-    if (url.hostname !== "www.bilibili.com") return false;
+    const url2 = value instanceof URL ? value : urlOf(value);
+    if (!url2 || !["http:", "https:"].includes(url2.protocol)) return false;
+    const path = url2.pathname;
+    if (url2.hostname === "live.bilibili.com") return /^\/(?:blanc\/)?\d+\/?$/.test(path);
+    if (url2.hostname !== "www.bilibili.com") return false;
     return /^\/video\/(?:BV[a-z\d]+|av\d+)\/?$/i.test(path) || /^\/bangumi\/(?:media\/md|play\/(?:ep|ss))\d+\/?$/i.test(path) || /^\/audio\/au\d+\/?$/i.test(path);
   }
   function isMediaUrl(value) {
-    const url = value instanceof URL ? value : urlOf(value);
-    if (!url || !["http:", "https:"].includes(url.protocol)) return false;
-    if (isPlayitemUrl(url)) return true;
-    if (url.hostname !== "www.bilibili.com") return false;
-    const path = url.pathname;
+    const url2 = value instanceof URL ? value : urlOf(value);
+    if (!url2 || !["http:", "https:"].includes(url2.protocol)) return false;
+    if (isPlayitemUrl(url2)) return true;
+    if (url2.hostname !== "www.bilibili.com") return false;
+    const path = url2.pathname;
     return /^\/audio\/am\d+\/?$/i.test(path) || /^\/medialist\/detail\/ml\d+\/?$/i.test(path) || /^\/list\/watchlater\/?$/.test(path) || /^\/list\/\d+\/?$/.test(path);
   }
   var isShortUrl = (value) => urlOf(value)?.hostname === "b23.tv";
   function isPlaylistUrl(value) {
-    const url = value instanceof URL ? value : urlOf(value);
-    if (!url || !["http:", "https:"].includes(url.protocol)) return false;
-    const path = url.pathname;
-    if (["t.bilibili.com", "search.bilibili.com", "live.bilibili.com"].includes(url.hostname)) return true;
-    if (url.hostname === "space.bilibili.com") return /^\/\d+(?:\/|$)/.test(path);
-    if (url.hostname === "link.bilibili.com") return /\/user-center\/follow(?:\/|$)/.test(path + url.hash);
-    if (url.hostname !== "www.bilibili.com") return false;
+    const url2 = value instanceof URL ? value : urlOf(value);
+    if (!url2 || !["http:", "https:"].includes(url2.protocol)) return false;
+    const path = url2.pathname;
+    if (["t.bilibili.com", "search.bilibili.com", "live.bilibili.com"].includes(url2.hostname)) return true;
+    if (url2.hostname === "space.bilibili.com") return /^\/\d+(?:\/|$)/.test(path);
+    if (url2.hostname === "link.bilibili.com") return /\/user-center\/follow(?:\/|$)/.test(path + url2.hash);
+    if (url2.hostname !== "www.bilibili.com") return false;
     return path === "/" || /^\/v\/popular\/(?:all|weekly|history|rank)(?:\/|$)/.test(path) || /^\/list\//.test(path) || /^\/(?:watchlater|history)(?:\/|$)/.test(path) || /^\/medialist\/detail\/ml\d+\/?$/i.test(path) || /^\/audio\/am\d+\/?$/i.test(path) || /^\/bangumi\/(?:media\/md|play\/(?:ep|ss))\d+\/?$/i.test(path) || /^\/video\/(?:BV[a-z\d]+|av\d+)\/?$/i.test(path);
   }
   var isPlayerUrl = (value) => isPlayitemUrl(value) || isPlaylistUrl(value);
   function playerCommandUri(value, command) {
-    const url = urlOf(value);
-    return url && isPlayerUrl(url) && ["new", "insert", "add"].includes(command) ? "potplayer://" + url.href + (command === "new" ? " /new" : " /current /" + command) : "";
+    const url2 = urlOf(value);
+    return url2 && isPlayerUrl(url2) && ["new", "insert", "add"].includes(command) ? "potplayer://" + url2.href + (command === "new" ? " /new" : " /current /" + command) : "";
   }
   function classifyUrl(value) {
     return isShortUrl(value) ? "short" : isMediaUrl(value) ? "media" : isPageUrl(value) ? "page" : "native";
@@ -351,7 +361,7 @@
     }
   }
   function createMediaMenu({ getTarget, openPage, play, openNew, openExternal, addNext, addLast }) {
-    const events = new AbortController();
+    const events2 = new AbortController();
     const media = matchMedia("(prefers-color-scheme: dark)");
     let host = null, previousFocus = null, menuEvents = null, themeObserver = null, stopped = false;
     const scrollPositions = /* @__PURE__ */ new Map();
@@ -396,7 +406,7 @@
       if (restoreFocus && dialogFocus?.isConnected) dialogFocus.focus({ preventScroll: true });
       dialogFocus = null;
     }
-    function confirmExternal(url) {
+    function confirmExternal(url2) {
       if (stopped || !document.body) return false;
       if (dialogHost) return true;
       close(true);
@@ -423,7 +433,7 @@
           event.preventDefault();
           event.stopPropagation();
           closeDialog(true);
-          if (accepted) openExternal({ url });
+          if (accepted) openExternal({ url: url2 });
         }, { signal: dialogEvents.signal });
         actions.append(button);
       }
@@ -448,7 +458,7 @@
       if (target.kind === "native") return [
         { label: "不支持当前页面，从外置浏览器打开", action: openExternal }
       ];
-      const external = { label: "从外部浏览器打开", hint: "(鼠标中键)", icon: "browser", action: openExternal };
+      const external = { label: "从外部浏览器打开", icon: "browser", action: openExternal };
       const copy = { label: "复制链接地址", copy: true };
       if (target.kind === "page") {
         const items = [
@@ -457,7 +467,7 @@
         ];
         if (target.playlist) items.push(
           { label: "播放该页面内视频", icon: "player", action: play },
-          { label: "新开一个进程播放该页面内视频", icon: "player", action: openNew },
+          { label: "新开一个进程播放该页面内视频", hint: "(鼠标中键)", icon: "player", action: openNew },
           null,
           { label: "将该页面内视频添加到默认播放列表（下一个）", icon: "playlist", action: addNext },
           { label: "将该页面内视频添加到默认播放列表（末尾）", icon: "playlist", action: addLast }
@@ -466,7 +476,7 @@
       }
       return [
         { label: "使用当前进程播放", hint: "(鼠标左键)", icon: "player", action: play },
-        { label: "新开一个进程播放", icon: "player", action: openNew },
+        { label: "新开一个进程播放", hint: "(鼠标中键)", icon: "player", action: openNew },
         external,
         null,
         { label: "添加到默认播放列表（下一个）", icon: "playlist", action: addNext },
@@ -572,31 +582,170 @@
       }, { signal: menuEvents.signal });
       buttons[0].focus({ preventScroll: true });
     }
-    document.addEventListener("contextmenu", onContextMenu, { capture: true, signal: events.signal });
+    document.addEventListener("contextmenu", onContextMenu, { capture: true, signal: events2.signal });
     document.addEventListener("pointerdown", (event) => {
       if (host && !event.composedPath().includes(host)) close();
-    }, { capture: true, signal: events.signal });
+    }, { capture: true, signal: events2.signal });
     document.addEventListener("scroll", (event) => {
       if (!host || event.composedPath().includes(host)) return;
       const node = event.target === document ? document.scrollingElement : event.target;
       const position = scrollPositions.get(node);
       if (!position || node.scrollLeft === position[0] && node.scrollTop === position[1]) return;
       close();
-    }, { capture: true, signal: events.signal });
-    window.addEventListener("resize", () => close(), { signal: events.signal });
-    window.addEventListener("blur", () => close(), { signal: events.signal });
-    media.addEventListener("change", syncTheme, { signal: events.signal });
+    }, { capture: true, signal: events2.signal });
+    window.addEventListener("resize", () => close(), { signal: events2.signal });
+    window.addEventListener("blur", () => close(), { signal: events2.signal });
+    media.addEventListener("change", syncTheme, { signal: events2.signal });
     return { confirmExternal, destroy() {
       if (stopped) return;
       stopped = true;
-      events.abort();
+      events2.abort();
       close();
       closeDialog();
     } };
   }
 
   // src/common/version.js
-  var version = "6";
+  var version = "2026-10-20 02:00:37";
+
+  // src/common/resolver-cache.js
+  function createResolverCache(start, { concurrency = 4, maxQueued = 128, capacity = 256, ttl = 3e5, retryDelay = 3e4 } = {}) {
+    const entries = /* @__PURE__ */ new Map(), urgent = /* @__PURE__ */ new Set(), background = /* @__PURE__ */ new Set();
+    let stopped = false, running = 0, pumping = false;
+    function touch(url2, entry) {
+      entries.delete(url2);
+      entries.set(url2, entry);
+    }
+    function trim() {
+      const now = Date.now();
+      for (const [url2, entry] of entries) if (entry.state === "done" && (entry.expires <= now || entries.size > capacity)) entries.delete(url2);
+    }
+    function pump() {
+      if (stopped || pumping) return;
+      pumping = true;
+      try {
+        while (running < concurrency) {
+          const entry = urgent.values().next().value || running < Math.max(1, concurrency - 1) && background.values().next().value;
+          if (!entry) break;
+          urgent.delete(entry);
+          background.delete(entry);
+          entry.state = "running";
+          running++;
+          try {
+            const cancel = start(entry.key, entry.finish);
+            if (entry.state === "running") entry.cancel = cancel;
+          } catch {
+            entry.finish("");
+          }
+        }
+      } finally {
+        pumping = false;
+      }
+    }
+    function resolve(url2, priority = true) {
+      if (stopped) return Promise.resolve("");
+      trim();
+      let entry = entries.get(url2);
+      if (priority && entry?.state === "done" && !entry.value) {
+        entries.delete(url2);
+        entry = null;
+      }
+      if (entry) {
+        touch(url2, entry);
+        if (priority && entry.state === "queued") {
+          background.delete(entry);
+          urgent.add(entry);
+          pump();
+        }
+        return entry.promise;
+      }
+      if (!priority && background.size >= maxQueued) return Promise.resolve("");
+      let settle;
+      entry = { key: url2, state: "queued", value: "", cancel: null, promise: new Promise((resolve2) => {
+        settle = resolve2;
+      }) };
+      entry.finish = (value) => {
+        if (entry.state === "done") return;
+        if (entry.state === "running") running--;
+        urgent.delete(entry);
+        background.delete(entry);
+        entry.state = "done";
+        entry.value = value || "";
+        entry.cancel = null;
+        entry.expires = Date.now() + (entry.value ? ttl : retryDelay);
+        touch(url2, entry);
+        settle(entry.value);
+        trim();
+        pump();
+      };
+      entries.set(url2, entry);
+      (priority ? urgent : background).add(entry);
+      pump();
+      return entry.promise;
+    }
+    return {
+      resolve,
+      prefetch: (url2) => resolve(url2, false),
+      peek(url2) {
+        const entry = entries.get(url2);
+        if (!entry || entry.state !== "done") return "";
+        if (entry.expires <= Date.now()) {
+          entries.delete(url2);
+          return "";
+        }
+        touch(url2, entry);
+        return entry.value;
+      },
+      destroy() {
+        stopped = true;
+        for (const entry of [...entries.values()]) {
+          entry.cancel?.();
+          entry.finish("");
+        }
+        urgent.clear();
+        background.clear();
+        entries.clear();
+      }
+    };
+  }
+
+  // src/common/page-state.js
+  var listeners = /* @__PURE__ */ new Set();
+  var events = null;
+  var timer = 0;
+  var url = "";
+  var bridge = null;
+  function syncPageState() {
+    if (!listeners.size) return;
+    const nextUrl = location.href, nextBridge = window.__potPlayerBilibiliClick;
+    if (nextUrl === url && nextBridge === bridge) return;
+    const change = { routeChanged: nextUrl !== url, bridgeChanged: nextBridge !== bridge };
+    url = nextUrl;
+    bridge = nextBridge;
+    for (const listener of [...listeners]) if (listeners.has(listener)) listener(change);
+  }
+  function watchPageState(listener, signal) {
+    if (signal.aborted) return;
+    if (!listeners.size) {
+      url = location.href;
+      bridge = window.__potPlayerBilibiliClick;
+      events = new AbortController();
+      for (const type of ["popstate", "hashchange", "pageshow"]) window.addEventListener(type, syncPageState, { signal: events.signal });
+      timer = setInterval(syncPageState, 1e3);
+    }
+    listeners.add(listener);
+    signal.addEventListener("abort", () => {
+      listeners.delete(listener);
+      if (!listeners.size) {
+        clearInterval(timer);
+        timer = 0;
+        events.abort();
+        events = null;
+        bridge = null;
+        url = "";
+      }
+    }, { once: true });
+  }
 
   // src/common/opening.js
   var resultType = "potPlayer.short-link.result";
@@ -611,10 +760,11 @@
   function createPageOpening({ beforeMedia = () => {
   }, ignoreClick = () => false, resolveLink = () => null, timeout = 8e3 } = {}) {
     const originalOpen = window.open;
-    const events = new AbortController();
-    const shortLinks = /* @__PURE__ */ new Map(), ignored = /* @__PURE__ */ new Set(), observers = /* @__PURE__ */ new Map();
+    const events2 = new AbortController();
+    const ignored = /* @__PURE__ */ new Set(), observers = /* @__PURE__ */ new Map();
+    const shortLinks = createResolverCache(startShortLink);
     const pendingNodes = /* @__PURE__ */ new Set(), watchedTags = /* @__PURE__ */ new Set();
-    let stopped = false, click = null, timer = 0, frame = 0;
+    let stopped = false, click = null, timer2 = 0, frame = 0;
     const normalized = (value) => urlOf(value)?.href || "";
     function isIgnored(value, probe = false, explicit = false) {
       for (const rule of ignored) {
@@ -627,60 +777,56 @@
       return false;
     }
     function resolveUrl(value) {
-      const url = normalized(value);
-      if (!url || !isShortUrl(url)) return Promise.resolve(url);
-      if (shortLinks.has(url)) return shortLinks.get(url).promise;
-      const entry = { url: "", promise: null, cancel() {
-      } };
-      shortLinks.set(url, entry);
-      entry.promise = new Promise((resolve) => {
-        if (stopped || !document.documentElement) {
-          shortLinks.delete(url);
-          resolve("");
-          return;
+      const url2 = normalized(value);
+      return url2 && isShortUrl(url2) ? shortLinks.resolve(url2) : Promise.resolve(url2);
+    }
+    function startShortLink(url2, complete) {
+      if (stopped || !document.documentElement) {
+        complete("");
+        return;
+      }
+      const iframe = document.createElement("iframe");
+      const token = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+      iframe.hidden = true;
+      iframe.name = resolverName + token;
+      iframe.setAttribute("sandbox", "allow-same-origin");
+      iframe.setAttribute("referrerpolicy", "no-referrer");
+      let finished = false;
+      function finish(value) {
+        if (finished) return;
+        const finalUrl = normalized(value);
+        if (finalUrl && isShortUrl(finalUrl)) return;
+        finished = true;
+        clearTimeout(expiry);
+        window.removeEventListener("message", onMessage);
+        iframe.onload = iframe.onerror = null;
+        iframe.remove();
+        complete(finalUrl);
+      }
+      function onMessage(event) {
+        if (!event.isTrusted || event.source !== iframe.contentWindow) return;
+        const data = event.data;
+        if (data?.type !== resultType || data.token !== token) return;
+        const target = normalized(data.url);
+        if (target && new URL(target).origin === event.origin) finish(target);
+      }
+      const expiry = setTimeout(() => finish(""), timeout);
+      window.addEventListener("message", onMessage);
+      iframe.onload = () => {
+        try {
+          const target = iframe.contentDocument?.URL;
+          if (target) finish(target);
+        } catch {
         }
-        const iframe = document.createElement("iframe");
-        const token = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
-        iframe.hidden = true;
-        iframe.name = resolverName + token;
-        iframe.setAttribute("sandbox", "allow-same-origin");
-        iframe.setAttribute("referrerpolicy", "no-referrer");
-        let finished = false;
-        function finish(value2) {
-          if (finished) return;
-          const finalUrl = normalized(value2);
-          if (finalUrl && isShortUrl(finalUrl)) return;
-          finished = true;
-          clearTimeout(expiry);
-          window.removeEventListener("message", onMessage);
-          iframe.onload = iframe.onerror = null;
-          iframe.remove();
-          entry.url = finalUrl;
-          if (!finalUrl) shortLinks.delete(url);
-          resolve(finalUrl);
-        }
-        function onMessage(event) {
-          if (!event.isTrusted || event.source !== iframe.contentWindow) return;
-          const data = event.data;
-          if (data?.type !== resultType || data.token !== token) return;
-          const target = normalized(data.url);
-          if (target && new URL(target).origin === event.origin) finish(target);
-        }
-        const expiry = setTimeout(() => finish(""), timeout);
-        entry.cancel = () => finish("");
-        window.addEventListener("message", onMessage);
-        iframe.onload = () => {
-          try {
-            const target = iframe.contentDocument?.URL;
-            if (target) finish(target);
-          } catch {
-          }
-        };
-        iframe.onerror = () => finish("");
-        iframe.src = url;
+      };
+      iframe.onerror = () => finish("");
+      try {
+        iframe.src = url2;
         (document.body || document.documentElement).append(iframe);
-      });
-      return entry.promise;
+      } catch {
+        finish("");
+      }
+      return () => finish("");
     }
     function send(value, state, { playlist = false, explicit = false } = {}) {
       if (stopped || !(playlist ? isPlayerUrl(value) : isMediaUrl(value))) return false;
@@ -718,21 +864,21 @@
       return false;
     }
     function handle(value, state, fallback) {
-      const url = normalized(value);
-      if (!url || stopped) return false;
-      if (!isShortUrl(url)) return dispatch(url, state);
-      const cached = shortLinks.get(url);
-      if (cached?.url) return dispatch(cached.url, state);
-      if (state.pending.has(url)) return true;
-      state.pending.add(url);
-      resolveUrl(url).then((realUrl) => {
+      const url2 = normalized(value);
+      if (!url2 || stopped) return false;
+      if (!isShortUrl(url2)) return dispatch(url2, state);
+      const cached = shortLinks.peek(url2);
+      if (cached) return dispatch(cached, state);
+      if (state.pending.has(url2)) return true;
+      state.pending.add(url2);
+      resolveUrl(url2).then((realUrl) => {
         if (!stopped && (!realUrl || !dispatch(realUrl, state))) fallback();
       });
       return true;
     }
     function clearClick() {
-      clearTimeout(timer);
-      timer = 0;
+      clearTimeout(timer2);
+      timer2 = 0;
       click = null;
     }
     function linkTarget(event) {
@@ -742,12 +888,12 @@
       const resolved = anchor ? null : resolveLink(event);
       const owner = anchor || resolved?.anchor;
       if (!owner || owner.hasAttribute("download")) return null;
-      const url = normalized(anchor ? anchor.getAttribute("href") : resolved.url);
-      if (!url) return null;
+      const url2 = normalized(anchor ? anchor.getAttribute("href") : resolved.url);
+      if (!url2) return null;
       const target = owner.getAttribute("target") || document.querySelector("base[target]")?.getAttribute("target") || "_self";
-      return { anchor: owner, url, fallback: () => target === "_self" ? location.assign(url) : Reflect.apply(originalOpen, window, [url, target]) };
+      return { anchor: owner, url: url2, fallback: () => target === "_self" ? location.assign(url2) : Reflect.apply(originalOpen, window, [url2, target]) };
     }
-    function playerCommand({ url, fallback }, command, target, playback = false) {
+    function playerCommand({ url: url2, fallback }, command, target, playback = false) {
       clearClick();
       function launch(value) {
         const uri = playerCommandUri(value, command);
@@ -760,36 +906,36 @@
           return false;
         }
       }
-      const cached = shortLinks.get(url)?.url;
-      if (isShortUrl(url) && !cached) resolveUrl(url).then((value) => {
+      const cached = shortLinks.peek(url2);
+      if (isShortUrl(url2) && !cached) resolveUrl(url2).then((value) => {
         if (!stopped && !launch(value)) fallback();
       });
-      else if (!launch(cached || url)) fallback();
+      else if (!launch(cached || url2)) fallback();
     }
     const mediaMenu = createMediaMenu({
       getTarget(event) {
         if (typeof window.chrome?.webview?.postMessage !== "function") return null;
         const target = linkTarget(event);
         if (!target || isIgnored(target.url, true, true)) return null;
-        const resolved = shortLinks.get(target.url)?.url || target.url;
+        const resolved = shortLinks.peek(target.url) || target.url;
         if (isIgnored(resolved, true, true)) return null;
         const kind = isPlayitemUrl(resolved) || isShortUrl(resolved) ? "media" : isPageUrl(resolved) ? "page" : "native";
         return { ...target, kind, playlist: isPlaylistUrl(resolved) };
       },
-      openPage({ url, fallback }) {
+      openPage({ url: url2, fallback }) {
         clearClick();
-        if (!handle(url, { sent: /* @__PURE__ */ new Set(), pending: /* @__PURE__ */ new Set() }, fallback)) fallback();
+        if (!handle(url2, { sent: /* @__PURE__ */ new Set(), pending: /* @__PURE__ */ new Set() }, fallback)) fallback();
       },
-      play({ url, fallback }) {
+      play({ url: url2, fallback }) {
         clearClick();
-        if (!handle(url, { sent: /* @__PURE__ */ new Set(), pending: /* @__PURE__ */ new Set(), explicit: true }, fallback)) fallback();
+        if (!handle(url2, { sent: /* @__PURE__ */ new Set(), pending: /* @__PURE__ */ new Set(), explicit: true }, fallback)) fallback();
       },
       openNew: (target) => playerCommand(target, "new", "_blank", true),
       addNext: (target) => playerCommand(target, "insert", "_blank"),
       addLast: (target) => playerCommand(target, "add", "_blank"),
-      openExternal({ url }) {
+      openExternal({ url: url2 }) {
         clearClick();
-        Reflect.apply(originalOpen, window, [url, "_blank", "noopener"]);
+        Reflect.apply(originalOpen, window, [url2, "_blank", "noopener"]);
       }
     });
     function onClick(event) {
@@ -798,18 +944,18 @@
       if (ignoreClick(event)) return;
       const state = { sent: /* @__PURE__ */ new Set(), pending: /* @__PURE__ */ new Set() };
       click = state;
-      timer = setTimeout(clearClick, 0);
+      timer2 = setTimeout(clearClick, 0);
       const anchor = event.composedPath().find((node) => node.matches?.("a[href]")) || event.target?.closest?.("a[href]");
       state.nativeMedia = !anchor;
       if (!anchor || anchor.hasAttribute("download")) {
         if (anchor) clearClick();
         return;
       }
-      const url = normalized(anchor.getAttribute("href"));
-      if (!url) return;
+      const url2 = normalized(anchor.getAttribute("href"));
+      if (!url2) return;
       const target = anchor.getAttribute("target") || document.querySelector("base[target]")?.getAttribute("target") || "_self";
-      const fallback = () => target === "_self" ? location.assign(url) : Reflect.apply(originalOpen, window, [url, target]);
-      if (!handle(url, state, fallback)) return;
+      const fallback = () => target === "_self" ? location.assign(url2) : Reflect.apply(originalOpen, window, [url2, target]);
+      if (!handle(url2, state, fallback)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
     }
@@ -822,8 +968,15 @@
       if (typeof window.chrome?.webview?.postMessage !== "function") return;
       const target = linkTarget(event);
       if (!target) return;
-      const resolved = shortLinks.get(target.url)?.url || target.url;
-      if (!isPageUrl(resolved) || isPlayitemUrl(resolved) || isIgnored(resolved, true, true)) return;
+      const resolved = shortLinks.peek(target.url) || target.url;
+      if (isIgnored(target.url, true, true) || isIgnored(resolved, true, true)) return;
+      if (isPlayerUrl(resolved) || isShortUrl(resolved)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        playerCommand({ ...target, fallback: () => Reflect.apply(originalOpen, window, [target.url, "_blank", "noopener"]) }, "new", "_blank", true);
+        return;
+      }
+      if (!isPageUrl(resolved)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       clearClick();
@@ -831,8 +984,11 @@
     }
     function scan(node) {
       if (stopped || !node.querySelectorAll) return;
-      if (node.matches?.("a[href]") && isShortUrl(node.getAttribute("href"))) resolveUrl(node.getAttribute("href"));
-      for (const link of node.querySelectorAll('a[href*="b23.tv" i]')) resolveUrl(link.getAttribute("href"));
+      if (node.matches?.("a[href]") && isShortUrl(node.getAttribute("href"))) shortLinks.prefetch(normalized(node.getAttribute("href")));
+      for (const link of node.querySelectorAll('a[href*="b23.tv" i]')) {
+        const url2 = normalized(link.getAttribute("href"));
+        if (isShortUrl(url2)) shortLinks.prefetch(url2);
+      }
       for (const element of [node, ...node.querySelectorAll("*")]) {
         if (element.shadowRoot) {
           observe(element.shadowRoot);
@@ -870,6 +1026,11 @@
     }
     function schedule(node = document) {
       if (stopped) return;
+      if (!node.querySelectorAll) return;
+      for (const pending of pendingNodes) {
+        if (pending === node || pending.contains(node)) return;
+        if (node.contains(pending)) pendingNodes.delete(pending);
+      }
       pendingNodes.add(node);
       if (!frame) frame = requestAnimationFrame(prepare);
     }
@@ -882,7 +1043,7 @@
         if (typeof predicate !== "function") throw new TypeError("ignoreUrl requires a predicate");
         if (stopped) return () => {
         };
-        const rule = (url, context) => predicate(url, context);
+        const rule = (url2, context) => predicate(url2, context);
         ignored.add(rule);
         return () => ignored.delete(rule);
       },
@@ -893,7 +1054,7 @@
       destroy() {
         if (stopped) return;
         stopped = true;
-        events.abort();
+        events2.abort();
         mediaMenu.destroy();
         clearClick();
         cancelAnimationFrame(frame);
@@ -902,17 +1063,18 @@
         pendingNodes.clear();
         ignored.clear();
         watchedTags.clear();
-        for (const entry of shortLinks.values()) entry.cancel();
-        shortLinks.clear();
+        shortLinks.destroy();
         if (window.open === open) window.open = originalOpen;
         if (window.__potPlayerBilibiliClick === controller) delete window.__potPlayerBilibiliClick;
+        syncPageState();
       }
     };
     window.__potPlayerBilibiliClick = controller;
+    syncPageState();
     window.open = open;
-    document.addEventListener("click", onClick, { capture: true, passive: false, signal: events.signal });
-    document.addEventListener("auxclick", onAuxClick, { capture: true, passive: false, signal: events.signal });
-    document.addEventListener("DOMContentLoaded", () => schedule(document), { signal: events.signal });
+    document.addEventListener("click", onClick, { capture: true, passive: false, signal: events2.signal });
+    document.addEventListener("auxclick", onAuxClick, { capture: true, passive: false, signal: events2.signal });
+    document.addEventListener("DOMContentLoaded", () => schedule(document), { signal: events2.signal });
     observe(document);
     schedule(document);
     return controller;
@@ -934,7 +1096,7 @@
   var icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${icons2[name]}"/></svg>`;
   function mountNavigationBar() {
     const html = document.documentElement;
-    const events = new AbortController();
+    const events2 = new AbortController();
     const offsets = /* @__PURE__ */ new Map();
     const media = matchMedia("(prefers-color-scheme: dark)");
     let stopped = false, editing = false, frame = 0, layoutDirty = true, actionMode = "";
@@ -984,10 +1146,10 @@ ${location.href}`;
       let value = address.value.trim();
       if (!/^[a-z][a-z\d+.-]*:/i.test(value) || /^[^/?#:\s]+:\d+(?:[/?#]|$)/.test(value)) value = "https://" + value;
       try {
-        const url = new URL(value);
-        if (!["http:", "https:"].includes(url.protocol) || !url.hostname) throw new Error("Invalid URL");
+        const url2 = new URL(value);
+        if (!["http:", "https:"].includes(url2.protocol) || !url2.hostname) throw new Error("Invalid URL");
         address.setCustomValidity("");
-        location.assign(url.href);
+        location.assign(url2.href);
       } catch {
         address.setCustomValidity("请输入有效的 HTTP 或 HTTPS 网址");
         address.reportValidity();
@@ -1071,13 +1233,13 @@ ${location.href}`;
       address.setCustomValidity("");
       updateAddress();
       address.select();
-    }, { signal: events.signal });
+    }, { signal: events2.signal });
     address.addEventListener("blur", () => {
       editing = false;
       address.setCustomValidity("");
       updateAddress();
-    }, { signal: events.signal });
-    address.addEventListener("input", () => address.setCustomValidity(""), { signal: events.signal });
+    }, { signal: events2.signal });
+    address.addEventListener("input", () => address.setCustomValidity(""), { signal: events2.signal });
     root.addEventListener("keydown", (event) => {
       event.stopPropagation();
       if (event.target !== address || event.isComposing || event.keyCode === 229) return;
@@ -1088,10 +1250,10 @@ ${location.href}`;
         event.preventDefault();
         address.blur();
       }
-    }, { signal: events.signal });
+    }, { signal: events2.signal });
     action.addEventListener("pointerdown", (event) => {
       if (editing) event.preventDefault();
-    }, { signal: events.signal });
+    }, { signal: events2.signal });
     root.addEventListener("click", (event) => {
       event.stopPropagation();
       const button = event.target.closest?.("button");
@@ -1111,7 +1273,7 @@ ${location.href}`;
           else location.reload();
           break;
       }
-    }, { signal: events.signal });
+    }, { signal: events2.signal });
     const observer = new MutationObserver((records) => {
       let changed = false, layout = false;
       for (const record of records) {
@@ -1130,7 +1292,7 @@ ${location.href}`;
           changed = true;
           layout = true;
         } else if (record.type === "childList") for (const node of [...record.addedNodes, ...record.removedNodes]) {
-          if (node.nodeType === 1 && (offsets.has(node) || node.matches(headers) || node.querySelector(headers))) {
+          if (node.nodeType === 1 && (node.contains(host) || offsets.has(node) || node.matches(headers) || node.querySelector(headers))) {
             changed = true;
             layout = true;
           }
@@ -1148,9 +1310,9 @@ ${location.href}`;
       attributes: true,
       attributeFilter: ["class", "style", "href", "data-theme", "lab-style"]
     });
-    window.addEventListener("resize", () => schedule(true), { signal: events.signal });
-    window.addEventListener("load", () => schedule(true), { capture: true, signal: events.signal });
-    media.addEventListener("change", () => schedule(), { signal: events.signal });
+    window.addEventListener("resize", () => schedule(true), { signal: events2.signal });
+    window.addEventListener("load", () => schedule(true), { capture: true, signal: events2.signal });
+    media.addEventListener("change", () => schedule(), { signal: events2.signal });
     sync();
     return {
       sync,
@@ -1160,7 +1322,7 @@ ${location.href}`;
       destroy() {
         if (stopped) return;
         stopped = true;
-        events.abort();
+        events2.abort();
         observer.disconnect();
         cancelAnimationFrame(frame);
         for (const [element, state] of offsets) restoreTop(element, state);
@@ -1174,7 +1336,7 @@ ${location.href}`;
 
   // src/common/horizontal-wheel.js
   function mountHorizontalWheel() {
-    const events = new AbortController();
+    const events2 = new AbortController();
     document.addEventListener("wheel", (event) => {
       if (!event.cancelable || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || !event.deltaY || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
       for (const element of event.composedPath()) {
@@ -1192,9 +1354,9 @@ ${location.href}`;
         event.preventDefault();
         return;
       }
-    }, { passive: false, signal: events.signal });
+    }, { passive: false, signal: events2.signal });
     return { destroy() {
-      events.abort();
+      events2.abort();
     } };
   }
 
@@ -1207,7 +1369,7 @@ ${location.href}`;
       return;
     }
     window.__potPlayerBilibiliClick?.destroy?.();
-    const events = new AbortController();
+    const events2 = new AbortController();
     let active = null, navigation = null, horizontalWheel = null, stopped = false, lastUrl = "";
     function unmount() {
       if (!active) return;
@@ -1244,6 +1406,7 @@ ${location.href}`;
         navigation?.routeChanged();
       }
       lastUrl = location.href;
+      syncPageState();
     }
     const originals = /* @__PURE__ */ new Map();
     for (const name of ["pushState", "replaceState"]) {
@@ -1256,9 +1419,11 @@ ${location.href}`;
       originals.set(name, { original, wrapped });
       history[name] = wrapped;
     }
-    for (const type of ["popstate", "hashchange", "pageshow"]) window.addEventListener(type, reconcile, { signal: events.signal });
-    document.addEventListener("DOMContentLoaded", reconcile, { signal: events.signal });
-    const poll = setInterval(reconcile, 250);
+    for (const type of ["popstate", "hashchange", "pageshow"]) window.addEventListener(type, reconcile, { signal: events2.signal });
+    document.addEventListener("DOMContentLoaded", reconcile, { signal: events2.signal });
+    const poll = setInterval(() => {
+      if (lastUrl !== location.href || active && !active.ui && document.readyState !== "loading") reconcile();
+    }, 1e3);
     const controller = {
       version,
       get activePage() {
@@ -1268,7 +1433,7 @@ ${location.href}`;
       destroy() {
         if (stopped) return;
         stopped = true;
-        events.abort();
+        events2.abort();
         clearInterval(poll);
         unmount();
         navigation?.destroy();
@@ -1281,7 +1446,7 @@ ${location.href}`;
     };
     window.addEventListener("pagehide", (event) => {
       if (!event.persisted) controller.destroy();
-    }, { signal: events.signal });
+    }, { signal: events2.signal });
     window.__bilibiliBroadcast = controller;
     reconcile();
     return controller;
@@ -1317,9 +1482,9 @@ ${location.href}`;
       const keep = Array.from(bar.querySelectorAll('.home-page-entry,.home-page-panel-entry,.header-avatar-wrap,.header-avatar-unlogin-wrap,.favorite-entry,.history-entry,.right-entry__item:has([data-idx="fav"]),.right-entry__item:has([data-idx="history"])'));
       for (const link of bar.querySelectorAll("a[href]")) {
         if (link.closest(".v-popover")) continue;
-        const url = new URL(link.href, location.href);
-        const home = url.hostname === "www.bilibili.com" && /^\/(?:index\.html)?$/.test(url.pathname);
-        const personal = url.hostname === "www.bilibili.com" && /^\/history\/?$/.test(url.pathname) || url.hostname === "space.bilibili.com" && /^\/\d+\/(?:favlist|fav)(?:\/|$)/.test(url.pathname);
+        const url2 = new URL(link.href, location.href);
+        const home = url2.hostname === "www.bilibili.com" && /^\/(?:index\.html)?$/.test(url2.pathname);
+        const personal = url2.hostname === "www.bilibili.com" && /^\/history\/?$/.test(url2.pathname) || url2.hostname === "space.bilibili.com" && /^\/\d+\/(?:favlist|fav)(?:\/|$)/.test(url2.pathname);
         if (home || personal || link.hasAttribute("data-header-fav-entry")) {
           keep.push(link.closest(".right-entry__item,.v-popover-wrap") || link);
         }
@@ -1338,7 +1503,7 @@ ${location.href}`;
     const scope = ".bili-header__bar";
     const controls = '.favorite-entry,.history-entry,.right-entry__item:has([data-idx="fav"]),.right-entry__item:has([data-idx="history"])';
     const properties = ["--homepagescript-card-left", "--homepagescript-card-top", "--homepagescript-card-height", "--homepagescript-card-width", "--homepagescript-card-compact-width"];
-    const saved = /* @__PURE__ */ new Map(), observed = /* @__PURE__ */ new Set(), events = new AbortController();
+    const saved = /* @__PURE__ */ new Map(), observed = /* @__PURE__ */ new Set(), events2 = new AbortController();
     let frame = 0, stopped = false;
     function restore(element, state) {
       element.classList.remove("homepagescript-header-card");
@@ -1428,16 +1593,16 @@ ${location.href}`;
       if (records.some((record) => record.target.closest?.(scope) || [...record.addedNodes, ...record.removedNodes].some((node) => node.nodeType === 1 && (node.matches(scope) || node.querySelector(scope))))) schedule();
     });
     children.observe(document.body, { childList: true, subtree: true });
-    narrow.addEventListener("change", schedule, { signal: events.signal });
-    window.addEventListener("resize", schedule, { signal: events.signal });
-    document.addEventListener("scroll", schedule, { capture: true, passive: true, signal: events.signal });
+    narrow.addEventListener("change", schedule, { signal: events2.signal });
+    window.addEventListener("resize", schedule, { signal: events2.signal });
+    document.addEventListener("scroll", schedule, { capture: true, passive: true, signal: events2.signal });
     for (const type of ["pointerover", "focusin"]) document.addEventListener(type, (event) => {
       if (event.target.closest?.(scope)) schedule();
-    }, { capture: true, signal: events.signal });
+    }, { capture: true, signal: events2.signal });
     update();
     return { destroy() {
       stopped = true;
-      events.abort();
+      events2.abort();
       cancelAnimationFrame(frame);
       children.disconnect();
       attributes.disconnect();
@@ -1567,8 +1732,8 @@ ${location.href}`;
 
   // src/common/main-site/header-search-navigation.js
   function createHeaderSearchNavigation() {
-    const events = new AbortController(), attributes = /* @__PURE__ */ new Map();
-    const searchControls = createHeaderSearchControls({ signal: events.signal });
+    const events2 = new AbortController(), attributes = /* @__PURE__ */ new Map();
+    const searchControls = createHeaderSearchControls({ signal: events2.signal });
     const headers2 = ".bili-header__bar,.mini-header,.international-header,.bili-header-m,.bili-mini-header,.b-header,.link-navbar,.charity-header,.search-fixed-header";
     const components = "#nav-searchform,#nav_searchform,.center-search-container,.nav-search,.nav-search-box,.search-block,.search-bar-ctnr,.search-box,.search-container,.search-panel,.nav-search-panel,.search-input-wrap,.charity-header .search-input";
     const originalOpen = window.open;
@@ -1579,8 +1744,8 @@ ${location.href}`;
       const component = node instanceof Element ? node.closest(components) : null;
       return component?.closest(headers2) ? component : null;
     }
-    function ignored(url) {
-      return Boolean(pending?.component.isConnected && ["http:", "https:"].includes(url.protocol));
+    function ignored(url2) {
+      return Boolean(pending?.component.isConnected && ["http:", "https:"].includes(url2.protocol));
     }
     function sync() {
       const next = window.__potPlayerBilibiliClick;
@@ -1603,11 +1768,11 @@ ${location.href}`;
       pending = { component, modified: event.ctrlKey || event.metaKey || event.shiftKey || event.altKey };
     }
     function open(...args) {
-      const url = urlOf(args[0]), action = pending;
-      if (!stopped && action?.component.isConnected && url) {
+      const url2 = urlOf(args[0]), action = pending;
+      if (!stopped && action?.component.isConnected && url2) {
         if (!action.modified) {
           pending = null;
-          location.assign(url.href);
+          location.assign(url2.href);
           return null;
         }
         try {
@@ -1622,12 +1787,12 @@ ${location.href}`;
       prepare(event);
       if (event.button !== 0 || !pending) return;
       const link = event.target.closest("a[href]");
-      const url = link && !link.hasAttribute("download") ? urlOf(link.getAttribute("href")) : null;
-      if (url && !pending.modified) {
+      const url2 = link && !link.hasAttribute("download") ? urlOf(link.getAttribute("href")) : null;
+      if (url2 && !pending.modified) {
         pending = null;
         event.preventDefault();
         event.stopImmediatePropagation();
-        location.assign(url.href);
+        location.assign(url2.href);
       }
     }
     function self(element, name) {
@@ -1644,20 +1809,19 @@ ${location.href}`;
       if (event.submitter?.hasAttribute("formtarget")) self(event.submitter, "formtarget");
     }
     window.open = open;
-    window.addEventListener("pointerdown", prepare, { capture: true, signal: events.signal });
-    window.addEventListener("keydown", prepare, { capture: true, signal: events.signal });
-    window.addEventListener("click", onClick, { capture: true, signal: events.signal });
-    window.addEventListener("submit", onSubmit, { capture: true, signal: events.signal });
+    window.addEventListener("pointerdown", prepare, { capture: true, signal: events2.signal });
+    window.addEventListener("keydown", prepare, { capture: true, signal: events2.signal });
+    window.addEventListener("click", onClick, { capture: true, signal: events2.signal });
+    window.addEventListener("submit", onSubmit, { capture: true, signal: events2.signal });
     window.addEventListener("focusin", (event) => {
       if (!searchControl(event.target)) pending = null;
-    }, { capture: true, signal: events.signal });
+    }, { capture: true, signal: events2.signal });
     sync();
-    const poll = setInterval(sync, 500);
+    watchPageState(sync, events2.signal);
     return { destroy() {
       stopped = true;
       pending = null;
-      events.abort();
-      clearInterval(poll);
+      events2.abort();
       restoreIgnore();
       searchControls.destroy();
       if (window.open === open) window.open = originalOpen;
@@ -1701,7 +1865,7 @@ ${location.href}`;
     function circle(link) {
       const anchor = link.getBoundingClientRect();
       if (!anchor.width || !anchor.height || !link.offsetWidth || !link.offsetHeight) return;
-      const visual = [".bili-avatar-pendent-dom img", ".bili-avatar-pendent-dom", ".bili-avatar", ".v-img", "img"].map((selector) => link.querySelector(selector)).find((element) => element?.getBoundingClientRect().width && element.getBoundingClientRect().height);
+      const visual = [".bili-avatar-pendent-dom img", ".bili-avatar-pendent-dom", ".bili-avatar", ".v-img", "img"].map((selector2) => link.querySelector(selector2)).find((element) => element?.getBoundingClientRect().width && element.getBoundingClientRect().height);
       const box = visual?.getBoundingClientRect() || anchor;
       const scaleX = anchor.width / link.offsetWidth, scaleY = anchor.height / link.offsetHeight;
       const size = Math.min(box.width / scaleX, box.height / scaleY);
@@ -1728,7 +1892,7 @@ ${location.href}`;
       for (const element of properties.keys()) if (!element.isConnected || !element.closest(".homepagescript-avatar-circle")) restore(element);
       for (const root of current2) {
         if (!roots.has(root)) roots.set(root, root.classList.contains("homepagescript-avatar-circle"));
-        root.classList.add("homepagescript-avatar-circle");
+        if (!root.classList.contains("homepagescript-avatar-circle")) root.classList.add("homepagescript-avatar-circle");
         for (const link of root.querySelectorAll(".header-avatar-wrap--container > :is(.header-entry-mini,.header-entry-avatar)")) circle(link);
         mutations.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["class", "style"] });
       }
@@ -1740,11 +1904,17 @@ ${location.href}`;
       });
     }
     const mutations = new MutationObserver(schedule), resize = new ResizeObserver(schedule);
+    const selector = ".bili-header__bar .header-avatar-wrap";
+    const discovery = new MutationObserver((records) => {
+      if (records.some((record) => roots.has(record.target) || record.target.closest?.(selector) || [...record.addedNodes, ...record.removedNodes].some((node) => node.nodeType === 1 && (node.matches(selector) || node.querySelector(selector))))) schedule();
+    });
+    discovery.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
     resize.observe(document.documentElement);
     refresh();
     return { refresh, destroy() {
       stopped = true;
       mutations.disconnect();
+      discovery.disconnect();
       resize.disconnect();
       cancelAnimationFrame(frame);
       for (const element of [...properties.keys()]) restore(element);
@@ -1757,14 +1927,14 @@ ${location.href}`;
   // src/common/main-site/avatar-navigation.js
   function createAvatarNavigation() {
     const avatarHover = createAvatarHover();
-    const events = new AbortController();
+    const events2 = new AbortController();
     let api = null, restoreIgnore = () => {
-    }, active = null, timer = 0, restoreOpen = () => {
+    }, active = null, timer2 = 0, restoreOpen = () => {
     };
     function destination(value) {
       try {
-        const url = new URL(value, location.href);
-        return isPageUrl(url) && url.hostname === "space.bilibili.com" && /^\/\d+\/?$/.test(url.pathname) ? url : null;
+        const url2 = new URL(value, location.href);
+        return isPageUrl(url2) && url2.hostname === "space.bilibili.com" && /^\/\d+\/?$/.test(url2.pathname) ? url2 : null;
       } catch {
         return null;
       }
@@ -1776,12 +1946,12 @@ ${location.href}`;
     function isLink(link) {
       return Boolean(control(link) && link.hasAttribute("href") && destination(link.href));
     }
-    function ignored(url, { explicit = false } = {}) {
+    function ignored(url2, { explicit = false } = {}) {
       if (explicit) return false;
-      return Boolean(active && destination(url.href)) || Array.from(document.querySelectorAll("a[href]")).some((link) => isLink(link) && link.href === url.href);
+      if (!destination(url2.href)) return false;
+      return Boolean(active) || Array.from(document.querySelectorAll(".header-avatar-wrap a[href],.link-navbar a[href],.mini-header a[href],.international-header a[href],.charity-header a[href]")).some((link) => isLink(link) && link.href === url2.href);
     }
     function sync() {
-      avatarHover.refresh();
       const next = window.__potPlayerBilibiliClick;
       if (next === api) return;
       restoreIgnore();
@@ -1790,8 +1960,8 @@ ${location.href}`;
       };
     }
     function clear() {
-      clearTimeout(timer);
-      timer = 0;
+      clearTimeout(timer2);
+      timer2 = 0;
       active = null;
       restoreOpen();
       restoreOpen = () => {
@@ -1816,9 +1986,9 @@ ${location.href}`;
       active = link;
       const originalOpen = window.open;
       function open(...args) {
-        const url = destination(args[0]);
-        if (active === link && url && !modified) {
-          location.assign(url.href);
+        const url2 = destination(args[0]);
+        if (active === link && url2 && !modified) {
+          location.assign(url2.href);
           return null;
         }
         return Reflect.apply(originalOpen, this, args);
@@ -1827,36 +1997,42 @@ ${location.href}`;
       restoreOpen = () => {
         if (window.open === open) window.open = originalOpen;
       };
-      timer = setTimeout(clear, 0);
+      timer2 = setTimeout(clear, 0);
     }
-    window.addEventListener("pointerdown", sync, { capture: true, signal: events.signal });
-    window.addEventListener("keydown", sync, { capture: true, signal: events.signal });
-    window.addEventListener("click", onClick, { capture: true, signal: events.signal });
+    window.addEventListener("pointerdown", sync, { capture: true, signal: events2.signal });
+    window.addEventListener("keydown", sync, { capture: true, signal: events2.signal });
+    window.addEventListener("click", onClick, { capture: true, signal: events2.signal });
     sync();
-    const poll = setInterval(sync, 500);
+    watchPageState(sync, events2.signal);
     return { isLink, destroy() {
       avatarHover.destroy();
-      events.abort();
-      clearInterval(poll);
+      events2.abort();
       clear();
       restoreIgnore();
     } };
   }
 
   // src/common/main-site/home-layout.js
-  function mountHomeLayout(pageStyle11, suppliedMatchesPage) {
-    "use strict";
+  var defaultContentSelector = '.feed2 .recommended-container_floor-aside > .container,.head-cards,.loading-cards,.channel-feed,.channel-page__body > .feed-cards,.popular-list .card-list,.fav-list-main .items,.section-cards,#room-card-list,main [class~="grid"],.items-container';
+  function mountHomeLayout(pageStyle12, suppliedMatchesPage, {
+    contentSelector = defaultContentSelector,
+    columns = (container) => innerWidth < 400 ? 1 : Math.max(2, Math.floor((container.clientWidth + 12) / 232)),
+    mountContent,
+    avatarLink,
+    avatarNavigationEnabled = true,
+    observeLoad = false
+  } = {}) {
     const matchesPage = suppliedMatchesPage;
     if (!matchesPage()) return;
     window.bilibiliHomePageScript?.destroy();
     const headerSearchNavigation = createHeaderSearchNavigation();
     const headerCards = createHeaderCards();
-    const avatarNavigation = createAvatarNavigation();
+    const avatarNavigation = avatarNavigationEnabled ? createAvatarNavigation() : null;
     const html = document.documentElement;
     const narrow = matchMedia("(max-width: 1099px)");
     const navigationScope = ".bili-header,.bili-header__bar,#homepagescript-menu,.header-channel,.channel-entry-popover,.bili-header-channel-panel,.link-navbar,.charity-header";
     const navigationLinks = navigationScope.split(",").map((selector) => `${selector} a[href]`).join(",");
-    const events = new AbortController();
+    const events2 = new AbortController();
     const hidden = /* @__PURE__ */ new Set(), attributes = /* @__PURE__ */ new Map(), variables = /* @__PURE__ */ new Map();
     const menus = /* @__PURE__ */ new Map(), observed = /* @__PURE__ */ new Set();
     const avatarMenus = /* @__PURE__ */ new Map(), avatarTargets = /* @__PURE__ */ new Set();
@@ -1866,7 +2042,7 @@ ${location.href}`;
     let frame = 0, stopped = false, activeMenu = null;
     const style = document.createElement("style");
     style.id = "homepagescript-style";
-    style.textContent = pageStyle11;
+    style.textContent = pageStyle12;
     const panel = document.createElement("div");
     panel.id = "homepagescript-menu";
     panel.setAttribute("aria-label", "全部频道");
@@ -1918,7 +2094,7 @@ ${location.href}`;
             openMenu(menu);
             if (event.detail === 0) panel.querySelector("a")?.focus();
           }
-        }, { signal: events.signal });
+        }, { signal: events2.signal });
         menu = { container, button, source };
         menus.set(container, menu);
         container.append(button);
@@ -1968,16 +2144,16 @@ ${location.href}`;
     }
     function isCurrentTabLink(link) {
       if (!(link instanceof HTMLAnchorElement) || link.hasAttribute("download")) return false;
-      const url = new URL(link.href, location.href);
-      if (link.closest(".bili-header-channel-panel")) return isPageUrl(url);
-      return isAvatarNavigationLink(link) || Boolean(link.closest(navigationScope) && isCompletedNavigation(url));
+      const url2 = new URL(link.href, location.href);
+      if (link.closest(".bili-header-channel-panel")) return isPageUrl(url2);
+      return isAvatarNavigationLink2(link) || Boolean(link.closest(navigationScope) && isCompletedNavigation(url2));
     }
-    function isAvatarNavigationLink(link) {
-      return avatarNavigation.isLink(link);
+    function isAvatarNavigationLink2(link) {
+      return avatarLink ? avatarLink(link) : Boolean(avatarNavigation?.isLink(link));
     }
     const isCompletedNavigation = isPageUrl;
-    function isNavigationIgnored(url, { explicit = false } = {}) {
-      return !explicit && isCompletedNavigation(url);
+    function isNavigationIgnored(url2, { explicit = false } = {}) {
+      return !explicit && isCompletedNavigation(url2);
     }
     function syncPotPlayerIgnore() {
       if (location.href !== observedUrl) {
@@ -2073,12 +2249,24 @@ ${location.href}`;
         window.bilibiliHomePageScript?.destroy();
         return;
       }
+      contentLayout?.refresh(narrow.matches);
       fitAvatarMenus();
       for (const link of document.querySelectorAll(navigationLinks)) {
         if (isCurrentTabLink(link)) rememberAttribute(link, "target", "_self");
       }
-      for (const [element] of variables) if (!element.isConnected) variables.delete(element);
-      for (const element of hidden) if (!element.isConnected) hidden.delete(element);
+      for (const [element] of attributes) if (!element.isConnected) {
+        restoreAttributes(element);
+        attributes.delete(element);
+      }
+      for (const [element, value] of variables) if (!element.isConnected) {
+        if (value) element.style.setProperty("--homepagescript-columns", value);
+        else element.style.removeProperty("--homepagescript-columns");
+        variables.delete(element);
+      }
+      for (const element of hidden) if (!element.isConnected) {
+        element.classList.remove("homepagescript-hidden");
+        hidden.delete(element);
+      }
       for (const element of observed) if (!element.isConnected) {
         resize.unobserve(element);
         observed.delete(element);
@@ -2109,9 +2297,9 @@ ${location.href}`;
         makeMore(container, () => Array.from(container.querySelectorAll("a[href]")));
         fit(Array.from(container.querySelectorAll("a.channel-item")), count - 1);
       }
-      for (const container of document.querySelectorAll('.feed2 .recommended-container_floor-aside > .container,.head-cards,.loading-cards,.channel-feed,.channel-page__body > .feed-cards,.popular-list .card-list,.fav-list-main .items,.section-cards,#room-card-list,main [class~="grid"],.items-container')) {
+      for (const container of document.querySelectorAll(contentSelector)) {
         observe(container);
-        const count = innerWidth < 400 ? 1 : Math.max(2, Math.floor((container.clientWidth + 12) / 232));
+        const count = columns(container);
         setColumns(container, count);
       }
     }
@@ -2130,27 +2318,29 @@ ${location.href}`;
     window.addEventListener("resize", () => {
       closeMenu();
       schedule();
-    }, { signal: events.signal });
-    narrow.addEventListener("change", schedule, { signal: events.signal });
+    }, { signal: events2.signal });
+    narrow.addEventListener("change", schedule, { signal: events2.signal });
+    if (observeLoad) document.addEventListener("load", schedule, { capture: true, signal: events2.signal });
     document.addEventListener("scroll", (event) => {
       if (event.target !== panel && !panel.contains(event.target)) closeMenu();
-    }, { capture: true, passive: true, signal: events.signal });
+    }, { capture: true, passive: true, signal: events2.signal });
     document.addEventListener("pointerdown", (event) => {
       if (activeMenu && !panel.contains(event.target) && !activeMenu.button.contains(event.target)) closeMenu();
-    }, { capture: true, signal: events.signal });
+    }, { capture: true, signal: events2.signal });
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && activeMenu) {
         event.preventDefault();
         closeMenu(true);
       }
-    }, { signal: events.signal });
+    }, { signal: events2.signal });
     panel.addEventListener("click", (event) => {
       if (event.target.closest("a")) closeMenu();
-    }, { signal: events.signal });
-    window.addEventListener("pointerdown", syncPotPlayerIgnore, { capture: true, signal: events.signal });
-    window.addEventListener("click", syncPotPlayerIgnore, { capture: true, signal: events.signal });
+    }, { signal: events2.signal });
+    window.addEventListener("pointerdown", syncPotPlayerIgnore, { capture: true, signal: events2.signal });
+    window.addEventListener("click", syncPotPlayerIgnore, { capture: true, signal: events2.signal });
+    const contentLayout = mountContent?.({ narrow, schedule });
     syncPotPlayerIgnore();
-    const potPlayerTimer = setInterval(syncPotPlayerIgnore, 500);
+    watchPageState(syncPotPlayerIgnore, events2.signal);
     document.addEventListener("click", (event) => {
       if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
       const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
@@ -2158,28 +2348,32 @@ ${location.href}`;
       event.preventDefault();
       event.stopImmediatePropagation();
       location.assign(link.href);
-    }, { capture: true, signal: events.signal });
-    window.bilibiliHomePageScript = {
+    }, { capture: true, signal: events2.signal });
+    function restoreAttributes(element) {
+      for (const [name, { original, value }] of attributes.get(element) || []) {
+        if (element.getAttribute(name) !== value) continue;
+        if (original === null) element.removeAttribute(name);
+        else element.setAttribute(name, original);
+      }
+    }
+    const instance = {
       destroy() {
-        avatarNavigation.destroy();
+        if (stopped) return;
+        contentLayout?.destroy();
+        avatarNavigation?.destroy();
         headerSearchNavigation.destroy();
         headerCards.destroy();
         stopped = true;
-        events.abort();
+        events2.abort();
         mutations.disconnect();
         avatarMutations.disconnect();
         resize.disconnect();
         cancelAnimationFrame(frame);
         closeMenu();
-        clearInterval(potPlayerTimer);
         restorePotPlayerIgnore();
         for (const [element, saved] of avatarMenus) resetAvatarMenu(element, saved);
         for (const element of hidden) element.classList.remove("homepagescript-hidden");
-        for (const [element, saved] of attributes) for (const [name, { original, value }] of saved) {
-          if (element.getAttribute(name) !== value) continue;
-          if (original === null) element.removeAttribute(name);
-          else element.setAttribute(name, original);
-        }
+        for (const element of attributes.keys()) restoreAttributes(element);
         for (const [element, value] of variables) {
           if (value) element.style.setProperty("--homepagescript-columns", value);
           else element.style.removeProperty("--homepagescript-columns");
@@ -2188,11 +2382,19 @@ ${location.href}`;
         panel.remove();
         style.remove();
         html.classList.remove("homepagescript-active");
-        delete window.bilibiliHomePageScript;
+        attributes.clear();
+        variables.clear();
+        hidden.clear();
+        menus.clear();
+        observed.clear();
+        avatarMenus.clear();
+        avatarTargets.clear();
+        if (window.bilibiliHomePageScript === instance) delete window.bilibiliHomePageScript;
       }
     };
+    window.bilibiliHomePageScript = instance;
     update();
-    return window.bilibiliHomePageScript;
+    return instance;
   }
 
   // src/WebPage/HomePage/content.css
@@ -2390,28 +2592,28 @@ ${content2}
     for (const node of event.composedPath()) {
       if (!(node instanceof Element)) continue;
       if (node.matches('input,textarea,button,[contenteditable="true"],.follow-btn,[data-player-pause-stop],.action-arrow-ctnr,.flip-dots-item')) return null;
-      let url = "";
+      let url2 = "";
       if (node.matches(".sec-area-item,.highlight-area-item")) {
         const data = report(node);
         if (numericId(data?.parent_area_id) && (node.matches(".highlight-area-item") || numericId(data.area_id))) {
-          url = `https://live.bilibili.com/p/eden/area-tags?parentAreaId=${data.parent_area_id}&areaId=${node.matches(".highlight-area-item") ? 0 : data.area_id}`;
+          url2 = `https://live.bilibili.com/p/eden/area-tags?parentAreaId=${data.parent_area_id}&areaId=${node.matches(".highlight-area-item") ? 0 : data.area_id}`;
         }
       } else if (node.matches(".room-card-ctnr,.aside-item")) {
         const data = report(node);
         if (numericId(data?.room_id)) {
-          url = `https://live.bilibili.com/${data.room_id}`;
-          if (data.session_id && data.session_id !== "-99998") url += `?session_id=${encodeURIComponent(data.session_id)}`;
+          url2 = `https://live.bilibili.com/${data.room_id}`;
+          if (data.session_id && data.session_id !== "-99998") url2 += `?session_id=${encodeURIComponent(data.session_id)}`;
         }
       } else if (node.matches(".item-wrapper,.small-banner,.bg-image[data-report]")) {
         const data = report(node) || report(node.querySelector("[data-report]"));
-        url = bannerUrl(data?.url);
-        if (!url && node.matches(".item-wrapper")) {
+        url2 = bannerUrl(data?.url);
+        if (!url2 && node.matches(".item-wrapper")) {
           const banners = jsonAttribute(node.closest(".hover-panel-wrap[data-banner]"), "data-banner");
           const index = Array.from(node.parentElement.children).filter((child) => child.matches(".item-wrapper")).indexOf(node);
-          if (Array.isArray(banners) && index >= 0) url = bannerUrl(banners.filter((item) => item?.imageUrl)[index]?.link);
+          if (Array.isArray(banners) && index >= 0) url2 = bannerUrl(banners.filter((item) => item?.imageUrl)[index]?.link);
         }
       } else if (node.matches(".hover-panel-wrap")) return null;
-      if (url) return { anchor: node, url };
+      if (url2) return { anchor: node, url: url2 };
       if (node.matches(".sec-area-item,.item-wrapper,.small-banner,.room-card-ctnr,.aside-item")) return null;
     }
     return null;
@@ -2427,18 +2629,18 @@ ${content2}
     let potPlayerApi = null, restorePotPlayerIgnore = () => {
     }, pendingSearch = null;
     let pendingFollow = null, followTimer = 0;
-    function isLiveDestination(url) {
-      return url?.hostname === "live.bilibili.com" && ["/all", "/p/eden/area-tags"].includes(url.pathname.replace(/\/$/, ""));
+    function isLiveDestination(url2) {
+      return url2?.hostname === "live.bilibili.com" && ["/all", "/p/eden/area-tags"].includes(url2.pathname.replace(/\/$/, ""));
     }
     const isCompletedNavigation = isPageUrl;
-    const isFollowDestination = (url) => pageId(url) === "Follow";
+    const isFollowDestination = (url2) => pageId(url2) === "Follow";
     function isCurrentTabLink(link) {
       if (!(link instanceof HTMLAnchorElement) || link.hasAttribute("download")) return false;
-      const url = urlOf(link.href);
-      if (!url) return false;
-      if (isFollowDestination(url)) return true;
-      if (url.hostname === "live.bilibili.com") return isLiveDestination(url) || pageId(url) === "LiveHome" && Boolean(link.closest(navigationScope));
-      return Boolean(isPageUrl(url) && (link.closest(".bili-header-channel-panel") || link.closest(navigationScope)));
+      const url2 = urlOf(link.href);
+      if (!url2) return false;
+      if (isFollowDestination(url2)) return true;
+      if (url2.hostname === "live.bilibili.com") return isLiveDestination(url2) || pageId(url2) === "LiveHome" && Boolean(link.closest(navigationScope));
+      return Boolean(isPageUrl(url2) && (link.closest(".bili-header-channel-panel") || link.closest(navigationScope)));
     }
     function searchControl(node) {
       if (node instanceof Element && node.closest(".broadcast-search-close")) return null;
@@ -2455,14 +2657,14 @@ ${content2}
         }
       }
     }
-    function isNavigationIgnored(url, { probe = false, explicit = false } = {}) {
+    function isNavigationIgnored(url2, { probe = false, explicit = false } = {}) {
       if (pendingSearch?.component.isConnected) return true;
-      if (url.hostname === "live.bilibili.com") {
-        if (isLiveDestination(url)) return !explicit;
-        if (!probe && /^\/(?:blanc\/)?\d+\/?$/.test(url.pathname)) pauseHomePreview();
+      if (url2.hostname === "live.bilibili.com") {
+        if (isLiveDestination(url2)) return !explicit;
+        if (!probe && /^\/(?:blanc\/)?\d+\/?$/.test(url2.pathname)) pauseHomePreview();
         return false;
       }
-      return !explicit && isCompletedNavigation(url);
+      return !explicit && isCompletedNavigation(url2);
     }
     function syncPotPlayerIgnore() {
       const api = window.__potPlayerBilibiliClick;
@@ -2526,16 +2728,16 @@ ${content2}
       followTimer = setTimeout(clearFollow, 1e3);
     }
     function open(...args) {
-      const url = urlOf(args[0]), action = pendingSearch;
-      if (!isStopped() && isLiveDestination(url)) {
+      const url2 = urlOf(args[0]), action = pendingSearch;
+      if (!isStopped() && isLiveDestination(url2)) {
         pendingSearch = null;
-        location.assign(url.href);
+        location.assign(url2.href);
         return null;
       }
-      if (!isStopped() && action?.component.isConnected && url) {
+      if (!isStopped() && action?.component.isConnected && url2) {
         if (!action.modified) {
           pendingSearch = null;
-          location.assign(url.href);
+          location.assign(url2.href);
           return null;
         }
         try {
@@ -2544,11 +2746,11 @@ ${content2}
           pendingSearch = null;
         }
       }
-      if (!isStopped() && pendingFollow?.control.isConnected && isFollowDestination(url)) {
+      if (!isStopped() && pendingFollow?.control.isConnected && isFollowDestination(url2)) {
         if (!pendingFollow.modified) {
-          if (!pendingFollow.sent.has(url.href)) {
-            pendingFollow.sent.add(url.href);
-            location.assign(url.href);
+          if (!pendingFollow.sent.has(url2.href)) {
+            pendingFollow.sent.add(url2.href);
+            location.assign(url2.href);
           }
           return null;
         }
@@ -2561,12 +2763,12 @@ ${content2}
     function onSearchClick(event) {
       prepareSearch(event);
       if (event.button !== 0 || !pendingSearch || pendingSearch.modified) return;
-      const link = anchorOf(event), url = link && !link.hasAttribute("download") ? urlOf(link.href) : null;
-      if (url) {
+      const link = anchorOf(event), url2 = link && !link.hasAttribute("download") ? urlOf(link.href) : null;
+      if (url2) {
         pendingSearch = null;
         event.preventDefault();
         event.stopImmediatePropagation();
-        location.assign(url.href);
+        location.assign(url2.href);
       }
     }
     window.open = open;
@@ -2770,11 +2972,11 @@ ${content2}
       return node;
     }
     function link(item) {
-      const url = item.href && urlOf(item.href), node = url ? document.createElement("a") : button(item.label, "");
+      const url2 = item.href && urlOf(item.href), node = url2 ? document.createElement("a") : button(item.label, "");
       node.textContent = item.label;
       node.className = "broadcast-live-menu-link";
-      if (url) {
-        node.href = url.href;
+      if (url2) {
+        node.href = url2.href;
         node.target = "_self";
       } else if (item.source) listen(node, "click", () => {
         close();
@@ -3169,7 +3371,7 @@ html.homepagescript-active #app main .flex-wrap > div {width:100%!important;}
     if (!matchesPage()) return;
     const html = document.documentElement;
     const narrow = matchMedia("(max-width: 1099px)");
-    const events = new AbortController();
+    const events2 = new AbortController();
     const attributes = /* @__PURE__ */ new Map(), properties = /* @__PURE__ */ new Map(), classes = /* @__PURE__ */ new Map();
     const observed = /* @__PURE__ */ new Set();
     let frame = 0, stopped = false;
@@ -3236,7 +3438,7 @@ html.homepagescript-active #app main .flex-wrap > div {width:100%!important;}
     ownClass(html, "homepagescript-active");
     const navigation = createLiveNavigation({
       id,
-      signal: events.signal,
+      signal: events2.signal,
       isStopped: () => stopped,
       rememberAttribute,
       restoreAttribute
@@ -3253,7 +3455,7 @@ html.homepagescript-active #app main .flex-wrap > div {width:100%!important;}
     const controls = createLiveControls({
       html,
       narrow,
-      signal: events.signal,
+      signal: events2.signal,
       ownClass,
       fit,
       rememberAttribute,
@@ -3262,7 +3464,7 @@ html.homepagescript-active #app main .flex-wrap > div {width:100%!important;}
       restoreProperty,
       includeSidebar: !headerOnly
     });
-    const searchControls = createHeaderSearchControls({ signal: events.signal });
+    const searchControls = createHeaderSearchControls({ signal: events2.signal });
     function updateLiveHome() {
       frame = 0;
       if (stopped) return;
@@ -3330,22 +3532,24 @@ html.homepagescript-active #app main .flex-wrap > div {width:100%!important;}
     });
     resize.observe(html);
     mutations.observe(document.body || html, { childList: true, subtree: true, attributes: true, attributeFilter: ["href", "target", "download"] });
-    window.addEventListener("resize", schedule, { signal: events.signal });
-    narrow.addEventListener("change", schedule, { signal: events.signal });
-    window.addEventListener("popstate", schedule, { signal: events.signal });
-    window.addEventListener("hashchange", schedule, { signal: events.signal });
-    const syncTimer = setInterval(() => {
+    window.addEventListener("resize", schedule, { signal: events2.signal });
+    narrow.addEventListener("change", schedule, { signal: events2.signal });
+    window.addEventListener("popstate", schedule, { signal: events2.signal });
+    window.addEventListener("hashchange", schedule, { signal: events2.signal });
+    watchPageState(({ routeChanged: routeChanged2 }) => {
       if (!matchesPage()) destroy();
-      else navigation.sync();
-    }, 500);
+      else {
+        navigation.sync();
+        if (routeChanged2) schedule();
+      }
+    }, events2.signal);
     function destroy() {
       if (stopped) return;
       stopped = true;
-      events.abort();
+      events2.abort();
       mutations.disconnect();
       avatarLayout.disconnect();
       resize.disconnect();
-      clearInterval(syncTimer);
       cancelAnimationFrame(frame);
       navigation.destroy();
       controls.destroy();
@@ -3429,38 +3633,78 @@ html.homepagescript-active #app main .flex-wrap > div {width:100%!important;}
   `;
   }
   function createDynamicContent({ getRoot, prefix = "feedscript", popup = '[role="tooltip"],[role="dialog"],[class*="popover"],[class*="popper"],[class*="image-viewer"],[class*="image-preview"]', isActive = () => true }) {
-    const events = new AbortController(), mediaStyles = /* @__PURE__ */ new Map(), classes = /* @__PURE__ */ new Map(), titles = /* @__PURE__ */ new Map();
-    let stopped = false;
+    const events2 = new AbortController(), states = /* @__PURE__ */ new Map(), titles = /* @__PURE__ */ new Map();
+    let stopped = false, root = null, frame = 0, width = -1, discover = true;
     const saveStyles = (element, names) => new Map(names.map((name) => [name, {
       value: element.style.getPropertyValue(name),
       priority: element.style.getPropertyPriority(name)
     }]));
-    function restoreStyles(element, values) {
-      for (const [name, { value, priority }] of values) {
+    function mark(state, element, name) {
+      const className = prefix + "-" + name;
+      if (element.classList.contains(className)) return;
+      if (!state.classes.has(element)) state.classes.set(element, /* @__PURE__ */ new Set());
+      state.classes.get(element).add(className);
+      element.classList.add(className);
+    }
+    function release(state) {
+      for (const [element, styles] of state.styles) for (const [name, { value, priority }] of styles) {
         if (value) element.style.setProperty(name, value, priority);
         else element.style.removeProperty(name);
       }
+      for (const [element, names] of state.classes) for (const name of names) element.classList.remove(name);
+      state.styles.clear();
+      state.classes.clear();
     }
-    function mark(element, name) {
-      const className = `${prefix}-${name}`;
-      if (element.classList.contains(className)) return;
-      if (!classes.has(element)) classes.set(element, /* @__PURE__ */ new Set());
-      classes.get(element).add(className);
-      element.classList.add(className);
+    function restoreTitle(element, { original, value }) {
+      if (element.title !== value) return;
+      if (original === null) element.removeAttribute("title");
+      else element.setAttribute("title", original);
     }
-    function clearMedia() {
-      for (const [element, styles] of mediaStyles) restoreStyles(element, styles);
-      mediaStyles.clear();
-      for (const [element, names] of classes) for (const name of names) element.classList.remove(name);
-      classes.clear();
+    function owner(node) {
+      for (let element = node.nodeType === 1 ? node : node.parentElement; element; element = element.parentElement) {
+        if (states.has(element)) return element;
+        if (element === root) break;
+      }
+      return null;
     }
-    function collectMedia(root) {
-      const roots = [...root.querySelectorAll('[class*="album" i]')].filter((element) => !element.closest(popup) && (element.querySelector("img,picture") || [...element.children].some((child) => getComputedStyle(child).backgroundImage.includes("url("))));
-      for (const image of root.querySelectorAll(".bili-dyn-item img")) {
+    function changed(records) {
+      for (const record of records) {
+        const unit = owner(record.target);
+        if (unit) states.get(unit).dirty = true;
+        if (!unit || unit === root) discover = true;
+        if (!unit && record.type === "attributes") for (const [element, state] of states) {
+          if (record.target.contains(element)) state.dirty = true;
+        }
+      }
+    }
+    function schedule() {
+      if (!stopped && !frame) frame = requestAnimationFrame(() => {
+        frame = 0;
+        refresh();
+      });
+    }
+    const mutations = new MutationObserver((records) => {
+      changed(records);
+      schedule();
+    });
+    const resize = new ResizeObserver((records) => {
+      let changed2 = false;
+      for (const record of records) {
+        const state = states.get(record.target);
+        if (state && record.target.clientWidth !== state.width) {
+          state.dirty = true;
+          changed2 = true;
+        }
+      }
+      if (changed2 || root && root.clientWidth !== width) schedule();
+    });
+    function collectMedia(root2) {
+      const roots = [...root2.querySelectorAll('[class*="album" i]')].filter((element) => !element.closest(popup) && (element.querySelector("img,picture") || [...element.children].some((child) => getComputedStyle(child).backgroundImage.includes("url("))));
+      for (const image of root2.querySelectorAll(".bili-dyn-item img")) {
         if (roots.some((album2) => album2.contains(image)) || image.closest(`${popup},[class*="bili-dyn-card"],[class*="avatar"]`)) continue;
         if (image.scrollWidth <= 80 && !/\/bfs\/(album|new_dyn)\//.test(image.currentSrc || image.src)) continue;
         let album = image;
-        while (album.parentElement && album.parentElement !== root && !album.parentElement.matches(`.bili-dyn-item,${content}`) && !album.parentElement.textContent.replace(/GIF/g, "").trim()) album = album.parentElement;
+        while (album.parentElement && album.parentElement !== root2 && !album.parentElement.matches(`.bili-dyn-item,${content}`) && !album.parentElement.textContent.replace(/GIF/g, "").trim()) album = album.parentElement;
         roots.push(album);
       }
       return roots.filter((element) => !roots.some((other) => other !== element && other.contains(element)));
@@ -3470,38 +3714,87 @@ html.homepagescript-active #app main .flex-wrap > div {width:100%!important;}
       return ["收起", "查看大图", "向左旋转", "向右旋转"].every((label) => text.includes(label));
     }
     function refresh() {
-      clearMedia();
-      const root = getRoot();
-      if (stopped || !isActive() || !root) {
+      if (frame) {
+        cancelAnimationFrame(frame);
+        frame = 0;
+      }
+      const next = getRoot();
+      if (stopped || !isActive() || !next) {
         clear();
         return;
       }
-      const images = collectMedia(root);
-      for (const tool of root.querySelectorAll("*")) {
-        if (tool.children.length >= 2 && !tool.closest(popup) && isTools(tool) && ![...tool.children].some(isTools)) mark(tool, "image-tools");
+      if (next !== root) {
+        clear();
+        root = next;
+        mutations.observe(root, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["class", "style", "hidden", "src", "srcset"] });
+        resize.observe(root);
       }
-      for (const element of images) {
-        for (let parent = element.parentElement; parent && parent !== root; parent = parent.parentElement) {
-          mark(parent, "fit");
+      changed(mutations.takeRecords());
+      for (const [element, state] of states) if (!root.contains(element)) {
+        release(state);
+        resize.unobserve(element);
+        states.delete(element);
+      }
+      for (const [element, state] of titles) if (!root.contains(element)) {
+        restoreTitle(element, state);
+        titles.delete(element);
+      }
+      if (discover) {
+        const units = [...root.querySelectorAll(".bili-dyn-item")].filter((element) => !element.parentElement.closest(".bili-dyn-item") || !root.contains(element.parentElement.closest(".bili-dyn-item")));
+        const current2 = new Set(units.length ? units : [root]);
+        for (const [element, state] of states) if (!current2.has(element)) {
+          release(state);
+          resize.unobserve(element);
+          states.delete(element);
+        }
+        for (const unit of current2) if (!states.has(unit)) {
+          states.set(unit, { dirty: true, width: -1, styles: /* @__PURE__ */ new Map(), classes: /* @__PURE__ */ new Map() });
+          resize.observe(unit);
+        }
+        discover = false;
+      }
+      const resized = root.clientWidth !== width;
+      width = root.clientWidth;
+      const pending = [...states].filter(([, state]) => resized || state.dirty);
+      for (const [, state] of pending) release(state);
+      const batches = pending.map(([unit, state]) => {
+        const images = collectMedia(unit), tools = [];
+        for (const tool of unit.querySelectorAll("*")) {
+          if (tool.children.length >= 2 && !tool.closest(popup) && isTools(tool) && ![...tool.children].some(isTools)) tools.push(tool);
+        }
+        return { state, images, tools };
+      });
+      for (const { state, images, tools } of batches) {
+        for (const tool of tools) mark(state, tool, "image-tools");
+        for (const element of images) for (let parent = element.parentElement; parent && parent !== root; parent = parent.parentElement) {
+          mark(state, parent, "fit");
           if (parent.matches(".bili-dyn-item")) break;
         }
       }
-      for (const element of images) {
-        const css = getComputedStyle(element.parentElement);
-        const available = element.parentElement.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight);
+      const measurements = [];
+      for (const { state, images } of batches) for (const element of images) {
+        const parent = element.parentElement, css = getComputedStyle(parent);
+        const available = parent.clientWidth - (parseFloat(css.paddingLeft) || 0) - (parseFloat(css.paddingRight) || 0);
         const natural = Math.max(element.scrollWidth, element.getBoundingClientRect().width);
         const scale = Math.min(1, Math.max(0, available) / Math.max(1, natural));
-        if (!natural || !scale || scale === 1) continue;
-        mark(element, "media");
-        const values = { [`--${prefix}-media-width`]: `${natural}px`, [`--${prefix}-scale`]: String(scale) };
-        mediaStyles.set(element, saveStyles(element, Object.keys(values)));
+        if (natural && scale && scale !== 1) measurements.push({ state, element, natural, scale });
+      }
+      for (const { state, element, natural, scale } of measurements) {
+        mark(state, element, "media");
+        const values = { ["--" + prefix + "-media-width"]: natural + "px", ["--" + prefix + "-scale"]: String(scale) };
+        state.styles.set(element, saveStyles(element, Object.keys(values)));
         for (const [name, value] of Object.entries(values)) element.style.setProperty(name, value, "important");
       }
+      for (const [unit, state] of pending) {
+        state.dirty = false;
+        state.width = unit.clientWidth;
+      }
+      mutations.takeRecords();
     }
     function onTitle(event) {
       if (stopped || !isActive()) return;
-      const root = getRoot(), element = event.target instanceof Element ? event.target.closest(cardText) : null;
-      if (!element || !root?.contains(element)) return;
+      const current2 = getRoot(), element = event.target instanceof Element ? event.target.closest(cardText) : null;
+      if (!element || !current2?.contains(element)) return;
       const text = [...element.closest(cards).querySelectorAll(cardText)].map((field) => field.textContent.trim()).filter(Boolean).join("\n\n");
       let state = titles.get(element);
       if (state && element.title !== state.value) {
@@ -3514,17 +3807,32 @@ html.homepagescript-active #app main .flex-wrap > div {width:100%!important;}
       element.title = text;
     }
     function clear() {
-      clearMedia();
-      for (const [element, { original, value }] of titles) if (element.title === value) {
-        if (original === null) element.removeAttribute("title");
-        else element.setAttribute("title", original);
-      }
+      mutations.disconnect();
+      resize.disconnect();
+      cancelAnimationFrame(frame);
+      frame = 0;
+      for (const state of states.values()) release(state);
+      for (const [element, state] of titles) restoreTitle(element, state);
+      states.clear();
       titles.clear();
+      root = null;
+      width = -1;
+      discover = true;
     }
-    for (const type of ["mouseover", "focusin"]) document.addEventListener(type, onTitle, { signal: events.signal });
+    document.addEventListener("load", (event) => {
+      if (!root?.contains(event.target)) return;
+      const unit = owner(event.target);
+      if (unit) states.get(unit).dirty = true;
+      schedule();
+    }, { capture: true, signal: events2.signal });
+    window.addEventListener("resize", () => {
+      for (const state of states.values()) state.dirty = true;
+      schedule();
+    }, { signal: events2.signal });
+    for (const type of ["mouseover", "focusin"]) document.addEventListener(type, onTitle, { signal: events2.signal });
     return { refresh, clear, destroy() {
       stopped = true;
-      events.abort();
+      events2.abort();
       clear();
     } };
   }
@@ -3534,7 +3842,7 @@ html.homepagescript-active #app main .flex-wrap > div {width:100%!important;}
 
   // src/common/edge-panels.js
   function createEdgePanels({ prefix, popup = '[role="dialog"],[role="tooltip"]', scrollRegions = {} }) {
-    const states = /* @__PURE__ */ new Map(), events = new AbortController();
+    const states = /* @__PURE__ */ new Map(), events2 = new AbortController();
     const style = Object.assign(document.createElement("style"), { textContent: edge_panels_default });
     let active = null;
     function syncScrollRegion(name, state) {
@@ -3600,24 +3908,27 @@ html.homepagescript-active #app main .flex-wrap > div {width:100%!important;}
       }
       setOpen(active);
     }
-    document.addEventListener("click", (event) => {
+    window.addEventListener("click", (event) => {
       if (event.detail && (event.clientX < 5 || event.clientX >= document.documentElement.clientWidth - 5)) return;
-      if (!active || !(event.target instanceof Element) || event.target.closest(`[data-edge-control],${popup}`)) return;
+      if (!active || !(event.target instanceof Element)) return;
+      if (event.composedPath().some((node) => node instanceof Element && node.matches(
+        `[data-edge-control],#broadcast-media-menu,#broadcast-external-dialog,${popup}`
+      ))) return;
       if (!states.get(active).element.contains(event.target)) setOpen(null);
-    }, { signal: events.signal });
+    }, { capture: true, signal: events2.signal });
     document.addEventListener("keydown", (event) => {
       if (active && event.key === "Escape") {
         const button = states.get(active).button;
         setOpen(null);
         button.focus();
       }
-    }, { signal: events.signal });
+    }, { signal: events2.signal });
     const clear = () => {
       for (const name of [...states.keys()]) release(name);
       style.remove();
     };
     return { sync, clear, destroy() {
-      events.abort();
+      events2.abort();
       clear();
     } };
   }
@@ -3675,12 +3986,11 @@ html.homepagescript-active #app main .flex-wrap > div {width:100%!important;}
           right: Math.min(viewport.right, preferred.right ?? viewport.right),
           bottom: Math.min(viewport.bottom, preferred.bottom ?? viewport.bottom)
         };
-        const scale = Math.min(1, (bounds.right - bounds.left) / Math.max(1, width * nativeZoom), (bounds.bottom - bounds.top) / Math.max(1, height2 * nativeZoom));
-        const unit = nativeZoom * scale;
-        const right = bounds.right - width * unit;
+        const unit = nativeZoom;
+        const right = Math.max(bounds.left, bounds.right - width * unit);
         const x = preferred.align === "right" ? right : Math.max(bounds.left, Math.min(state.x, right));
-        const y = Math.max(bounds.top, Math.min(state.y, bounds.bottom - height2 * unit));
-        for (const [name, value] of Object.entries({ "--fixed-profile-x": `${x / unit}px`, "--fixed-profile-y": `${y / unit}px`, "--fixed-profile-zoom": String(state.zoom * scale) })) {
+        const y = Math.max(bounds.top, Math.min(preferred.y ?? state.y, bounds.bottom - height2 * unit));
+        for (const [name, value] of Object.entries({ "--fixed-profile-x": `${x / unit}px`, "--fixed-profile-y": `${y / unit}px`, "--fixed-profile-zoom": String(state.zoom) })) {
           if (host.style.getPropertyValue(name) !== value) host.style.setProperty(name, value, "important");
         }
       }
@@ -3692,49 +4002,69 @@ html.homepagescript-active #app main .flex-wrap > div {width:100%!important;}
     return { refresh, clear, destroy: clear };
   }
 
+  // src/WebPage/Feed/live-users.js
+  var liveUserSelector = ".bili-dyn-live-users__item";
+  var liveFaceSelector = ".bili-dyn-live-users__item__face";
+  var liveNameSelector = ".bili-dyn-live-users__item__uname";
+  function resolveFeedLiveLink(event) {
+    const row = event.composedPath().find((node) => node.matches?.(liveUserSelector));
+    if (!row?.closest(".bili-dyn-live-users")) return null;
+    const click = row.$log?.click;
+    const url2 = urlOf(click?.url);
+    if (url2?.hostname === "live.bilibili.com" && isPlayitemUrl(url2)) return { anchor: row, url: url2.href };
+    const room = String(click?.value?.room_id || "");
+    return /^[1-9]\d*$/.test(room) ? { anchor: row, url: `https://live.bilibili.com/${room}` } : null;
+  }
+
   // src/WebPage/Feed/content.css
   var content_default3 = "@media(max-width:1099px) {\n  html.feedscript-active {\n    --edge-top:calc(var(--broadcast-navigation-height,0px) + var(--homepagescript-header-height,0px));\n    --edge-width:min(300px,calc(100vw - 40px));\n  }\n  html.feedscript-active, html.feedscript-active body { min-width:0!important; overflow-x:clip!important; scrollbar-gutter:auto!important; }\n  .feedscript-path { box-sizing:border-box!important; width:100%!important; min-width:0!important; max-width:100%!important; }\n  .feedscript-viewport {\n    transform:none!important; translate:none!important; rotate:none!important; scale:none!important;\n    filter:none!important; backdrop-filter:none!important; perspective:none!important;\n    contain:none!important; will-change:auto!important; content-visibility:visible!important;\n  }\n  .feedscript-shell { display:block!important; margin:0!important; padding:0!important; }\n  .feedscript-header {\n    position:sticky!important; top:var(--broadcast-navigation-height,0px)!important;\n    height:var(--homepagescript-header-height)!important; margin:0!important; z-index:1300!important;\n  }\n  .feedscript-header .bili-header__bar { position:relative!important; inset:auto!important; }\n  .feedscript-main { box-sizing:border-box!important; width:100%!important; min-width:0!important; max-width:100%!important; margin:0!important; padding:8px!important; }\n  .feedscript-main > * { box-sizing:border-box!important; min-width:0!important; max-width:100%!important; margin-inline:0!important; }\n  /* The avatar occupies only the author row. Content uses the full inner width. */\n  .feedscript-main .bili-dyn-item__main { position:relative!important; margin-left:0!important; padding-top:16px!important; padding-inline:16px!important; }\n  .feedscript-main .bili-dyn-item__avatar { position:absolute!important; left:16px!important; top:16px!important; width:48px!important; height:48px!important; }\n  .feedscript-main .bili-dyn-item__header { position:relative!important; box-sizing:border-box!important; min-width:0!important; min-height:56px; padding:0 24px 0 64px!important; }\n  .feedscript-main .bili-dyn-item__more { inset:0 0 auto auto!important; }\n  .feedscript-main .bili-dyn-item__desc { padding-right:0!important; min-width:0!important; }\n  .feedscript-main .bili-dyn-title { max-width:100%!important; }\n  /* Put the native decoration on its own header row when it cannot share the name row. */\n  .feedscript-main .bili-dyn-item__ornament { position:static!important; width:110px!important; max-width:100%!important; margin:4px 0 0 auto!important; }\n  .feedscript-main :is(.bili-dyn-item__body,.bili-dyn-item__footer) { width:auto!important; min-width:0!important; max-width:100%!important; margin-left:0!important; padding-left:0!important; }\n  .feedscript-main .bili-dyn-item__body { margin-top:12px!important; }\n  .feedscript-main .bili-dyn-item__footer { box-sizing:border-box!important; display:flex!important; width:100%!important; padding-inline:0!important; justify-content:space-around!important; gap:0!important; }\n  .feedscript-main .bili-dyn-item__footer > * { min-width:0!important; }\n  .feedscript-main .bili-dyn-item__footer > .bili-dyn-item__action { display:flex!important; flex:1 1 0!important; align-items:center!important; justify-content:center!important; width:auto!important; margin-inline:0!important; padding-inline:0!important; }\n  .feedscript-main :is(.bili-dyn-item__header,.bili-dyn-title,.bili-dyn-publishing) { overflow-wrap:anywhere; }\n  .feedscript-main .bili-dyn-card-video__header { width:42%!important; max-width:280px!important; flex:0 0 42%!important; }\n  .feedscript-main .bili-dyn-card-video__cover { width:100%!important; height:100%!important; }\n  .feedscript-main .bili-dyn-card-video__cover > .b-img { width:100%!important; height:100%!important; }\n  .feedscript-main .bili-dyn-card-video__cover img { width:100%!important; height:100%!important; object-fit:cover!important; }\n  .feedscript-main .bili-dyn-card-video__body { box-sizing:border-box!important; min-width:0!important; height:100%!important; padding:10px 10px 36px!important; display:flex!important; flex-direction:column!important; justify-content:flex-start!important; gap:4px!important; }\n  .feedscript-main :is(.bili-dyn-card-video__title,.bili-dyn-card-video__desc) { min-width:0!important; word-break:break-word!important; }\n  .feedscript-main .bili-dyn-card-video__title { flex-shrink:0!important; }\n  .feedscript-main .bili-dyn-card-video__desc { flex:1 1 auto!important; min-height:0!important; overflow:hidden!important; }\n  .feedscript-main .bili-dyn-card-video__stat { top:auto!important; bottom:10px!important; left:8px!important; right:8px!important; width:auto!important; gap:4px 10px!important; flex-wrap:wrap!important; }\n  .feedscript-main .bili-dyn-card-video__stat__item { width:auto!important; min-width:0!important; margin:0!important; white-space:nowrap!important; }\n  .feedscript-main :is(.bili-dyn-card-article,.bili-dyn-card-pgc,.bili-dyn-card-goods) > * { min-width:0!important; max-width:100%!important; }\n  /* Publishing remains native, with controls wrapping instead of pushing the feed wider. */\n  .feedscript-main :is(.bili-dyn-publishing__body,.bili-dyn-publishing__content,.bili-dyn-publishing__action) { min-width:0!important; max-width:100%!important; }\n  .feedscript-main .bili-dyn-publishing__control { display:flex!important; height:auto!important; flex-wrap:wrap!important; gap:12px!important; }\n  .feedscript-main .bili-dyn-publishing__tools { max-width:100%!important; flex:0 0 auto!important; }\n  .feedscript-main .bili-dyn-publishing__headquarters { min-width:0!important; max-width:100%!important; margin-left:auto!important; }\n  .feedscript-main .bili-dyn-up-list { min-width:0!important; max-width:100%!important; }\n  .feedscript-scroll { width:100%!important; min-width:0!important; overflow-x:auto!important; overflow-y:hidden!important; overscroll-behavior-x:contain; }\n  .feedscript-scroll > * { flex-shrink:0!important; }\n  .feedscript-main .bili-dyn-list-tabs { display:flex!important; flex-wrap:wrap!important; gap:8px 16px!important; }\n  .edge-panel :is(.bili-dyn-my-info,.bili-dyn-live-users,.bili-dyn-search-trendings,.bili-dyn-banner) { box-sizing:border-box!important; position:static!important; width:100%!important; height:auto!important; max-height:none!important; min-height:0!important; transform:none!important; margin-inline:0!important; }\n  .edge-panel .bili-dyn-live-users { flex:0 1 auto!important; }\n  .edge-panel .bili-dyn-live-users__body { flex:0 0 auto!important; height:auto!important; max-height:none!important; overflow:visible!important; }\n  .edge-panel-right .sticky { position:static!important; transform:none!important; }\n  html.feedscript-scrolled .edge-panel :is(.bili-dyn-my-info,.bili-dyn-banner),\n  html.feedscript-scrolled .edge-panel > :has(> :is(.bili-dyn-my-info,.bili-dyn-banner)) { display:none!important; }\n  /* Keep the site's own top button and its native scroll visibility/handler. */\n  .feedscript-legacy { display:none!important; }\n  .feedscript-tools { position:fixed!important; inset:auto 18px 8px auto!important; height:auto!important; min-height:0!important; padding:0!important; margin:0!important; transform:none!important; z-index:1190!important; }\n  @media(max-width:399px) {\n    .feedscript-main .bili-dyn-item__main { padding-top:12px!important; padding-inline:12px!important; }\n    .feedscript-main .bili-dyn-item__avatar { left:12px!important; top:12px!important; }\n    .feedscript-main .bili-dyn-card-video__body { padding:8px 8px 36px!important; }\n  }\n}\n";
 
   // src/WebPage/Feed/module.js
-  var early4 = () => createPageOpening();
+  var early4 = () => createPageOpening({ resolveLink: resolveFeedLiveLink });
   function mount4() {
     const matchesPage = () => pageId(location.href) === "Feed";
     if (!matchesPage()) return;
     window.bilibiliFeedScript?.destroy();
     const header = mountHomeLayout(homeStyle(), matchesPage);
     const html = document.documentElement, narrow = matchMedia("(max-width:1099px)");
-    const events = new AbortController(), owned = /* @__PURE__ */ new Map();
+    const events2 = new AbortController(), owned = /* @__PURE__ */ new Map();
     const profileSelector = "bili-user-profile,.bili-user-profile";
     const popup = `${profileSelector},[role="dialog"],[role="tooltip"],[class*="popover"],[class*="popper"],[class*="image-viewer"],[class*="image-preview"]`;
     const panels = createEdgePanels({ prefix: "feedscript", popup, scrollRegions: {
       left: ".bili-dyn-live-users",
       right: ".sticky,.bili-dyn-search-trendings"
     } });
-    const profiles = createFixedProfiles({ selector: profileSelector, getBounds: (_host, { width }) => {
+    let profileAnchor = null;
+    const profiles = createFixedProfiles({ selector: profileSelector, getBounds: (host, size) => {
       const sidebar = document.querySelector(".feedscript-shell .edge-panel-left.edge-panel-open");
       if (!sidebar) return null;
-      const box = sidebar.getBoundingClientRect();
-      const avatarLane = box.left + 88 * box.width / sidebar.offsetWidth;
-      return { align: "right", left: Math.max(avatarLane, Math.min(box.right + 8, html.clientWidth - 8 - Math.min(width, 240))) };
+      const anchor = profileAnchor?.isConnected ? profileAnchor.getBoundingClientRect() : null;
+      return { align: "right", ...anchor && { y: anchor.top - size.height } };
     } });
-    let main = null, frame = 0, stopped = false, layoutPending = false, restoreViewport = null;
+    let main = null, frame = 0, stopped = false, layoutPending = false, restoreViewport = null, wanted = null;
     const dynamic = createDynamicContent({ getRoot: () => main, popup, isActive: () => narrow.matches });
     const style = Object.assign(document.createElement("style"), {
       id: "feedscript-style",
       textContent: content_default3 + `@media(max-width:1099px){html.feedscript-active{${dynamicContentStyle(".feedscript-main")}}}`
     });
     function mark(element, name) {
-      if (!element || element.classList.contains(name)) return;
-      if (!owned.has(element)) owned.set(element, /* @__PURE__ */ new Set());
-      owned.get(element).add(name);
-      element.classList.add(name);
+      if (!element) return;
+      if (!element.classList.contains(name)) {
+        if (!owned.has(element)) owned.set(element, /* @__PURE__ */ new Set());
+        owned.get(element).add(name);
+        element.classList.add(name);
+      }
+      if (wanted && owned.get(element)?.has(name)) {
+        if (!wanted.has(element)) wanted.set(element, /* @__PURE__ */ new Set());
+        wanted.get(element).add(name);
+      }
     }
     function clearClasses() {
       for (const [element, names] of owned) for (const name of names) element.classList.remove(name);
       owned.clear();
     }
     function updateLayout() {
-      clearClasses();
+      wanted = /* @__PURE__ */ new Map();
       const root = document.querySelector(".bili-dyn-home--member");
       main = root?.querySelector("main") || null;
       if (!main) {
@@ -3775,6 +4105,14 @@ html.homepagescript-active #app main .flex-wrap > div {width:100%!important;}
           if (button.textContent.replace(/\s/g, "") === "回到旧版") mark(button, "feedscript-legacy");
         }
       }
+      for (const [element, names] of owned) {
+        for (const name of names) if (!wanted.get(element)?.has(name)) {
+          element.classList.remove(name);
+          names.delete(name);
+        }
+        if (!names.size) owned.delete(element);
+      }
+      wanted = null;
       panels.sync({ left, right });
       dynamic.refresh();
     }
@@ -3783,6 +4121,7 @@ html.homepagescript-active #app main .flex-wrap > div {width:100%!important;}
       profiles.clear();
       dynamic.clear();
       clearClasses();
+      wanted = null;
       html.classList.remove("feedscript-scrolled");
       restoreViewport?.();
       restoreViewport = null;
@@ -3827,6 +4166,20 @@ html.homepagescript-active #app main .flex-wrap > div {width:100%!important;}
     const onProfileTransition = (event) => {
       if (event.target instanceof Element && event.target.closest(profileSelector)) schedule(false);
     };
+    const onProfileHover = (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest(liveNameSelector)) {
+        event.stopImmediatePropagation();
+        return;
+      }
+      if (event.type !== "mouseover") return;
+      const anchor = target?.closest(liveFaceSelector) || null;
+      if (!anchor && !event.composedPath().some((node) => node._profile)) return;
+      if (profileAnchor !== anchor) {
+        profileAnchor = anchor;
+        schedule(false);
+      }
+    };
     for (const [target, type, handler, capture = false] of [
       [window, "scroll", () => schedule(false), true],
       [window, "resize", () => schedule()],
@@ -3834,13 +4187,15 @@ html.homepagescript-active #app main .flex-wrap > div {width:100%!important;}
       [document, "load", () => schedule(), true],
       [narrow, "change", () => schedule()],
       [document, "transitionrun", onProfileTransition, true],
-      [document, "transitionend", onProfileTransition, true]
-    ]) target.addEventListener(type, handler, { signal: events.signal, capture, passive: true });
+      [document, "transitionend", onProfileTransition, true],
+      [document, "mouseenter", onProfileHover, true],
+      [document, "mouseover", onProfileHover, true]
+    ]) target.addEventListener(type, handler, { signal: events2.signal, capture, passive: true });
     refresh();
     const instance = { version, refresh, destroy() {
       if (stopped) return;
       stopped = true;
-      events.abort();
+      events2.abort();
       observer.disconnect();
       resize.disconnect();
       cancelAnimationFrame(frame);
@@ -4008,12 +4363,6 @@ html.homepagescript-active #app main .flex-wrap > div {width:100%!important;}
     mount: () => mount8
   });
 
-  // src/WebPage/Space/content.css
-  var content_default7 = "@media(max-width:1099px) {\nhtml.homepagescript-active :is(#app,.space-main,.header-upinfo,.nav-bar__main) {box-sizing:border-box!important;min-width:0!important;width:100%!important;max-width:100%!important;}\n/* Identity and actions need separate rows; desktop flex bases squeeze the name. */\nhtml.homepagescript-active .space-header {height:auto!important;min-height:240px!important;padding-top:var(--homepagescript-header-height,56px)!important;}\nhtml.homepagescript-active .header-upinfo {display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:16px!important;padding:24px 16px 16px!important;height:auto!important;}\nhtml.homepagescript-active .header-upinfo .upinfo__main {display:flex!important;flex:0 0 auto!important;align-items:center!important;gap:16px!important;min-width:0!important;width:100%!important;margin:0!important;}\nhtml.homepagescript-active .header-upinfo .upinfo-avatar {flex:0 0 64px!important;height:64px!important;margin:0!important;}\nhtml.homepagescript-active .header-upinfo .upinfo-detail {flex:1 1 0!important;min-width:0!important;}\nhtml.homepagescript-active .header-upinfo .upinfo-detail__top {display:flex!important;flex-wrap:wrap!important;align-items:center!important;gap:4px 6px!important;min-width:0!important;}\nhtml.homepagescript-active .header-upinfo .upinfo-detail__top > * {flex-shrink:0!important;margin:0!important;}\nhtml.homepagescript-active .header-upinfo .nickname {flex:0 1 auto!important;max-width:100%!important;font-size:22px!important;line-height:1.35!important;overflow-wrap:anywhere!important;}\nhtml.homepagescript-active .header-upinfo .header-sign {margin-top:6px!important;}\nhtml.homepagescript-active .header-upinfo .operations {align-self:stretch!important;min-width:0!important;}\nhtml.homepagescript-active .header-upinfo .interactions {display:flex!important;flex-wrap:wrap!important;gap:8px!important;min-width:0!important;max-width:100%!important;}\nhtml.homepagescript-active .header-upinfo .interactions > * {margin:0!important;}\nhtml.homepagescript-active .header-upinfo :is(.space-follow-btn,.message-btn) {box-sizing:border-box!important;width:120px!important;max-width:100%!important;height:34px!important;}\n/* Keep space navigation in document flow so a wrapped bar cannot cover cards. */\nhtml.homepagescript-active .space-navbar {position:static!important;}\nhtml.homepagescript-active .nav-bar__main {display:flex!important;flex-wrap:wrap!important;gap:10px 16px!important;padding:8px 16px 12px!important;height:auto!important;}\nhtml.homepagescript-active .nav-bar__main-left {display:flex!important;flex-wrap:wrap!important;align-items:center!important;gap:8px 16px!important;padding:0!important;margin:0!important;}\nhtml.homepagescript-active .nav-bar-search {--search-width:100%;flex:1 1 150px!important;max-width:220px!important;margin:0!important;}\nhtml.homepagescript-active .nav-bar-search .nav-search-input {box-sizing:border-box!important;width:100%!important;}\nhtml.homepagescript-active .nav-statistics {display:flex!important;flex-wrap:wrap!important;gap:8px 16px!important;}\nhtml.homepagescript-active .nav-statistics__item {min-width:0!important;margin:0!important;}\nhtml.homepagescript-active .nav-tab {max-width:100%!important;}\nhtml.homepagescript-active .nav-tab__item {flex-shrink:0!important;}\nhtml.homepagescript-active .space-favlist {box-sizing:border-box!important;flex-direction:column!important;width:100%!important;margin:0!important;padding:8px!important;gap:12px!important;}\nhtml.homepagescript-active :is(.favlist-aside,.favlist-main,.favlist-info-detail) {min-width:0!important;width:100%!important;}\nhtml.homepagescript-active .favlist-aside {max-height:240px!important;overflow:auto!important;}\nhtml.homepagescript-active .favlist-info {flex-wrap:wrap!important;height:auto!important;gap:12px!important;}\nhtml.homepagescript-active :is(.favlist-info-detail__actions,.fav-list-header-filter,.vui_pagenation,.vui_pagenation--btns) {flex-wrap:wrap!important;gap:8px!important;height:auto!important;max-width:100%!important;}\nhtml.homepagescript-active .fav-list-header-filter__right {min-width:0!important;max-width:100%!important;}\nhtml.homepagescript-active .fav-list-main .items {display:grid!important;grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important;gap:16px 12px!important;}\nhtml.homepagescript-active :is(.items__item,.fav-list-main .bili-video-card) {min-width:0!important;width:100%!important;}\n  /* Remove desktop gutters and sidebar occupation after stacking the columns. */\n  html.homepagescript-active .space-main { padding:0!important; }\n  html.homepagescript-active .nav-tab { display:flex!important; flex-wrap:wrap!important; gap:4px 12px!important; height:auto!important; overflow:visible!important; }\n  html.homepagescript-active .nav-tab__item { position:relative!important; height:40px!important; margin:0!important; padding:0 2px!important; }\n  html.homepagescript-active .nav-tab-cursor { display:none!important; }\n  html.homepagescript-active .nav-tab__item.active::after { content:''; position:absolute; left:0; right:0; bottom:0; height:3px; border-radius:2px; background:var(--brand_blue,#00aeec); }\n  html.homepagescript-active :is(.nav-bar__main-left,.nav-bar__main-right) { box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important; }\n  html.homepagescript-active :is(.fav-list-header-filter__left,.fav-list-header-filter__right) { min-width:0!important; width:100%!important; max-width:100%!important; flex:1 1 100%!important; }\n  html.homepagescript-active .fav-list-header-filter :is(.vui_input,.vui_input-wrapper,.radio-filter) { box-sizing:border-box!important; min-width:0!important; max-width:100%!important; }\n  html.homepagescript-active :is(.space-home,.space-dynamic,.space-upload,.space-lists,.space-subscribe) {\n    box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important;\n    margin:0!important; padding:16px!important; gap:16px!important;\n  }\n  html.homepagescript-active :is(.space-home,.space-dynamic,.space-upload,.space-subscribe) { flex-direction:column!important; }\n  html.homepagescript-active :is(.space-home > .content,.space-home > .aside,.space-dynamic__left,.space-dynamic__content,.space-dynamic__right,.space-dynamic-inner,.upload-sidenav,.upload-content,.subscribe-sidebar,.subscribe-content) {\n    box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important; flex:auto!important; margin:0!important;\n  }\n  html.homepagescript-active :is(.space-main .side-nav,.section-wrap__header,.space-main .breadcrumb,.space-main .radio-filter,.lists-header,.video-list__header,.video-list__actions,.space-home .home-empty-content,.space-home .top-video) {\n    flex-wrap:wrap!important; gap:8px!important; height:auto!important; min-width:0!important; max-width:100%!important;\n  }\n  html.homepagescript-active .space-main .side-nav { display:flex!important; }\n  html.homepagescript-active :is(.space-dynamic__left,.upload-sidenav,.subscribe-sidebar) { position:static!important; inset:auto!important; height:auto!important; min-height:0!important; max-height:none!important; flex:0 0 auto!important; }\n  html.homepagescript-active .space-main .side-nav__item { box-sizing:border-box!important; width:auto!important; flex:0 1 auto!important; margin:0!important; padding:10px 16px!important; }\n  html.homepagescript-active .favlist-aside { position:static!important; inset:auto!important; height:auto!important; margin:0!important; padding:0!important; }\n  html.homepagescript-active .favlist-aside .fav-collapse-wrap { max-height:none!important; overflow:visible!important; }\n  html.homepagescript-active :is(.space-home .section-wrap,.space-home .section-wrap__content,.space-home .wrap,.space-home .home-empty-content__right,.space-home .top-video__right,.space-main .video-list__title,.space-main .lists-content,.space-main .contet-list) { min-width:0!important; max-width:100%!important; }\n  html.homepagescript-active .space-home :is(.section-wrap__title,.video-list__title) { font-size:20px!important; line-height:1.4!important; }\n  html.homepagescript-active .space-home .section-wrap__header { align-items:center!important; gap:8px!important; margin-bottom:16px!important; }\n  html.homepagescript-active .space-home .section-wrap .radio-filter { margin:0!important; }\n  html.homepagescript-active .space-home :is(.btns,.video-list__btns) { display:flex!important; flex-wrap:wrap!important; gap:8px!important; margin:0!important; }\n  html.homepagescript-active .space-home :is(.btns,.video-list__btns) .vui_button { margin:0!important; }\n  html.homepagescript-active .space-home .video-list__header { display:flex!important; flex-direction:column!important; align-items:stretch!important; gap:12px!important; }\n  html.homepagescript-active .space-home .video-list__title { display:flex!important; align-items:baseline!important; gap:6px!important; }\n  html.homepagescript-active .space-home .video-list__title .title { min-width:0!important; -webkit-line-clamp:2!important; overflow-wrap:anywhere!important; }\n  html.homepagescript-active .space-home .video-list__title .amount { flex-shrink:0!important; margin:0!important; }\n  html.homepagescript-active :is(.space-home .items,.space-home .article-list,.space-home .video-list__content,.space-upload .video-list.grid-mode,.space-lists .video-list__content,.space-lists .lists-content > .grid-mode,.space-upload .opus-collection-list) {\n    display:grid!important; grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important; gap:16px 12px!important; width:100%!important;\n  }\n  html.homepagescript-active :is(.space-main .bili-video-card,.space-home .fav-card,.space-home .article-list__item,.space-home .article-card,.space-upload .upload-video-card,.space-upload .upload-video-card__left,.space-upload .upload-video-card__main,.space-lists .video-list__item) { min-width:0!important; width:100%!important; max-width:100%!important; }\n  html.homepagescript-active .space-upload .upload-video-card.list-mode { flex-wrap:wrap!important; gap:8px!important; }\n  /* Native masonry writes absolute positions and a fixed container height inline.\n     Override only in narrow mode; widening and destroy reveal those native values. */\n  html.homepagescript-active .space-upload :is(.opus,.opus-body,.opus-feed,.masonry_grid_v2) { min-width:0!important; max-width:100%!important; width:100%!important; }\n  html.homepagescript-active .space-upload .opus-header__top .content-filter { flex-wrap:wrap!important; gap:8px 0!important; }\n  html.homepagescript-active .space-upload .opus-header__top .content-tab { font-size:18px!important; }\n  html.homepagescript-active .space-upload .opus-header__bottom { margin-top:12px!important; }\n  html.homepagescript-active .space-upload .opus-body { margin-top:16px!important; }\n  html.homepagescript-active .space-upload .opus .masonry_grid_v2 > .container { box-sizing:border-box!important; display:grid!important; grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important; align-items:start!important; gap:16px 12px!important; width:100%!important; height:auto!important; margin:0!important; }\n  html.homepagescript-active .space-upload .opus .masonry_grid_v2 > .container > .item { position:static!important; inset:auto!important; transform:none!important; box-sizing:border-box!important; width:100%!important; height:auto!important; min-width:0!important; margin:0!important; }\n  html.homepagescript-active .space-upload .opus :is(.opus-card,.upload-opus-collection-card) { min-width:0!important; max-width:100%!important; }\n  html.homepagescript-active :is(.space-home .bangumi-section .items,.space-subscribe .bangumi-items) { display:grid!important; grid-template-columns:minmax(0,1fr)!important; gap:16px!important; }\n  html.homepagescript-active :is(.space-main .bangumi-item,.space-main .bili-bangumi-card) { min-width:0!important; width:100%!important; max-width:100%!important; }\n  html.homepagescript-active .space-main .bili-bangumi-card__cover { flex:0 0 35%!important; width:35%!important; max-width:154px!important; }\n  html.homepagescript-active .space-main .bili-bangumi-card__details { flex:1!important; min-width:0!important; width:auto!important; }\n  html.homepagescript-active :is(.space-dynamic .bili-dyn-item,.space-dynamic .bili-dyn-item__main,.space-dynamic .bili-dyn-item__header,.space-dynamic .bili-dyn-item__body,.space-dynamic .bili-dyn-item__footer) { box-sizing:border-box!important; min-width:0!important; max-width:100%!important; }\n  html.homepagescript-active .space-dynamic .bili-dyn-item__main { padding:12px!important; }\n  html.homepagescript-active .space-dynamic .bili-dyn-item__avatar { position:absolute!important; left:12px!important; top:12px!important; width:48px!important; height:48px!important; margin:0!important; }\n  html.homepagescript-active .space-dynamic .bili-dyn-item__header { padding:0 32px 0 60px!important; min-height:48px!important; }\n  html.homepagescript-active .space-dynamic .bili-dyn-item__ornament { display:none!important; }\n  html.homepagescript-active :is(.space-dynamic .bili-dyn-item__header,.space-dynamic .bili-dyn-item__body,.space-dynamic .bili-dyn-item__footer) { margin-left:0!important; }\n  html.homepagescript-active :is(.space-dynamic .bili-dyn-card-video__header,.space-dynamic .bili-dyn-card-ugc) { box-sizing:border-box!important; max-width:100%!important; }\n  html.homepagescript-active .space-dynamic .bili-dyn-card-ugc__detail { min-width:0!important; flex:1!important; }\n  html.homepagescript-active :is(.space-main .vui_pagenation-go,.space-main .nav-statistics,.space-main .upinfo-detail__bottom) { min-width:0!important; max-width:100%!important; }\n}\n";
-
-  // src/WebPage/Space/favorites.css
-  var favorites_default = '/* Favorites-only rules. Keep the native palette, folder nodes and action buttons. */\n@media(max-width:1099px) {\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] {padding:16px!important;gap:12px!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] :is(.favlist-aside,.favlist-main) {box-sizing:border-box!important;min-width:0!important;width:100%!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-aside {max-height:none!important;overflow:visible!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-main {margin-top:0!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .fav-collapse-wrap {max-height:220px!important;overflow-x:hidden!important;overflow-y:auto!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] :is(.vui_collapse,.vui_collapse_item,.vui_collapse_item_content,.fav-collapse,.fav-collapse-wrap,.vui_sidebar,.fav-sortable-list,.fav-sidebar-item,.vui_sidebar-item) {box-sizing:border-box!important;min-width:0!important;max-width:100%!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .vui_sidebar-item {width:100%!important;height:auto!important;min-height:48px!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .vui_sidebar-item-title {flex:1 1 0!important;min-width:0!important;width:0!important;text-align:left!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .vui_sidebar-item-title .vui_ellipsis {display:block!important;flex:1 1 0!important;min-width:0!important;width:auto!important;max-width:none!important;height:auto!important;white-space:normal!important;overflow:visible!important;overflow-wrap:anywhere!important;text-overflow:clip!important;-webkit-line-clamp:unset!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .vui_sidebar-item-right {flex:none!important;margin-left:8px!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .fav-collapse-create {display:none!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] [data-broadcast-fav-group="hidden"],\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] [data-broadcast-fav-group] .vui_collapse_item_header {display:none!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] [data-broadcast-fav-group="selected"] .vui_collapse_item_content {display:block!important;padding-bottom:0!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] [data-broadcast-fav-open="false"] [data-broadcast-fav-group="selected"] {display:none!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-navigation {display:grid;grid-template-columns:minmax(0,1fr);align-items:start;gap:4px 16px;border-bottom:1px solid var(--line_regular,#e3e5e7);margin-bottom:12px;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-categories {display:flex;flex:1;min-width:0;flex-wrap:wrap;gap:4px 16px;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-shortcuts {grid-column:1/-1;display:flex;align-items:center;justify-content:flex-end;gap:16px;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] :is(.broadcast-fav-categories button,.broadcast-fav-create,.broadcast-fav-shortcuts a,.broadcast-fav-directory-toggle) {box-sizing:border-box;font:inherit;color:var(--text1,#18191c);background:transparent;border:0;cursor:pointer;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] button.broadcast-fav-create {display:inline-flex;flex:none;align-items:center;justify-content:flex-start;gap:6px;margin:0 auto 0 0!important;padding:9px 0!important;white-space:nowrap;color:var(--brand_blue,#00aeec);}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-create :is(svg,.vui_icon) {display:block!important;flex:none;width:20px;height:20px;margin:0!important;color:var(--brand_blue,#00aeec);}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-create[hidden] {display:none;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-categories button {padding:9px 0;border-bottom:2px solid transparent;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-categories button[aria-pressed="true"] {color:var(--brand_blue,#00aeec);border-bottom-color:var(--brand_blue,#00aeec);}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-shortcuts a {padding:9px 0;white-space:nowrap;text-decoration:none;color:var(--text2,#61666d);}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-directory-toggle {display:flex;align-items:center;justify-content:space-between;width:100%;text-align:left;padding:8px 0;margin-bottom:8px;}\n  /* Keep the native cover and detail column. Only relocate the social actions;\n     playback stays underneath the title in the original detail column. */\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info {display:flex!important;flex-wrap:nowrap!important;align-items:flex-start!important;gap:0!important;height:auto!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-detail {display:grid!important;flex:1 1 0!important;min-width:0!important;width:auto!important;grid-template-columns:minmax(0,1fr) auto!important;grid-template-rows:auto auto auto!important;gap:4px 12px!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-detail__actions {display:contents!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-detail__title {grid-area:1/1/3/2!important;min-width:0!important;align-self:start!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-detail__title-row {min-width:0!important;max-width:100%!important;flex-wrap:wrap!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-detail__actions > .vui_button {display:inline-flex!important;flex-direction:row!important;align-items:center!important;justify-content:center!important;flex-wrap:nowrap!important;white-space:nowrap!important;margin:0!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .playall-btn {grid-area:3/1!important;justify-self:start!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-batch {grid-area:3/2!important;justify-self:end!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-action {grid-column:2!important;justify-self:end!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-action:nth-child(2) {grid-row:1!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-action:nth-child(3) {grid-row:2!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .fav-list-header-filter {display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:12px!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] :is(.fav-list-header-filter__left,.fav-list-header-filter__right) {margin:0!important;flex:none!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .fav-list-header-filter__right > .vui_input {display:flex!important;min-width:0!important;width:100%!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .fav-list-header-filter .vui_input__prepend {flex:none!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .fav-list-header-filter .vui_input-wrapper {flex:1!important;min-width:0!important;width:auto!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .fav-list-header-filter input {flex:1!important;min-width:0!important;width:0!important;}\n}\n@media(max-width:600px) {\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-navigation {gap:12px;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-categories {gap:4px 12px;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-categories button {min-width:0;max-width:100%;text-align:left;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-shortcuts {gap:10px;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-shortcuts a {font-size:12px;}\n}\n@media(max-width:463px) {\n  /* When the native-size cover plus two action columns cannot fit, wrap the\n     whole detail column instead of shrinking the native cover or its buttons. */\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info {flex-wrap:wrap!important;gap:12px!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-detail {flex:1 1 100%!important;margin-left:0!important;}\n}\n';
-
   // src/WebPage/Space/favorites.js
   function createFavoritesLayout() {
     let state = null;
@@ -4075,7 +4424,7 @@ html.homepagescript-active #app main .flex-wrap > div {width:100%!important;}
       }
       if (state && (state.root !== root || sources.length !== state.groups.length || sources.some((group, index) => group.element !== state.groups[index].element || group.header !== state.groups[index].header))) clear();
       if (!state) {
-        const events = new AbortController();
+        const events2 = new AbortController();
         const navigation = document.createElement("div");
         navigation.className = "broadcast-fav-navigation";
         const categories = document.createElement("nav");
@@ -4093,7 +4442,7 @@ html.homepagescript-active #app main .flex-wrap > div {width:100%!important;}
         shortcuts.append(create);
         create.addEventListener("click", () => {
           root.querySelector(".fav-collapse-create")?.click();
-        }, { signal: events.signal });
+        }, { signal: events2.signal });
         navigation.append(categories, shortcuts);
         const toggle = document.createElement("button");
         toggle.type = "button";
@@ -4121,7 +4470,7 @@ html.homepagescript-active #app main .flex-wrap > div {width:100%!important;}
           toggle,
           arrow,
           groups,
-          events,
+          events: events2,
           selected: groups.find((group) => group.content && group.element.querySelector(".vui_sidebar-item--active")) || groups.find((group) => group.content),
           open: true,
           activeItem: null
@@ -4136,7 +4485,7 @@ html.homepagescript-active #app main .flex-wrap > div {width:100%!important;}
               state.selected = group;
               state.open = true;
               render();
-            }, { signal: events.signal });
+            }, { signal: events2.signal });
           } else if (group.header instanceof HTMLAnchorElement) {
             group.link = document.createElement("a");
             shortcuts.append(group.link);
@@ -4145,7 +4494,7 @@ html.homepagescript-active #app main .flex-wrap > div {width:100%!important;}
         toggle.addEventListener("click", () => {
           state.open = !state.open;
           render();
-        }, { signal: events.signal });
+        }, { signal: events2.signal });
         root.setAttribute("data-broadcast-fav-layout", "");
         page.setAttribute("data-broadcast-favorites-active", "");
         root.prepend(navigation, toggle);
@@ -4187,368 +4536,36 @@ html.homepagescript-active #app main .flex-wrap > div {width:100%!important;}
     return { refresh, destroy: clear };
   }
 
+  // src/WebPage/Space/content.css
+  var content_default7 = "@media(max-width:1099px) {\r\nhtml.homepagescript-active :is(#app,.space-main,.header-upinfo,.nav-bar__main) {box-sizing:border-box!important;min-width:0!important;width:100%!important;max-width:100%!important;}\r\n/* Identity and actions need separate rows; desktop flex bases squeeze the name. */\r\nhtml.homepagescript-active .space-header {height:auto!important;min-height:240px!important;padding-top:var(--homepagescript-header-height,56px)!important;}\r\nhtml.homepagescript-active .header-upinfo {display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:16px!important;padding:24px 16px 16px!important;height:auto!important;}\r\nhtml.homepagescript-active .header-upinfo .upinfo__main {display:flex!important;flex:0 0 auto!important;align-items:center!important;gap:16px!important;min-width:0!important;width:100%!important;margin:0!important;}\r\nhtml.homepagescript-active .header-upinfo .upinfo-avatar {flex:0 0 64px!important;height:64px!important;margin:0!important;}\r\nhtml.homepagescript-active .header-upinfo .upinfo-detail {flex:1 1 0!important;min-width:0!important;}\r\nhtml.homepagescript-active .header-upinfo .upinfo-detail__top {display:flex!important;flex-wrap:wrap!important;align-items:center!important;gap:4px 6px!important;min-width:0!important;}\r\nhtml.homepagescript-active .header-upinfo .upinfo-detail__top > * {flex-shrink:0!important;margin:0!important;}\r\nhtml.homepagescript-active .header-upinfo .nickname {flex:0 1 auto!important;max-width:100%!important;font-size:22px!important;line-height:1.35!important;overflow-wrap:anywhere!important;}\r\nhtml.homepagescript-active .header-upinfo .header-sign {margin-top:6px!important;}\r\nhtml.homepagescript-active .header-upinfo .operations {align-self:stretch!important;min-width:0!important;}\r\nhtml.homepagescript-active .header-upinfo .interactions {display:flex!important;flex-wrap:wrap!important;gap:8px!important;min-width:0!important;max-width:100%!important;}\r\nhtml.homepagescript-active .header-upinfo .interactions > * {margin:0!important;}\r\nhtml.homepagescript-active .header-upinfo :is(.space-follow-btn,.message-btn) {box-sizing:border-box!important;width:120px!important;max-width:100%!important;height:34px!important;}\r\n/* Keep space navigation in document flow so a wrapped bar cannot cover cards. */\r\nhtml.homepagescript-active .space-navbar {position:static!important;}\r\nhtml.homepagescript-active .nav-bar__main {display:flex!important;flex-wrap:wrap!important;gap:10px 16px!important;padding:8px 16px 12px!important;height:auto!important;}\r\nhtml.homepagescript-active .nav-bar__main-left {display:flex!important;flex-wrap:wrap!important;align-items:center!important;gap:8px 16px!important;padding:0!important;margin:0!important;}\r\nhtml.homepagescript-active .nav-bar-search {--search-width:100%;flex:1 1 150px!important;max-width:220px!important;margin:0!important;}\r\nhtml.homepagescript-active .nav-bar-search .nav-search-input {box-sizing:border-box!important;width:100%!important;}\r\nhtml.homepagescript-active .nav-statistics {display:flex!important;flex-wrap:wrap!important;gap:8px 16px!important;}\r\nhtml.homepagescript-active .nav-statistics__item {min-width:0!important;margin:0!important;}\r\nhtml.homepagescript-active .nav-tab {max-width:100%!important;}\r\nhtml.homepagescript-active .nav-tab__item {flex-shrink:0!important;}\r\nhtml.homepagescript-active .space-favlist {box-sizing:border-box!important;flex-direction:column!important;width:100%!important;margin:0!important;padding:8px!important;gap:12px!important;}\r\nhtml.homepagescript-active :is(.favlist-aside,.favlist-main,.favlist-info-detail) {min-width:0!important;width:100%!important;}\r\nhtml.homepagescript-active .favlist-aside {max-height:240px!important;overflow:auto!important;}\r\nhtml.homepagescript-active .favlist-info {flex-wrap:wrap!important;height:auto!important;gap:12px!important;}\r\nhtml.homepagescript-active :is(.favlist-info-detail__actions,.fav-list-header-filter,.vui_pagenation,.vui_pagenation--btns) {flex-wrap:wrap!important;gap:8px!important;height:auto!important;max-width:100%!important;}\r\nhtml.homepagescript-active .fav-list-header-filter__right {min-width:0!important;max-width:100%!important;}\r\nhtml.homepagescript-active .fav-list-main .items {display:grid!important;grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important;gap:16px 12px!important;}\r\nhtml.homepagescript-active :is(.items__item,.fav-list-main .bili-video-card) {min-width:0!important;width:100%!important;}\r\n  /* Remove desktop gutters and sidebar occupation after stacking the columns. */\r\n  html.homepagescript-active .space-main { padding:0!important; }\r\n  html.homepagescript-active .nav-tab { display:flex!important; flex-wrap:wrap!important; gap:4px 12px!important; height:auto!important; overflow:visible!important; }\r\n  html.homepagescript-active .nav-tab__item { position:relative!important; height:40px!important; margin:0!important; padding:0 2px!important; }\r\n  html.homepagescript-active .nav-tab-cursor { display:none!important; }\r\n  html.homepagescript-active .nav-tab__item.active::after { content:''; position:absolute; left:0; right:0; bottom:0; height:3px; border-radius:2px; background:var(--brand_blue,#00aeec); }\r\n  html.homepagescript-active :is(.nav-bar__main-left,.nav-bar__main-right) { box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important; }\r\n  html.homepagescript-active :is(.fav-list-header-filter__left,.fav-list-header-filter__right) { min-width:0!important; width:100%!important; max-width:100%!important; flex:1 1 100%!important; }\r\n  html.homepagescript-active .fav-list-header-filter :is(.vui_input,.vui_input-wrapper,.radio-filter) { box-sizing:border-box!important; min-width:0!important; max-width:100%!important; }\r\n  html.homepagescript-active :is(.space-home,.space-dynamic,.space-upload,.space-lists,.space-list-details,.space-subscribe) {\r\n    box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important;\r\n    margin:0!important; padding:16px!important; gap:16px!important;\r\n  }\r\n  html.homepagescript-active :is(.space-home,.space-dynamic,.space-upload,.space-subscribe) { flex-direction:column!important; }\r\n  html.homepagescript-active :is(.space-home > .content,.space-home > .aside,.space-dynamic__left,.space-dynamic__content,.space-dynamic__right,.space-dynamic-inner,.upload-sidenav,.upload-content,.subscribe-sidebar,.subscribe-content) {\r\n    box-sizing:border-box!important; min-width:0!important; width:100%!important; max-width:100%!important; flex:auto!important; margin:0!important;\r\n  }\r\n  html.homepagescript-active :is(.space-main .side-nav,.section-wrap__header,.space-main .breadcrumb,.space-main .radio-filter,.lists-header,.space-list-details .list-header,.video-list__header,.video-list__actions,.space-home .home-empty-content,.space-home .top-video) {\r\n    flex-wrap:wrap!important; gap:8px!important; height:auto!important; min-width:0!important; max-width:100%!important;\r\n  }\r\n  html.homepagescript-active .space-main .side-nav { display:flex!important; }\r\n  html.homepagescript-active :is(.space-dynamic__left,.upload-sidenav,.subscribe-sidebar) { position:static!important; inset:auto!important; height:auto!important; min-height:0!important; max-height:none!important; flex:0 0 auto!important; }\r\n  html.homepagescript-active .space-main .side-nav__item { box-sizing:border-box!important; width:auto!important; flex:0 1 auto!important; margin:0!important; padding:10px 16px!important; }\r\n  html.homepagescript-active .favlist-aside { position:static!important; inset:auto!important; height:auto!important; margin:0!important; padding:0!important; }\r\n  html.homepagescript-active .favlist-aside .fav-collapse-wrap { max-height:none!important; overflow:visible!important; }\r\n  html.homepagescript-active :is(.space-home .section-wrap,.space-home .section-wrap__content,.space-home .wrap,.space-home .home-empty-content__right,.space-home .top-video__right,.space-main .video-list__title,.space-main .lists-content,.space-main .contet-list) { min-width:0!important; max-width:100%!important; }\r\n  html.homepagescript-active .space-home :is(.section-wrap__title,.video-list__title) { font-size:20px!important; line-height:1.4!important; }\r\n  html.homepagescript-active .space-home .section-wrap__header { align-items:center!important; gap:8px!important; margin-bottom:16px!important; }\r\n  html.homepagescript-active .space-home .section-wrap .radio-filter { margin:0!important; }\r\n  html.homepagescript-active .space-home :is(.btns,.video-list__btns) { display:flex!important; flex-wrap:wrap!important; gap:8px!important; margin:0!important; }\r\n  html.homepagescript-active .space-home :is(.btns,.video-list__btns) .vui_button { margin:0!important; }\r\n  html.homepagescript-active .space-home .video-list__header { display:flex!important; flex-direction:column!important; align-items:stretch!important; gap:12px!important; }\r\n  html.homepagescript-active .space-home .video-list__title { display:flex!important; align-items:baseline!important; gap:6px!important; }\r\n  html.homepagescript-active .space-home .video-list__title .title { min-width:0!important; -webkit-line-clamp:2!important; overflow-wrap:anywhere!important; }\r\n  html.homepagescript-active .space-home .video-list__title .amount { flex-shrink:0!important; margin:0!important; }\r\n  html.homepagescript-active :is(.space-home .items,.space-home .article-list,.space-home .video-list__content,.space-upload .video-list.grid-mode,.space-list-details .list-content,.space-lists .video-list__content,.space-lists .lists-content > .grid-mode,.space-lists .contet-grid > .video-grid,.space-upload .opus-collection-list) {\r\n    display:grid!important; grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important; gap:16px 12px!important; width:100%!important;\r\n  }\r\n  html.homepagescript-active :is(.space-main .bili-video-card,.space-home .fav-card,.space-home .article-list__item,.space-home .article-card,.space-upload .upload-video-card,.space-upload .upload-video-card__left,.space-upload .upload-video-card__main,.space-lists .video-list__item,.space-list-details .list-video-item) { min-width:0!important; width:100%!important; max-width:100%!important; }\r\n  html.homepagescript-active .space-upload .upload-video-card.list-mode { flex-wrap:wrap!important; gap:8px!important; }\r\n  /* Native masonry writes absolute positions and a fixed container height inline.\r\n     Override only in narrow mode; widening and destroy reveal those native values. */\r\n  html.homepagescript-active .space-upload :is(.opus,.opus-body,.opus-feed,.masonry_grid_v2) { min-width:0!important; max-width:100%!important; width:100%!important; }\r\n  html.homepagescript-active .space-upload .opus-header__top .content-filter { flex-wrap:wrap!important; gap:8px 0!important; }\r\n  html.homepagescript-active .space-upload .opus-header__top .content-tab { font-size:18px!important; }\r\n  html.homepagescript-active .space-upload .opus-header__bottom { margin-top:12px!important; }\r\n  html.homepagescript-active .space-upload .opus-body { margin-top:16px!important; }\r\n  html.homepagescript-active .space-upload .opus .masonry_grid_v2 > .container { box-sizing:border-box!important; display:grid!important; grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important; align-items:start!important; gap:16px 12px!important; width:100%!important; height:auto!important; margin:0!important; }\r\n  html.homepagescript-active .space-upload .opus .masonry_grid_v2 > .container > .item { position:static!important; inset:auto!important; transform:none!important; box-sizing:border-box!important; width:100%!important; height:auto!important; min-width:0!important; margin:0!important; }\r\n  html.homepagescript-active .space-upload .opus :is(.opus-card,.upload-opus-collection-card) { min-width:0!important; max-width:100%!important; }\r\n  html.homepagescript-active :is(.space-home .bangumi-section .items,.space-subscribe .bangumi-items) { display:grid!important; grid-template-columns:minmax(0,1fr)!important; gap:16px!important; }\r\n  html.homepagescript-active :is(.space-main .bangumi-item,.space-main .bili-bangumi-card) { min-width:0!important; width:100%!important; max-width:100%!important; }\r\n  html.homepagescript-active .space-main .bili-bangumi-card__cover { flex:0 0 35%!important; width:35%!important; max-width:154px!important; }\r\n  html.homepagescript-active .space-main .bili-bangumi-card__details { flex:1!important; min-width:0!important; width:auto!important; }\r\n  html.homepagescript-active :is(.space-dynamic .bili-dyn-item,.space-dynamic .bili-dyn-item__main,.space-dynamic .bili-dyn-item__header,.space-dynamic .bili-dyn-item__body,.space-dynamic .bili-dyn-item__footer) { box-sizing:border-box!important; min-width:0!important; max-width:100%!important; }\r\n  html.homepagescript-active .space-dynamic .bili-dyn-item__main { padding:12px!important; }\r\n  html.homepagescript-active .space-dynamic .bili-dyn-item__avatar { position:absolute!important; left:12px!important; top:12px!important; width:48px!important; height:48px!important; margin:0!important; }\r\n  html.homepagescript-active .space-dynamic .bili-dyn-item__header { padding:0 32px 0 60px!important; min-height:48px!important; }\r\n  html.homepagescript-active .space-dynamic .bili-dyn-item__ornament { display:none!important; }\r\n  html.homepagescript-active :is(.space-dynamic .bili-dyn-item__header,.space-dynamic .bili-dyn-item__body,.space-dynamic .bili-dyn-item__footer) { margin-left:0!important; }\r\n  html.homepagescript-active :is(.space-dynamic .bili-dyn-card-video__header,.space-dynamic .bili-dyn-card-ugc) { box-sizing:border-box!important; max-width:100%!important; }\r\n  html.homepagescript-active .space-dynamic .bili-dyn-card-ugc__detail { min-width:0!important; flex:1!important; }\r\n  html.homepagescript-active :is(.space-main .vui_pagenation-go,.space-main .nav-statistics,.space-main .upinfo-detail__bottom) { min-width:0!important; max-width:100%!important; }\r\n}\r\n";
+
+  // src/WebPage/Space/favorites.css
+  var favorites_default = '/* Favorites-only rules. Keep the native palette, folder nodes and action buttons. */\n@media(max-width:1099px) {\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] {padding:16px!important;gap:12px!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] :is(.favlist-aside,.favlist-main) {box-sizing:border-box!important;min-width:0!important;width:100%!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-aside {max-height:none!important;overflow:visible!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-main {margin-top:0!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .fav-collapse-wrap {max-height:220px!important;overflow-x:hidden!important;overflow-y:auto!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] :is(.vui_collapse,.vui_collapse_item,.vui_collapse_item_content,.fav-collapse,.fav-collapse-wrap,.vui_sidebar,.fav-sortable-list,.fav-sidebar-item,.vui_sidebar-item) {box-sizing:border-box!important;min-width:0!important;max-width:100%!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .vui_sidebar-item {width:100%!important;height:auto!important;min-height:48px!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .vui_sidebar-item-title {flex:1 1 0!important;min-width:0!important;width:0!important;text-align:left!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .vui_sidebar-item-title .vui_ellipsis {display:block!important;flex:1 1 0!important;min-width:0!important;width:auto!important;max-width:none!important;height:auto!important;white-space:normal!important;overflow:visible!important;overflow-wrap:anywhere!important;text-overflow:clip!important;-webkit-line-clamp:unset!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .vui_sidebar-item-right {flex:none!important;margin-left:8px!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .fav-collapse-create {display:none!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] [data-broadcast-fav-group="hidden"],\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] [data-broadcast-fav-group] .vui_collapse_item_header {display:none!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] [data-broadcast-fav-group="selected"] .vui_collapse_item_content {display:block!important;padding-bottom:0!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] [data-broadcast-fav-open="false"] [data-broadcast-fav-group="selected"] {display:none!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-navigation {display:grid;grid-template-columns:minmax(0,1fr);align-items:start;gap:4px 16px;border-bottom:1px solid var(--line_regular,#e3e5e7);margin-bottom:12px;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-categories {display:flex;flex:1;min-width:0;flex-wrap:wrap;gap:4px 16px;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-shortcuts {grid-column:1/-1;display:flex;align-items:center;justify-content:flex-end;gap:16px;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] :is(.broadcast-fav-categories button,.broadcast-fav-create,.broadcast-fav-shortcuts a,.broadcast-fav-directory-toggle) {box-sizing:border-box;font:inherit;color:var(--text1,#18191c);background:transparent;border:0;cursor:pointer;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] button.broadcast-fav-create {display:inline-flex;flex:none;align-items:center;justify-content:flex-start;gap:6px;margin:0 auto 0 0!important;padding:9px 0!important;white-space:nowrap;color:var(--brand_blue,#00aeec);}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-create :is(svg,.vui_icon) {display:block!important;flex:none;width:20px;height:20px;margin:0!important;color:var(--brand_blue,#00aeec);}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-create[hidden] {display:none;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-categories button {padding:9px 0;border-bottom:2px solid transparent;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-categories button[aria-pressed="true"] {color:var(--brand_blue,#00aeec);border-bottom-color:var(--brand_blue,#00aeec);}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-shortcuts a {padding:9px 0;white-space:nowrap;text-decoration:none;color:var(--text2,#61666d);}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-directory-toggle {display:flex;align-items:center;justify-content:space-between;width:100%;text-align:left;padding:8px 0;margin-bottom:8px;}\n  /* Keep the native cover and detail column. Only relocate the social actions;\n     playback stays underneath the title in the original detail column. */\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info {display:flex!important;flex-wrap:nowrap!important;align-items:flex-start!important;gap:0!important;height:auto!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-detail {display:grid!important;flex:1 1 0!important;min-width:0!important;width:auto!important;grid-template-columns:minmax(0,1fr) auto!important;grid-template-rows:auto auto auto!important;gap:4px 12px!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-detail__actions {display:contents!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-detail__title {grid-area:1/1/3/2!important;min-width:0!important;align-self:start!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-detail__title-row {min-width:0!important;max-width:100%!important;flex-wrap:wrap!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-detail__actions > .vui_button {display:inline-flex!important;flex-direction:row!important;align-items:center!important;justify-content:center!important;flex-wrap:nowrap!important;white-space:nowrap!important;margin:0!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .playall-btn {grid-area:3/1!important;justify-self:start!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-batch {grid-area:3/2!important;justify-self:end!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-action {grid-column:2!important;justify-self:end!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-action:nth-child(2) {grid-row:1!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-action:nth-child(3) {grid-row:2!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .fav-list-header-filter {display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:12px!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] :is(.fav-list-header-filter__left,.fav-list-header-filter__right) {margin:0!important;flex:none!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .fav-list-header-filter__right > .vui_input {display:flex!important;min-width:0!important;width:100%!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .fav-list-header-filter .vui_input__prepend {flex:none!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .fav-list-header-filter .vui_input-wrapper {flex:1!important;min-width:0!important;width:auto!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .fav-list-header-filter input {flex:1!important;min-width:0!important;width:0!important;}\n}\n@media(max-width:600px) {\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-navigation {gap:12px;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-categories {gap:4px 12px;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-categories button {min-width:0;max-width:100%;text-align:left;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-shortcuts {gap:10px;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .broadcast-fav-shortcuts a {font-size:12px;}\n}\n@media(max-width:463px) {\n  /* When the native-size cover plus two action columns cannot fit, wrap the\n     whole detail column instead of shrinking the native cover or its buttons. */\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info {flex-wrap:wrap!important;gap:12px!important;}\n  html.homepagescript-active .space-favlist[data-broadcast-favorites-active] .favlist-info-detail {flex:1 1 100%!important;margin-left:0!important;}\n}\n';
+
   // src/WebPage/Space/module.js
   var early8 = () => createPageOpening();
   function mount8() {
-    "use strict";
-    const matchesPage = () => pageId(location.href) === "Space";
-    if (!matchesPage()) return;
-    window.bilibiliHomePageScript?.destroy();
-    const headerSearchNavigation = createHeaderSearchNavigation();
-    const headerCards = createHeaderCards();
-    const avatarNavigation = createAvatarNavigation();
-    const html = document.documentElement;
-    const narrow = matchMedia("(max-width: 1099px)");
-    const favorites = createFavoritesLayout();
-    const dynamicContent = createDynamicContent({ getRoot: () => document.querySelector(".space-dynamic"), isActive: () => narrow.matches });
-    const navigationScope = ".bili-header,.bili-header__bar,#homepagescript-menu,.header-channel,.channel-entry-popover,.bili-header-channel-panel,.link-navbar,.charity-header";
-    const navigationLinks = navigationScope.split(",").map((selector) => `${selector} a[href]`).join(",");
-    const events = new AbortController();
-    const hidden = /* @__PURE__ */ new Set(), attributes = /* @__PURE__ */ new Map(), variables = /* @__PURE__ */ new Map();
-    const menus = /* @__PURE__ */ new Map(), observed = /* @__PURE__ */ new Set();
-    const avatarMenus = /* @__PURE__ */ new Map(), avatarTargets = /* @__PURE__ */ new Set();
-    let potPlayerApi = null, restorePotPlayerIgnore = () => {
-    };
-    let observedUrl = location.href;
-    let frame = 0, stopped = false, activeMenu = null;
-    const style = document.createElement("style");
-    style.id = "homepagescript-style";
-    style.textContent = homeStyle();
-    style.textContent += content_default7;
-    style.textContent += favorites_default;
-    style.textContent += `@media(max-width:1099px) { ${dynamicContentStyle("html.homepagescript-active .space-dynamic")} }`;
-    const panel = document.createElement("div");
-    panel.id = "homepagescript-menu";
-    panel.setAttribute("aria-label", "全部频道");
-    (document.head || html).append(style);
-    html.classList.add("homepagescript-active");
-    function rememberAttribute(element, name, value) {
-      let saved = attributes.get(element);
-      if (!saved) attributes.set(element, saved = /* @__PURE__ */ new Map());
-      if (!saved.has(name)) saved.set(name, { original: element.getAttribute(name), value });
-      saved.get(name).value = value;
-      if (element.getAttribute(name) !== value) element.setAttribute(name, value);
-    }
-    function setColumns(element, count) {
-      const name = "--homepagescript-columns";
-      if (!variables.has(element)) variables.set(element, element.style.getPropertyValue(name));
-      const value = String(count);
-      if (element.style.getPropertyValue(name) !== value) element.style.setProperty(name, value);
-    }
-    function fit(items, count) {
-      items.forEach((element, index) => {
-        const hide = narrow.matches && index >= count;
-        if (hide && !element.classList.contains("homepagescript-hidden")) {
-          element.classList.add("homepagescript-hidden");
-          hidden.add(element);
-        } else if (!hide && hidden.delete(element)) element.classList.remove("homepagescript-hidden");
-      });
-    }
-    function fitHeader() {
-      fitHomeHeader(hidden, fit);
-    }
-    function observe(element) {
-      if (!observed.has(element)) {
-        observed.add(element);
-        resize.observe(element);
-      }
-    }
-    function makeMore(container, source) {
-      let menu = menus.get(container);
-      if (!menu) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "homepagescript-more";
-        button.textContent = "更多 ▾";
-        button.setAttribute("aria-expanded", "false");
-        button.setAttribute("aria-controls", panel.id);
-        button.addEventListener("click", (event) => {
-          if (activeMenu === menu) closeMenu();
-          else {
-            openMenu(menu);
-            if (event.detail === 0) panel.querySelector("a")?.focus();
+    const css = homeStyle() + content_default7 + favorites_default + `@media(max-width:1099px) { ${dynamicContentStyle("html.homepagescript-active .space-dynamic")} }`;
+    return mountHomeLayout(css, () => pageId(location.href) === "Space", {
+      contentSelector: '.feed2 .recommended-container_floor-aside > .container,.head-cards,.loading-cards,.channel-feed,.popular-list .card-list,.fav-list-main .items,.space-home .items,.space-home .article-list,.space-home .video-list__content,.space-upload .opus-collection-list,.space-upload .opus .masonry_grid_v2 > .container,.space-upload .video-list.grid-mode,.space-list-details .list-content,.space-lists .video-list__content,.space-lists .lists-content > .grid-mode,.space-lists .contet-grid > .video-grid,.section-cards,#room-card-list,main [class~="grid"],.items-container',
+      columns: (container) => container.matches(".space-favlist[data-broadcast-favorites-active] .fav-list-main .items") ? Math.max(1, Math.floor((container.clientWidth + 12) / 220)) : innerWidth < 400 ? 1 : Math.max(2, Math.floor((container.clientWidth + 12) / 232)),
+      observeLoad: true,
+      mountContent({ narrow }) {
+        const favorites = createFavoritesLayout();
+        const dynamic = createDynamicContent({ getRoot: () => document.querySelector(".space-dynamic"), isActive: () => narrow.matches });
+        return {
+          refresh(active) {
+            favorites.refresh(active && /^\/\d+\/(?:favlist|fav(?:\/video)?)\/?$/.test(location.pathname));
+            if (active) dynamic.refresh();
+            else dynamic.clear();
+          },
+          destroy() {
+            favorites.destroy();
+            dynamic.destroy();
           }
-        }, { signal: events.signal });
-        menu = { container, button, source };
-        menus.set(container, menu);
-        container.append(button);
+        };
       }
-      menu.source = source;
-      if (menu.button.parentElement !== container) container.append(menu.button);
-      return menu;
-    }
-    function closeMenu(focus = false) {
-      if (!activeMenu) return;
-      const button = activeMenu.button;
-      button.setAttribute("aria-expanded", "false");
-      panel.removeAttribute("data-open");
-      activeMenu = null;
-      if (focus && button.isConnected) button.focus();
-    }
-    function openMenu(menu) {
-      closeMenu();
-      panel.replaceChildren();
-      const seen = /* @__PURE__ */ new Set();
-      for (const source of menu.source()) {
-        const href = source.getAttribute("href"), label = source.textContent.trim();
-        if (!href || !label || seen.has(href)) continue;
-        seen.add(href);
-        const link = document.createElement("a");
-        link.textContent = label;
-        link.href = href;
-        for (const name of ["target", "rel", "title"]) {
-          if (source.hasAttribute(name)) link.setAttribute(name, source.getAttribute(name));
-        }
-        panel.append(link);
-      }
-      document.body.append(panel);
-      activeMenu = menu;
-      menu.button.setAttribute("aria-expanded", "true");
-      panel.setAttribute("data-open", "");
-      const rect = menu.button.getBoundingClientRect();
-      panel.style.width = `${Math.min(520, Math.max(0, html.clientWidth - 16))}px`;
-      const width = panel.getBoundingClientRect().width;
-      panel.style.left = `${Math.max(8, Math.min(rect.right - width, html.clientWidth - width - 8))}px`;
-      const below = innerHeight - rect.bottom - 12;
-      const above = Math.max(0, rect.top - 12);
-      const down = below >= Math.min(220, above);
-      panel.style.top = down ? `${rect.bottom + 4}px` : "auto";
-      panel.style.bottom = down ? "auto" : `${innerHeight - rect.top + 4}px`;
-      panel.style.setProperty("--homepagescript-menu-height", `${Math.max(40, down ? below : above)}px`);
-    }
-    function isCurrentTabLink(link) {
-      if (!(link instanceof HTMLAnchorElement) || link.hasAttribute("download")) return false;
-      const url = new URL(link.href, location.href);
-      if (link.closest(".bili-header-channel-panel")) return isPageUrl(url);
-      return isAvatarNavigationLink(link) || Boolean(link.closest(navigationScope) && isCompletedNavigation(url));
-    }
-    function isAvatarNavigationLink(link) {
-      return avatarNavigation.isLink(link);
-    }
-    const isCompletedNavigation = isPageUrl;
-    function isNavigationIgnored(url, { explicit = false } = {}) {
-      return !explicit && isCompletedNavigation(url);
-    }
-    function syncPotPlayerIgnore() {
-      if (location.href !== observedUrl) {
-        observedUrl = location.href;
-        schedule();
-      }
-      const api = window.__potPlayerBilibiliClick;
-      if (api === potPlayerApi) return;
-      restorePotPlayerIgnore();
-      potPlayerApi = api;
-      restorePotPlayerIgnore = typeof api?.ignoreUrl === "function" ? api.ignoreUrl(isNavigationIgnored) : () => {
-      };
-    }
-    const avatarProperties = ["--homepagescript-avatar-left", "--homepagescript-avatar-top", "--homepagescript-avatar-zoom"];
-    function resetAvatarMenu(element, saved) {
-      element.classList.remove("homepagescript-avatar-menu", "homepagescript-avatar-submenu", "homepagescript-avatar-submenu-left");
-      for (const name of avatarProperties) {
-        const original = saved.original.get(name);
-        if (original.value) element.style.setProperty(name, original.value, original.priority);
-        else element.style.removeProperty(name);
-      }
-      saved.zoom = 1;
-      saved.style = element.getAttribute("style");
-    }
-    function fitAvatarMenu(element, anchor, submenu, targets) {
-      let saved = avatarMenus.get(element);
-      if (!saved) {
-        saved = { original: new Map(avatarProperties.map((name) => [name, {
-          value: element.style.getPropertyValue(name),
-          priority: element.style.getPropertyPriority(name)
-        }])), zoom: 1, style: element.getAttribute("style") };
-        avatarMenus.set(element, saved);
-        observe(element);
-      }
-      for (const target of [element, element.parentElement, element.closest(".header-avatar-wrap,.user-panel-ctnr")]) if (target) targets.add(target);
-      if (!narrow.matches) {
-        if (element.classList.contains("homepagescript-avatar-menu") || element.classList.contains("homepagescript-avatar-submenu")) resetAvatarMenu(element, saved);
-        return;
-      }
-      const className = submenu ? "homepagescript-avatar-submenu" : "homepagescript-avatar-menu";
-      if (!element.classList.contains(className)) element.classList.add(className);
-      const rect = element.getBoundingClientRect();
-      if (rect.width && rect.height) {
-        const anchorRect = anchor.getBoundingClientRect();
-        const inset = parseFloat(getComputedStyle(html).getPropertyValue("--broadcast-navigation-height")) || 0;
-        const menuTop = inset && submenu ? element.closest(".homepagescript-avatar-menu")?.getBoundingClientRect().top || 0 : 0;
-        const minimumTop = Math.max(inset + 8, menuTop);
-        let top = Math.max(minimumTop, Math.min(anchorRect.bottom, innerHeight - 16));
-        const width = rect.width / saved.zoom, height2 = rect.height / saved.zoom;
-        const zoom = Math.min(1, Math.max(1, html.clientWidth - 16) / width, Math.max(1, innerHeight - (submenu ? minimumTop + 8 : top + 8)) / height2);
-        let left;
-        if (submenu) {
-          const position = avatarSubmenuPosition(anchorRect, width * zoom, html.clientWidth);
-          element.classList.toggle("homepagescript-avatar-submenu-left", position.opensLeft);
-          left = position.left;
-          top = Math.max(minimumTop, Math.min((anchorRect.top + anchorRect.bottom - height2 * zoom) / 2, innerHeight - height2 * zoom - 8));
-        } else left = Math.max(8, Math.min(anchorRect.right - width * zoom, html.clientWidth - width * zoom - 8));
-        const scale = rect.width / element.offsetWidth / saved.zoom * zoom;
-        const values = [`${left / scale}px`, `${top / scale}px`, String(zoom)];
-        avatarProperties.forEach((name, index) => {
-          if (element.style.getPropertyValue(name) !== values[index]) element.style.setProperty(name, values[index]);
-        });
-        saved.zoom = zoom;
-      }
-      saved.style = element.getAttribute("style");
-    }
-    function fitAvatarMenus() {
-      const targets = /* @__PURE__ */ new Set();
-      for (const element of document.querySelectorAll(".bili-header__bar .header-avatar-wrap > .v-popover-wrap > .v-popover,.bili-header__bar .header-avatar-wrap.v-popover-wrap > .v-popover,.link-navbar .user-panel-ctnr > .user-panel")) {
-        const anchor = element.parentElement.querySelector(".header-avatar-wrap--container") || element.closest(".header-avatar-wrap,.user-panel-ctnr");
-        fitAvatarMenu(element, anchor, false, targets);
-        for (const submenu of element.querySelectorAll(".v-popover-wrap > .v-popover:is(.is-right,.is-left)")) {
-          fitAvatarMenu(submenu, submenu.parentElement, true, targets);
-        }
-      }
-      for (const [element, saved] of avatarMenus) if (!targets.has(element)) {
-        resetAvatarMenu(element, saved);
-        avatarMenus.delete(element);
-      }
-      if (targets.size !== avatarTargets.size || Array.from(targets).some((element) => !avatarTargets.has(element))) {
-        avatarMutations.disconnect();
-        avatarTargets.clear();
-        for (const element of targets) {
-          avatarTargets.add(element);
-          avatarMutations.observe(element, { attributes: true, attributeFilter: ["class", "style"] });
-        }
-      }
-    }
-    function update() {
-      frame = 0;
-      if (stopped) return;
-      if (!matchesPage()) {
-        window.bilibiliHomePageScript?.destroy();
-        return;
-      }
-      favorites.refresh(narrow.matches && /^\/\d+\/(?:favlist|fav(?:\/video)?)\/?$/.test(location.pathname));
-      if (narrow.matches) dynamicContent.refresh();
-      else dynamicContent.clear();
-      fitAvatarMenus();
-      for (const link of document.querySelectorAll(navigationLinks)) {
-        if (isCurrentTabLink(link)) rememberAttribute(link, "target", "_self");
-      }
-      for (const [element] of variables) if (!element.isConnected) variables.delete(element);
-      for (const element of hidden) if (!element.isConnected) hidden.delete(element);
-      for (const element of observed) if (!element.isConnected) {
-        resize.unobserve(element);
-        observed.delete(element);
-      }
-      for (const [container, menu] of menus) if (!container.isConnected) {
-        if (activeMenu === menu) closeMenu();
-        menu.button.remove();
-        menus.delete(container);
-      }
-      if (!narrow.matches) {
-        closeMenu();
-        for (const element of hidden) element.classList.remove("homepagescript-hidden");
-        hidden.clear();
-        return;
-      }
-      fitHeader();
-      for (const container of document.querySelectorAll(".channel-items__left")) {
-        observe(container);
-        const count = Math.max(2, Math.floor((container.clientWidth + 6) / 82));
-        setColumns(container, count);
-        makeMore(container, () => Array.from(container.parentElement.querySelectorAll("a[href]")));
-        fit(Array.from(container.querySelectorAll(":scope > a")), count - 1);
-      }
-      for (const container of document.querySelectorAll(".header-channel-fixed-right")) {
-        observe(container);
-        const count = Math.max(2, Math.floor((container.clientWidth + 6) / 82));
-        setColumns(container, count);
-        makeMore(container, () => Array.from(container.querySelectorAll("a[href]")));
-        fit(Array.from(container.querySelectorAll("a.channel-item")), count - 1);
-      }
-      for (const container of document.querySelectorAll('.feed2 .recommended-container_floor-aside > .container,.head-cards,.loading-cards,.channel-feed,.popular-list .card-list,.fav-list-main .items,.space-home .items,.space-home .article-list,.space-home .video-list__content,.space-upload .opus-collection-list,.space-upload .opus .masonry_grid_v2 > .container,.space-upload .video-list.grid-mode,.space-lists .video-list__content,.space-lists .lists-content > .grid-mode,.section-cards,#room-card-list,main [class~="grid"],.items-container')) {
-        observe(container);
-        const count = container.matches(".space-favlist[data-broadcast-favorites-active] .fav-list-main .items") ? Math.max(1, Math.floor((container.clientWidth + 12) / 220)) : innerWidth < 400 ? 1 : Math.max(2, Math.floor((container.clientWidth + 12) / 232));
-        setColumns(container, count);
-      }
-    }
-    function schedule() {
-      if (!stopped && !frame) frame = requestAnimationFrame(update);
-    }
-    const resize = new ResizeObserver(schedule);
-    const avatarMutations = new MutationObserver((records) => {
-      if (records.some((record) => record.attributeName !== "style" || !avatarMenus.has(record.target) || avatarMenus.get(record.target).style !== record.target.getAttribute("style"))) schedule();
     });
-    resize.observe(html);
-    const mutations = new MutationObserver((records) => {
-      if (records.some((record) => !panel.contains(record.target) && record.target !== panel)) schedule();
-    });
-    mutations.observe(document.body, { childList: true, subtree: true });
-    window.addEventListener("resize", () => {
-      closeMenu();
-      schedule();
-    }, { signal: events.signal });
-    document.addEventListener("load", schedule, { capture: true, signal: events.signal });
-    narrow.addEventListener("change", schedule, { signal: events.signal });
-    document.addEventListener("scroll", (event) => {
-      if (event.target !== panel && !panel.contains(event.target)) closeMenu();
-    }, { capture: true, passive: true, signal: events.signal });
-    document.addEventListener("pointerdown", (event) => {
-      if (activeMenu && !panel.contains(event.target) && !activeMenu.button.contains(event.target)) closeMenu();
-    }, { capture: true, signal: events.signal });
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && activeMenu) {
-        event.preventDefault();
-        closeMenu(true);
-      }
-    }, { signal: events.signal });
-    panel.addEventListener("click", (event) => {
-      if (event.target.closest("a")) closeMenu();
-    }, { signal: events.signal });
-    window.addEventListener("pointerdown", syncPotPlayerIgnore, { capture: true, signal: events.signal });
-    window.addEventListener("click", syncPotPlayerIgnore, { capture: true, signal: events.signal });
-    syncPotPlayerIgnore();
-    const potPlayerTimer = setInterval(syncPotPlayerIgnore, 500);
-    document.addEventListener("click", (event) => {
-      if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-      const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
-      if (!isCurrentTabLink(link)) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      location.assign(link.href);
-    }, { capture: true, signal: events.signal });
-    window.bilibiliHomePageScript = {
-      destroy() {
-        favorites.destroy();
-        dynamicContent.destroy();
-        avatarNavigation.destroy();
-        headerSearchNavigation.destroy();
-        headerCards.destroy();
-        stopped = true;
-        events.abort();
-        mutations.disconnect();
-        avatarMutations.disconnect();
-        resize.disconnect();
-        cancelAnimationFrame(frame);
-        closeMenu();
-        clearInterval(potPlayerTimer);
-        restorePotPlayerIgnore();
-        for (const [element, saved] of avatarMenus) resetAvatarMenu(element, saved);
-        for (const element of hidden) element.classList.remove("homepagescript-hidden");
-        for (const [element, saved] of attributes) for (const [name, { original, value }] of saved) {
-          if (element.getAttribute(name) !== value) continue;
-          if (original === null) element.removeAttribute(name);
-          else element.setAttribute(name, original);
-        }
-        for (const [element, value] of variables) {
-          if (value) element.style.setProperty("--homepagescript-columns", value);
-          else element.style.removeProperty("--homepagescript-columns");
-        }
-        for (const menu of menus.values()) menu.button.remove();
-        panel.remove();
-        style.remove();
-        html.classList.remove("homepagescript-active");
-        delete window.bilibiliHomePageScript;
-      }
-    };
-    update();
-    return window.bilibiliHomePageScript;
   }
 
   // src/WebPage/Search/module.js
@@ -4730,357 +4747,18 @@ html.homepagescript-active .search-layout .media-card:has(.media-footer) .media-
   // src/WebPage/Search/module.js
   var early9 = () => createPageOpening();
   function mount9() {
-    "use strict";
-    const matchesPage = () => pageId(location.href) === "Search";
-    if (!matchesPage()) return;
-    window.bilibiliHomePageScript?.destroy();
-    const headerSearchNavigation = createHeaderSearchNavigation();
-    const headerCards = createHeaderCards();
-    const html = document.documentElement;
-    const narrow = matchMedia("(max-width: 1099px)");
-    const navigationScope = ".bili-header,.bili-header__bar,#homepagescript-menu,.header-channel,.channel-entry-popover,.bili-header-channel-panel,.link-navbar,.charity-header";
-    const navigationLinks = navigationScope.split(",").map((selector) => `${selector} a[href]`).join(",");
-    const events = new AbortController();
-    const hidden = /* @__PURE__ */ new Set(), attributes = /* @__PURE__ */ new Map(), variables = /* @__PURE__ */ new Map();
-    const menus = /* @__PURE__ */ new Map(), observed = /* @__PURE__ */ new Set();
-    const avatarMenus = /* @__PURE__ */ new Map(), avatarTargets = /* @__PURE__ */ new Set();
-    let potPlayerApi = null, restorePotPlayerIgnore = () => {
-    };
-    let observedUrl = location.href;
-    let frame = 0, stopped = false, activeMenu = null;
-    const style = document.createElement("style");
-    style.id = "homepagescript-style";
-    style.textContent = homeStyle();
-    style.textContent += layout_default;
-    const panel = document.createElement("div");
-    panel.id = "homepagescript-menu";
-    panel.setAttribute("aria-label", "全部频道");
-    (document.head || html).append(style);
-    html.classList.add("homepagescript-active");
-    function rememberAttribute(element, name, value) {
-      let saved = attributes.get(element);
-      if (!saved) attributes.set(element, saved = /* @__PURE__ */ new Map());
-      if (!saved.has(name)) saved.set(name, { original: element.getAttribute(name), value });
-      saved.get(name).value = value;
-      if (element.getAttribute(name) !== value) element.setAttribute(name, value);
-    }
-    function setColumns(element, count) {
-      const name = "--homepagescript-columns";
-      if (!variables.has(element)) variables.set(element, element.style.getPropertyValue(name));
-      const value = String(count);
-      if (element.style.getPropertyValue(name) !== value) element.style.setProperty(name, value);
-    }
-    function fit(items, count) {
-      items.forEach((element, index) => {
-        const hide = narrow.matches && index >= count;
-        if (hide && !element.classList.contains("homepagescript-hidden")) {
-          element.classList.add("homepagescript-hidden");
-          hidden.add(element);
-        } else if (!hide && hidden.delete(element)) element.classList.remove("homepagescript-hidden");
-      });
-    }
-    function fitHeader() {
-      fitHomeHeader(hidden, fit);
-    }
-    function observe(element) {
-      if (!observed.has(element)) {
-        observed.add(element);
-        resize.observe(element);
-      }
-    }
-    function makeMore(container, source) {
-      let menu = menus.get(container);
-      if (!menu) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "homepagescript-more";
-        button.textContent = "更多 ▾";
-        button.setAttribute("aria-expanded", "false");
-        button.setAttribute("aria-controls", panel.id);
-        button.addEventListener("click", (event) => {
-          if (activeMenu === menu) closeMenu();
-          else {
-            openMenu(menu);
-            if (event.detail === 0) panel.querySelector("a")?.focus();
-          }
-        }, { signal: events.signal });
-        menu = { container, button, source };
-        menus.set(container, menu);
-        container.append(button);
-      }
-      menu.source = source;
-      if (menu.button.parentElement !== container) container.append(menu.button);
-      return menu;
-    }
-    function closeMenu(focus = false) {
-      if (!activeMenu) return;
-      const button = activeMenu.button;
-      button.setAttribute("aria-expanded", "false");
-      panel.removeAttribute("data-open");
-      activeMenu = null;
-      if (focus && button.isConnected) button.focus();
-    }
-    function openMenu(menu) {
-      closeMenu();
-      panel.replaceChildren();
-      const seen = /* @__PURE__ */ new Set();
-      for (const source of menu.source()) {
-        const href = source.getAttribute("href"), label = source.textContent.trim();
-        if (!href || !label || seen.has(href)) continue;
-        seen.add(href);
-        const link = document.createElement("a");
-        link.textContent = label;
-        link.href = href;
-        for (const name of ["target", "rel", "title"]) {
-          if (source.hasAttribute(name)) link.setAttribute(name, source.getAttribute(name));
-        }
-        panel.append(link);
-      }
-      document.body.append(panel);
-      activeMenu = menu;
-      menu.button.setAttribute("aria-expanded", "true");
-      panel.setAttribute("data-open", "");
-      const rect = menu.button.getBoundingClientRect();
-      panel.style.width = `${Math.min(520, Math.max(0, html.clientWidth - 16))}px`;
-      const width = panel.getBoundingClientRect().width;
-      panel.style.left = `${Math.max(8, Math.min(rect.right - width, html.clientWidth - width - 8))}px`;
-      const below = innerHeight - rect.bottom - 12;
-      const above = Math.max(0, rect.top - 12);
-      const down = below >= Math.min(220, above);
-      panel.style.top = down ? `${rect.bottom + 4}px` : "auto";
-      panel.style.bottom = down ? "auto" : `${innerHeight - rect.top + 4}px`;
-      panel.style.setProperty("--homepagescript-menu-height", `${Math.max(40, down ? below : above)}px`);
-    }
-    function isCurrentTabLink(link) {
-      if (!(link instanceof HTMLAnchorElement) || link.hasAttribute("download")) return false;
-      const url = new URL(link.href, location.href);
-      if (link.closest(".bili-header-channel-panel")) return isPageUrl(url);
-      return isAvatarNavigationLink(link) || Boolean(link.closest(navigationScope) && isCompletedNavigation(url));
-    }
-    function isAvatarNavigationLink(link) {
-      if (!(link instanceof HTMLAnchorElement) || link.hasAttribute("download")) return false;
-      const url = new URL(link.href, location.href);
-      if (!isPageUrl(url)) return false;
-      const destination = url.hostname === "space.bilibili.com" && /^\/\d+\/?$/.test(url.pathname) || url.hostname === "link.bilibili.com" && url.pathname === "/p/center/index" && /^#\/?user-center\/my-info(?:\/|$)/.test(url.hash);
-      return Boolean(destination && (link.closest(".header-avatar-wrap") && (link.matches(".header-entry-mini,.header-entry-avatar") || link.querySelector(".bili-avatar")) || link.closest(".link-navbar") && (link.querySelector(".user-avatar") || link.closest(".user-panel-ctnr,.user-panel") && link.textContent.trim() === "主站空间") || link.closest(".charity-header") && link.matches(".user") && link.querySelector(".face")));
-    }
-    const isCompletedNavigation = isPageUrl;
-    function isNavigationIgnored(url, { explicit = false } = {}) {
-      return !explicit && isCompletedNavigation(url);
-    }
-    function syncPotPlayerIgnore() {
-      if (location.href !== observedUrl) {
-        observedUrl = location.href;
-        schedule();
-      }
-      const api = window.__potPlayerBilibiliClick;
-      if (api === potPlayerApi) return;
-      restorePotPlayerIgnore();
-      potPlayerApi = api;
-      restorePotPlayerIgnore = typeof api?.ignoreUrl === "function" ? api.ignoreUrl(isNavigationIgnored) : () => {
-      };
-    }
-    const avatarProperties = ["--homepagescript-avatar-left", "--homepagescript-avatar-top", "--homepagescript-avatar-zoom"];
-    function resetAvatarMenu(element, saved) {
-      element.classList.remove("homepagescript-avatar-menu", "homepagescript-avatar-submenu", "homepagescript-avatar-submenu-left");
-      for (const name of avatarProperties) {
-        const original = saved.original.get(name);
-        if (original.value) element.style.setProperty(name, original.value, original.priority);
-        else element.style.removeProperty(name);
-      }
-      saved.zoom = 1;
-      saved.style = element.getAttribute("style");
-    }
-    function fitAvatarMenu(element, anchor, submenu, targets) {
-      let saved = avatarMenus.get(element);
-      if (!saved) {
-        saved = { original: new Map(avatarProperties.map((name) => [name, {
-          value: element.style.getPropertyValue(name),
-          priority: element.style.getPropertyPriority(name)
-        }])), zoom: 1, style: element.getAttribute("style") };
-        avatarMenus.set(element, saved);
-        observe(element);
-      }
-      for (const target of [element, element.parentElement, element.closest(".header-avatar-wrap,.header-avatar-unlogin-wrap,.user-panel-ctnr")]) if (target) targets.add(target);
-      if (!narrow.matches) {
-        if (element.classList.contains("homepagescript-avatar-menu") || element.classList.contains("homepagescript-avatar-submenu")) resetAvatarMenu(element, saved);
-        return;
-      }
-      const className = submenu ? "homepagescript-avatar-submenu" : "homepagescript-avatar-menu";
-      if (!element.classList.contains(className)) element.classList.add(className);
-      const rect = element.getBoundingClientRect();
-      if (rect.width && rect.height) {
-        const anchorRect = anchor.getBoundingClientRect();
-        const inset = parseFloat(getComputedStyle(html).getPropertyValue("--broadcast-navigation-height")) || 0;
-        const menuTop = inset && submenu ? element.closest(".homepagescript-avatar-menu")?.getBoundingClientRect().top || 0 : 0;
-        const minimumTop = Math.max(inset + 8, menuTop);
-        let top = Math.max(minimumTop, Math.min(anchorRect.bottom, innerHeight - 16));
-        const width = rect.width / saved.zoom, height2 = rect.height / saved.zoom;
-        const zoom = Math.min(1, Math.max(1, html.clientWidth - 16) / width, Math.max(1, innerHeight - (submenu ? minimumTop + 8 : top + 8)) / height2);
-        let left;
-        if (submenu) {
-          const position = avatarSubmenuPosition(anchorRect, width * zoom, html.clientWidth);
-          element.classList.toggle("homepagescript-avatar-submenu-left", position.opensLeft);
-          left = position.left;
-          top = Math.max(minimumTop, Math.min((anchorRect.top + anchorRect.bottom - height2 * zoom) / 2, innerHeight - height2 * zoom - 8));
-        } else left = Math.max(8, Math.min(anchorRect.right - width * zoom, html.clientWidth - width * zoom - 8));
-        const scale = rect.width / element.offsetWidth / saved.zoom * zoom;
-        const values = [`${left / scale}px`, `${top / scale}px`, String(zoom)];
-        avatarProperties.forEach((name, index) => {
-          if (element.style.getPropertyValue(name) !== values[index]) element.style.setProperty(name, values[index]);
-        });
-        saved.zoom = zoom;
-      }
-      saved.style = element.getAttribute("style");
-    }
-    function fitAvatarMenus() {
-      const targets = /* @__PURE__ */ new Set();
-      for (const element of document.querySelectorAll(".bili-header__bar .header-avatar-unlogin-wrap > .v-popover-wrap > .v-popover,.bili-header__bar .header-avatar-wrap > .v-popover-wrap > .v-popover,.bili-header__bar .header-avatar-wrap.v-popover-wrap > .v-popover,.link-navbar .user-panel-ctnr > .user-panel")) {
-        const anchor = element.parentElement.querySelector(".header-avatar-wrap--container") || element.closest(".header-avatar-wrap,.header-avatar-unlogin-wrap,.user-panel-ctnr");
-        fitAvatarMenu(element, anchor, false, targets);
-        for (const submenu of element.querySelectorAll(".v-popover-wrap > .v-popover:is(.is-right,.is-left)")) {
-          fitAvatarMenu(submenu, submenu.parentElement, true, targets);
-        }
-      }
-      for (const [element, saved] of avatarMenus) if (!targets.has(element)) {
-        resetAvatarMenu(element, saved);
-        avatarMenus.delete(element);
-      }
-      if (targets.size !== avatarTargets.size || Array.from(targets).some((element) => !avatarTargets.has(element))) {
-        avatarMutations.disconnect();
-        avatarTargets.clear();
-        for (const element of targets) {
-          avatarTargets.add(element);
-          avatarMutations.observe(element, { attributes: true, attributeFilter: ["class", "style"] });
-        }
-      }
-    }
-    function update() {
-      frame = 0;
-      if (stopped) return;
-      if (!matchesPage()) {
-        window.bilibiliHomePageScript?.destroy();
-        return;
-      }
-      fitAvatarMenus();
-      for (const link of document.querySelectorAll(navigationLinks)) {
-        if (isCurrentTabLink(link)) rememberAttribute(link, "target", "_self");
-      }
-      for (const [element] of variables) if (!element.isConnected) variables.delete(element);
-      for (const element of hidden) if (!element.isConnected) hidden.delete(element);
-      for (const element of observed) if (!element.isConnected) {
-        resize.unobserve(element);
-        observed.delete(element);
-      }
-      for (const [container, menu] of menus) if (!container.isConnected) {
-        if (activeMenu === menu) closeMenu();
-        menu.button.remove();
-        menus.delete(container);
-      }
-      if (!narrow.matches) {
-        closeMenu();
-        for (const element of hidden) element.classList.remove("homepagescript-hidden");
-        hidden.clear();
-        return;
-      }
-      fitHeader();
-      for (const container of document.querySelectorAll(".channel-items__left")) {
-        observe(container);
-        const count = Math.max(2, Math.floor((container.clientWidth + 6) / 82));
-        setColumns(container, count);
-        makeMore(container, () => Array.from(container.parentElement.querySelectorAll("a[href]")));
-        fit(Array.from(container.querySelectorAll(":scope > a")), count - 1);
-      }
-      for (const container of document.querySelectorAll(".header-channel-fixed-right")) {
-        observe(container);
-        const count = Math.max(2, Math.floor((container.clientWidth + 6) / 82));
-        setColumns(container, count);
-        makeMore(container, () => Array.from(container.querySelectorAll("a[href]")));
-        fit(Array.from(container.querySelectorAll("a.channel-item")), count - 1);
-      }
-      for (const container of document.querySelectorAll('.search-layout .video-list,.search-layout .live-room-cards,.feed2 .recommended-container_floor-aside > .container,.head-cards,.loading-cards,.channel-feed,.popular-list .card-list,.fav-list-main .items,.section-cards,#room-card-list,main [class~="grid"],.items-container')) {
-        observe(container);
-        const count = innerWidth < 400 ? 1 : Math.max(2, Math.floor((container.clientWidth + 12) / 232));
-        setColumns(container, count);
-      }
-    }
-    function schedule() {
-      if (!stopped && !frame) frame = requestAnimationFrame(update);
-    }
-    const resize = new ResizeObserver(schedule);
-    const avatarMutations = new MutationObserver((records) => {
-      if (records.some((record) => record.attributeName !== "style" || !avatarMenus.has(record.target) || avatarMenus.get(record.target).style !== record.target.getAttribute("style"))) schedule();
+    return mountHomeLayout(homeStyle() + layout_default, () => pageId(location.href) === "Search", {
+      contentSelector: '.search-layout .video-list,.search-layout .live-room-cards,.feed2 .recommended-container_floor-aside > .container,.head-cards,.loading-cards,.channel-feed,.popular-list .card-list,.fav-list-main .items,.section-cards,#room-card-list,main [class~="grid"],.items-container',
+      avatarNavigationEnabled: false,
+      avatarLink: isAvatarNavigationLink
     });
-    resize.observe(html);
-    const mutations = new MutationObserver((records) => {
-      if (records.some((record) => !panel.contains(record.target) && record.target !== panel)) schedule();
-    });
-    mutations.observe(document.body, { childList: true, subtree: true });
-    window.addEventListener("resize", () => {
-      closeMenu();
-      schedule();
-    }, { signal: events.signal });
-    narrow.addEventListener("change", schedule, { signal: events.signal });
-    document.addEventListener("scroll", (event) => {
-      if (event.target !== panel && !panel.contains(event.target)) closeMenu();
-    }, { capture: true, passive: true, signal: events.signal });
-    document.addEventListener("pointerdown", (event) => {
-      if (activeMenu && !panel.contains(event.target) && !activeMenu.button.contains(event.target)) closeMenu();
-    }, { capture: true, signal: events.signal });
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && activeMenu) {
-        event.preventDefault();
-        closeMenu(true);
-      }
-    }, { signal: events.signal });
-    panel.addEventListener("click", (event) => {
-      if (event.target.closest("a")) closeMenu();
-    }, { signal: events.signal });
-    window.addEventListener("pointerdown", syncPotPlayerIgnore, { capture: true, signal: events.signal });
-    window.addEventListener("click", syncPotPlayerIgnore, { capture: true, signal: events.signal });
-    syncPotPlayerIgnore();
-    const potPlayerTimer = setInterval(syncPotPlayerIgnore, 500);
-    document.addEventListener("click", (event) => {
-      if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-      const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
-      if (!isCurrentTabLink(link)) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      location.assign(link.href);
-    }, { capture: true, signal: events.signal });
-    window.bilibiliHomePageScript = {
-      destroy() {
-        headerSearchNavigation.destroy();
-        headerCards.destroy();
-        stopped = true;
-        events.abort();
-        mutations.disconnect();
-        avatarMutations.disconnect();
-        resize.disconnect();
-        cancelAnimationFrame(frame);
-        closeMenu();
-        clearInterval(potPlayerTimer);
-        restorePotPlayerIgnore();
-        for (const [element, saved] of avatarMenus) resetAvatarMenu(element, saved);
-        for (const element of hidden) element.classList.remove("homepagescript-hidden");
-        for (const [element, saved] of attributes) for (const [name, { original, value }] of saved) {
-          if (element.getAttribute(name) !== value) continue;
-          if (original === null) element.removeAttribute(name);
-          else element.setAttribute(name, original);
-        }
-        for (const [element, value] of variables) {
-          if (value) element.style.setProperty("--homepagescript-columns", value);
-          else element.style.removeProperty("--homepagescript-columns");
-        }
-        for (const menu of menus.values()) menu.button.remove();
-        panel.remove();
-        style.remove();
-        html.classList.remove("homepagescript-active");
-        delete window.bilibiliHomePageScript;
-      }
-    };
-    update();
-    return window.bilibiliHomePageScript;
+  }
+  function isAvatarNavigationLink(link) {
+    if (!(link instanceof HTMLAnchorElement) || link.hasAttribute("download")) return false;
+    const url2 = new URL(link.href, location.href);
+    if (!isPageUrl(url2)) return false;
+    const destination = url2.hostname === "space.bilibili.com" && /^\/\d+\/?$/.test(url2.pathname) || url2.hostname === "link.bilibili.com" && url2.pathname === "/p/center/index" && /^#\/?user-center\/my-info(?:\/|$)/.test(url2.hash);
+    return Boolean(destination && (link.closest(".header-avatar-wrap") && (link.matches(".header-entry-mini,.header-entry-avatar") || link.querySelector(".bili-avatar")) || link.closest(".link-navbar") && (link.querySelector(".user-avatar") || link.closest(".user-panel-ctnr,.user-panel") && link.textContent.trim() === "主站空间") || link.closest(".charity-header") && link.matches(".user") && link.querySelector(".face")));
   }
 
   // src/WebPage/Popular/module.js
@@ -5089,35 +4767,12 @@ html.homepagescript-active .search-layout .media-card:has(.media-footer) .media-
     early: () => early10,
     mount: () => mount10
   });
-  var early10 = () => createPageOpening();
-  function mount10() {
-    "use strict";
-    const matchesPage = () => pageId(location.href) === "Popular";
-    if (!matchesPage()) return;
-    window.bilibiliHomePageScript?.destroy();
-    const headerSearchNavigation = createHeaderSearchNavigation();
-    const headerCards = createHeaderCards();
-    const avatarNavigation = createAvatarNavigation();
-    const html = document.documentElement;
-    const narrow = matchMedia("(max-width: 1099px)");
-    const navigationScope = ".bili-header,.bili-header__bar,#homepagescript-menu,.header-channel,.channel-entry-popover,.bili-header-channel-panel,.link-navbar,.charity-header";
-    const navigationLinks = navigationScope.split(",").map((selector) => `${selector} a[href]`).join(",");
-    const events = new AbortController();
-    const hidden = /* @__PURE__ */ new Set(), attributes = /* @__PURE__ */ new Map(), variables = /* @__PURE__ */ new Map();
-    const menus = /* @__PURE__ */ new Map(), observed = /* @__PURE__ */ new Set();
-    const avatarMenus = /* @__PURE__ */ new Map(), avatarTargets = /* @__PURE__ */ new Set();
-    let potPlayerApi = null, restorePotPlayerIgnore = () => {
-    };
-    let observedUrl = location.href;
-    let frame = 0, stopped = false, activeMenu = null;
-    const style = document.createElement("style");
-    style.id = "homepagescript-style";
-    style.textContent = homeStyle();
-    style.textContent += "\n@media(max-width:1099px) {\nhtml.homepagescript-active :is(.bili-footer,.b-footer-wrap,.footer) {box-sizing:border-box!important;min-width:0!important;width:100%!important;padding:12px!important;}\nhtml.homepagescript-active :is(.link-box,.other-link,.link-item__right) {flex-wrap:wrap!important;gap:12px!important;width:100%!important;}\nhtml.homepagescript-active :is(.link-item,.text-con,.text-con__line) {min-width:0!important;width:100%!important;white-space:normal!important;overflow-wrap:anywhere!important;}\n}@media(max-width:1099px) {\nhtml.homepagescript-active .popular-container {box-sizing:border-box!important;width:100%!important;min-width:0!important;padding:8px!important;margin:0!important;}\nhtml.homepagescript-active .nav-tabs {overflow-x:auto!important;gap:8px!important;}\nhtml.homepagescript-active .nav-tabs__item {flex-shrink:0!important;}\nhtml.homepagescript-active .card-list {display:grid!important;grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important;gap:16px 12px!important;}\nhtml.homepagescript-active .video-card {display:flex!important;flex-direction:column!important;width:100%!important;min-width:0!important;margin:0!important;height:auto!important;}\nhtml.homepagescript-active :is(.video-card__content,.video-card__info) {box-sizing:border-box!important;width:100%!important;min-width:0!important;height:auto!important;padding:0!important;}\nhtml.homepagescript-active .video-card__content {aspect-ratio:16/9;}\nhtml.homepagescript-active .video-card__content :is(a,img) {width:100%!important;height:100%!important;}\nhtml.homepagescript-active .video-name {width:100%!important;margin:8px 0!important;}\n}";
-    const panel = document.createElement("div");
-    panel.id = "homepagescript-menu";
-    panel.setAttribute("aria-label", "全部频道");
-    style.textContent += `
+
+  // src/WebPage/Popular/style.js
+  function pageStyle5() {
+    let css = homeStyle();
+    css += "\n@media(max-width:1099px) {\nhtml.homepagescript-active :is(.bili-footer,.b-footer-wrap,.footer) {box-sizing:border-box!important;min-width:0!important;width:100%!important;padding:12px!important;}\nhtml.homepagescript-active :is(.link-box,.other-link,.link-item__right) {flex-wrap:wrap!important;gap:12px!important;width:100%!important;}\nhtml.homepagescript-active :is(.link-item,.text-con,.text-con__line) {min-width:0!important;width:100%!important;white-space:normal!important;overflow-wrap:anywhere!important;}\n}@media(max-width:1099px) {\nhtml.homepagescript-active .popular-container {box-sizing:border-box!important;width:100%!important;min-width:0!important;padding:8px!important;margin:0!important;}\nhtml.homepagescript-active .nav-tabs {overflow-x:auto!important;gap:8px!important;}\nhtml.homepagescript-active .nav-tabs__item {flex-shrink:0!important;}\nhtml.homepagescript-active .card-list {display:grid!important;grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important;gap:16px 12px!important;}\nhtml.homepagescript-active .video-card {display:flex!important;flex-direction:column!important;width:100%!important;min-width:0!important;margin:0!important;height:auto!important;}\nhtml.homepagescript-active :is(.video-card__content,.video-card__info) {box-sizing:border-box!important;width:100%!important;min-width:0!important;height:auto!important;padding:0!important;}\nhtml.homepagescript-active .video-card__content {aspect-ratio:16/9;}\nhtml.homepagescript-active .video-card__content :is(a,img) {width:100%!important;height:100%!important;}\nhtml.homepagescript-active .video-name {width:100%!important;margin:8px 0!important;}\n}";
+    css += `
     @media(max-width:1099px) {
       html.homepagescript-active .weekly-list .video-list { display:grid!important; grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important; gap:16px 12px!important; }
       html.homepagescript-active .popular-container :is(.popular-video-container,.rank-container,.flow-loader,.rank-list-wrap) { min-width:0!important; max-width:100%!important; }
@@ -5164,326 +4819,15 @@ html.homepagescript-active .search-layout .media-card:has(.media-footer) .media-
       html.homepagescript-active .music-rank-list [class*="_scrollContainer_"] { min-width:0!important; }
     }
   `;
-    (document.head || html).append(style);
-    html.classList.add("homepagescript-active");
-    function rememberAttribute(element, name, value) {
-      let saved = attributes.get(element);
-      if (!saved) attributes.set(element, saved = /* @__PURE__ */ new Map());
-      if (!saved.has(name)) saved.set(name, { original: element.getAttribute(name), value });
-      saved.get(name).value = value;
-      if (element.getAttribute(name) !== value) element.setAttribute(name, value);
-    }
-    function setColumns(element, count) {
-      const name = "--homepagescript-columns";
-      if (!variables.has(element)) variables.set(element, element.style.getPropertyValue(name));
-      const value = String(count);
-      if (element.style.getPropertyValue(name) !== value) element.style.setProperty(name, value);
-    }
-    function fit(items, count) {
-      items.forEach((element, index) => {
-        const hide = narrow.matches && index >= count;
-        if (hide && !element.classList.contains("homepagescript-hidden")) {
-          element.classList.add("homepagescript-hidden");
-          hidden.add(element);
-        } else if (!hide && hidden.delete(element)) element.classList.remove("homepagescript-hidden");
-      });
-    }
-    function fitHeader() {
-      fitHomeHeader(hidden, fit);
-    }
-    function observe(element) {
-      if (!observed.has(element)) {
-        observed.add(element);
-        resize.observe(element);
-      }
-    }
-    function makeMore(container, source) {
-      let menu = menus.get(container);
-      if (!menu) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "homepagescript-more";
-        button.textContent = "更多 ▾";
-        button.setAttribute("aria-expanded", "false");
-        button.setAttribute("aria-controls", panel.id);
-        button.addEventListener("click", (event) => {
-          if (activeMenu === menu) closeMenu();
-          else {
-            openMenu(menu);
-            if (event.detail === 0) panel.querySelector("a")?.focus();
-          }
-        }, { signal: events.signal });
-        menu = { container, button, source };
-        menus.set(container, menu);
-        container.append(button);
-      }
-      menu.source = source;
-      if (menu.button.parentElement !== container) container.append(menu.button);
-      return menu;
-    }
-    function closeMenu(focus = false) {
-      if (!activeMenu) return;
-      const button = activeMenu.button;
-      button.setAttribute("aria-expanded", "false");
-      panel.removeAttribute("data-open");
-      activeMenu = null;
-      if (focus && button.isConnected) button.focus();
-    }
-    function openMenu(menu) {
-      closeMenu();
-      panel.replaceChildren();
-      const seen = /* @__PURE__ */ new Set();
-      for (const source of menu.source()) {
-        const href = source.getAttribute("href"), label = source.textContent.trim();
-        if (!href || !label || seen.has(href)) continue;
-        seen.add(href);
-        const link = document.createElement("a");
-        link.textContent = label;
-        link.href = href;
-        for (const name of ["target", "rel", "title"]) {
-          if (source.hasAttribute(name)) link.setAttribute(name, source.getAttribute(name));
-        }
-        panel.append(link);
-      }
-      document.body.append(panel);
-      activeMenu = menu;
-      menu.button.setAttribute("aria-expanded", "true");
-      panel.setAttribute("data-open", "");
-      const rect = menu.button.getBoundingClientRect();
-      panel.style.width = `${Math.min(520, Math.max(0, html.clientWidth - 16))}px`;
-      const width = panel.getBoundingClientRect().width;
-      panel.style.left = `${Math.max(8, Math.min(rect.right - width, html.clientWidth - width - 8))}px`;
-      const below = innerHeight - rect.bottom - 12;
-      const above = Math.max(0, rect.top - 12);
-      const down = below >= Math.min(220, above);
-      panel.style.top = down ? `${rect.bottom + 4}px` : "auto";
-      panel.style.bottom = down ? "auto" : `${innerHeight - rect.top + 4}px`;
-      panel.style.setProperty("--homepagescript-menu-height", `${Math.max(40, down ? below : above)}px`);
-    }
-    function isCurrentTabLink(link) {
-      if (!(link instanceof HTMLAnchorElement) || link.hasAttribute("download")) return false;
-      const url = new URL(link.href, location.href);
-      if (link.closest(".bili-header-channel-panel")) return isPageUrl(url);
-      return isAvatarNavigationLink(link) || Boolean(link.closest(navigationScope) && isCompletedNavigation(url));
-    }
-    function isAvatarNavigationLink(link) {
-      return avatarNavigation.isLink(link);
-    }
-    const isCompletedNavigation = isPageUrl;
-    function isNavigationIgnored(url, { explicit = false } = {}) {
-      return !explicit && isCompletedNavigation(url);
-    }
-    function syncPotPlayerIgnore() {
-      if (location.href !== observedUrl) {
-        observedUrl = location.href;
-        schedule();
-      }
-      const api = window.__potPlayerBilibiliClick;
-      if (api === potPlayerApi) return;
-      restorePotPlayerIgnore();
-      potPlayerApi = api;
-      restorePotPlayerIgnore = typeof api?.ignoreUrl === "function" ? api.ignoreUrl(isNavigationIgnored) : () => {
-      };
-    }
-    const avatarProperties = ["--homepagescript-avatar-left", "--homepagescript-avatar-top", "--homepagescript-avatar-zoom"];
-    function resetAvatarMenu(element, saved) {
-      element.classList.remove("homepagescript-avatar-menu", "homepagescript-avatar-submenu", "homepagescript-avatar-submenu-left");
-      for (const name of avatarProperties) {
-        const original = saved.original.get(name);
-        if (original.value) element.style.setProperty(name, original.value, original.priority);
-        else element.style.removeProperty(name);
-      }
-      saved.zoom = 1;
-      saved.style = element.getAttribute("style");
-    }
-    function fitAvatarMenu(element, anchor, submenu, targets) {
-      let saved = avatarMenus.get(element);
-      if (!saved) {
-        saved = { original: new Map(avatarProperties.map((name) => [name, {
-          value: element.style.getPropertyValue(name),
-          priority: element.style.getPropertyPriority(name)
-        }])), zoom: 1, style: element.getAttribute("style") };
-        avatarMenus.set(element, saved);
-        observe(element);
-      }
-      for (const target of [element, element.parentElement, element.closest(".header-avatar-wrap,.user-panel-ctnr")]) if (target) targets.add(target);
-      if (!narrow.matches) {
-        if (element.classList.contains("homepagescript-avatar-menu") || element.classList.contains("homepagescript-avatar-submenu")) resetAvatarMenu(element, saved);
-        return;
-      }
-      const className = submenu ? "homepagescript-avatar-submenu" : "homepagescript-avatar-menu";
-      if (!element.classList.contains(className)) element.classList.add(className);
-      const rect = element.getBoundingClientRect();
-      if (rect.width && rect.height) {
-        const anchorRect = anchor.getBoundingClientRect();
-        let top = Math.max(8, Math.min(anchorRect.bottom, innerHeight - 16));
-        const width = rect.width / saved.zoom, height2 = rect.height / saved.zoom;
-        const zoom = Math.min(1, Math.max(1, html.clientWidth - 16) / width, Math.max(1, innerHeight - (submenu ? 16 : top + 8)) / height2);
-        let left;
-        if (submenu) {
-          const position = avatarSubmenuPosition(anchorRect, width * zoom, html.clientWidth);
-          element.classList.toggle("homepagescript-avatar-submenu-left", position.opensLeft);
-          left = position.left;
-          top = Math.max(8, Math.min((anchorRect.top + anchorRect.bottom - height2 * zoom) / 2, innerHeight - height2 * zoom - 8));
-        } else left = Math.max(8, Math.min(anchorRect.right - width * zoom, html.clientWidth - width * zoom - 8));
-        const scale = rect.width / element.offsetWidth / saved.zoom * zoom;
-        const values = [`${left / scale}px`, `${top / scale}px`, String(zoom)];
-        avatarProperties.forEach((name, index) => {
-          if (element.style.getPropertyValue(name) !== values[index]) element.style.setProperty(name, values[index]);
-        });
-        saved.zoom = zoom;
-      }
-      saved.style = element.getAttribute("style");
-    }
-    function fitAvatarMenus() {
-      const targets = /* @__PURE__ */ new Set();
-      for (const element of document.querySelectorAll(".bili-header__bar .header-avatar-wrap > .v-popover-wrap > .v-popover,.bili-header__bar .header-avatar-wrap.v-popover-wrap > .v-popover,.link-navbar .user-panel-ctnr > .user-panel")) {
-        const anchor = element.parentElement.querySelector(".header-avatar-wrap--container") || element.closest(".header-avatar-wrap,.user-panel-ctnr");
-        fitAvatarMenu(element, anchor, false, targets);
-        for (const submenu of element.querySelectorAll(".v-popover-wrap > .v-popover:is(.is-right,.is-left)")) {
-          fitAvatarMenu(submenu, submenu.parentElement, true, targets);
-        }
-      }
-      for (const [element, saved] of avatarMenus) if (!targets.has(element)) {
-        resetAvatarMenu(element, saved);
-        avatarMenus.delete(element);
-      }
-      if (targets.size !== avatarTargets.size || Array.from(targets).some((element) => !avatarTargets.has(element))) {
-        avatarMutations.disconnect();
-        avatarTargets.clear();
-        for (const element of targets) {
-          avatarTargets.add(element);
-          avatarMutations.observe(element, { attributes: true, attributeFilter: ["class", "style"] });
-        }
-      }
-    }
-    function update() {
-      frame = 0;
-      if (stopped) return;
-      if (!matchesPage()) {
-        window.bilibiliHomePageScript?.destroy();
-        return;
-      }
-      fitAvatarMenus();
-      for (const link of document.querySelectorAll(navigationLinks)) {
-        if (isCurrentTabLink(link)) rememberAttribute(link, "target", "_self");
-      }
-      for (const [element] of variables) if (!element.isConnected) variables.delete(element);
-      for (const element of hidden) if (!element.isConnected) hidden.delete(element);
-      for (const element of observed) if (!element.isConnected) {
-        resize.unobserve(element);
-        observed.delete(element);
-      }
-      for (const [container, menu] of menus) if (!container.isConnected) {
-        if (activeMenu === menu) closeMenu();
-        menu.button.remove();
-        menus.delete(container);
-      }
-      if (!narrow.matches) {
-        closeMenu();
-        for (const element of hidden) element.classList.remove("homepagescript-hidden");
-        hidden.clear();
-        return;
-      }
-      fitHeader();
-      for (const container of document.querySelectorAll(".channel-items__left")) {
-        observe(container);
-        const count = Math.max(2, Math.floor((container.clientWidth + 6) / 82));
-        setColumns(container, count);
-        makeMore(container, () => Array.from(container.parentElement.querySelectorAll("a[href]")));
-        fit(Array.from(container.querySelectorAll(":scope > a")), count - 1);
-      }
-      for (const container of document.querySelectorAll(".header-channel-fixed-right")) {
-        observe(container);
-        const count = Math.max(2, Math.floor((container.clientWidth + 6) / 82));
-        setColumns(container, count);
-        makeMore(container, () => Array.from(container.querySelectorAll("a[href]")));
-        fit(Array.from(container.querySelectorAll("a.channel-item")), count - 1);
-      }
-      for (const container of document.querySelectorAll('.feed2 .recommended-container_floor-aside > .container,.head-cards,.loading-cards,.channel-feed,.popular-container .card-list,.weekly-list .video-list,.popular-container .rank-list,.fav-list-main .items,.section-cards,#room-card-list,main [class~="grid"],.items-container')) {
-        observe(container);
-        const count = innerWidth < 400 ? 1 : Math.max(2, Math.floor((container.clientWidth + 12) / 232));
-        setColumns(container, count);
-      }
-    }
-    function schedule() {
-      if (!stopped && !frame) frame = requestAnimationFrame(update);
-    }
-    const resize = new ResizeObserver(schedule);
-    const avatarMutations = new MutationObserver((records) => {
-      if (records.some((record) => record.attributeName !== "style" || !avatarMenus.has(record.target) || avatarMenus.get(record.target).style !== record.target.getAttribute("style"))) schedule();
+    return css;
+  }
+
+  // src/WebPage/Popular/module.js
+  var early10 = () => createPageOpening();
+  function mount10() {
+    return mountHomeLayout(pageStyle5(), () => pageId(location.href) === "Popular", {
+      contentSelector: '.feed2 .recommended-container_floor-aside > .container,.head-cards,.loading-cards,.channel-feed,.popular-container .card-list,.weekly-list .video-list,.popular-container .rank-list,.fav-list-main .items,.section-cards,#room-card-list,main [class~="grid"],.items-container'
     });
-    resize.observe(html);
-    const mutations = new MutationObserver((records) => {
-      if (records.some((record) => !panel.contains(record.target) && record.target !== panel)) schedule();
-    });
-    mutations.observe(document.body, { childList: true, subtree: true });
-    window.addEventListener("resize", () => {
-      closeMenu();
-      schedule();
-    }, { signal: events.signal });
-    narrow.addEventListener("change", schedule, { signal: events.signal });
-    document.addEventListener("scroll", (event) => {
-      if (event.target !== panel && !panel.contains(event.target)) closeMenu();
-    }, { capture: true, passive: true, signal: events.signal });
-    document.addEventListener("pointerdown", (event) => {
-      if (activeMenu && !panel.contains(event.target) && !activeMenu.button.contains(event.target)) closeMenu();
-    }, { capture: true, signal: events.signal });
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && activeMenu) {
-        event.preventDefault();
-        closeMenu(true);
-      }
-    }, { signal: events.signal });
-    panel.addEventListener("click", (event) => {
-      if (event.target.closest("a")) closeMenu();
-    }, { signal: events.signal });
-    window.addEventListener("pointerdown", syncPotPlayerIgnore, { capture: true, signal: events.signal });
-    window.addEventListener("click", syncPotPlayerIgnore, { capture: true, signal: events.signal });
-    syncPotPlayerIgnore();
-    const potPlayerTimer = setInterval(syncPotPlayerIgnore, 500);
-    document.addEventListener("click", (event) => {
-      if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-      const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
-      if (!isCurrentTabLink(link)) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      location.assign(link.href);
-    }, { capture: true, signal: events.signal });
-    window.bilibiliHomePageScript = {
-      destroy() {
-        avatarNavigation.destroy();
-        headerSearchNavigation.destroy();
-        headerCards.destroy();
-        stopped = true;
-        events.abort();
-        mutations.disconnect();
-        avatarMutations.disconnect();
-        resize.disconnect();
-        cancelAnimationFrame(frame);
-        closeMenu();
-        clearInterval(potPlayerTimer);
-        restorePotPlayerIgnore();
-        for (const [element, saved] of avatarMenus) resetAvatarMenu(element, saved);
-        for (const element of hidden) element.classList.remove("homepagescript-hidden");
-        for (const [element, saved] of attributes) for (const [name, { original, value }] of saved) {
-          if (element.getAttribute(name) !== value) continue;
-          if (original === null) element.removeAttribute(name);
-          else element.setAttribute(name, original);
-        }
-        for (const [element, value] of variables) {
-          if (value) element.style.setProperty("--homepagescript-columns", value);
-          else element.style.removeProperty("--homepagescript-columns");
-        }
-        for (const menu of menus.values()) menu.button.remove();
-        panel.remove();
-        style.remove();
-        html.classList.remove("homepagescript-active");
-        delete window.bilibiliHomePageScript;
-      }
-    };
-    update();
-    return window.bilibiliHomePageScript;
   }
 
   // src/WebPage/Anime/module.js
@@ -5503,12 +4847,12 @@ html.homepagescript-active .search-layout .media-card:has(.media-footer) .media-
   var native_single_row_default = "@media(max-width:1099px) {\n html.homepagescript-active [data-native-single-row-container] {position:relative!important;display:block!important;min-width:0!important;}\n html.homepagescript-active [data-native-single-row-container] > :is(.prev-page,.next-page) {position:absolute!important;top:50%!important;margin:-24px 0 0!important;z-index:30!important;width:48px!important;min-width:48px!important;max-width:48px!important;height:48px!important;min-height:48px!important;max-height:48px!important;flex:none!important;}\n html.homepagescript-active [data-native-single-row-container] > .prev-page {left:0!important;right:auto!important;}\n html.homepagescript-active [data-native-single-row-container] > .next-page {right:0!important;left:auto!important;}\n html.homepagescript-active [data-native-single-row]:is(.inner-content-body,.timeline-common-content-list-container) {\n  position:relative!important;display:flex!important;flex-flow:row nowrap!important;justify-content:flex-start!important;\n  gap:0 var(--single-row-gap)!important;width:100%!important;min-width:0!important;overflow:hidden!important;\n }\n /* Native date badges extend 12px above the card. Keep them inside the\n    vertical clipping area while the row still clips horizontal expansion. */\n html.homepagescript-active [data-native-single-row].timeline-common-content-list-container {padding-top:12px!important;}\n html.homepagescript-active [data-native-single-row]:is(.inner-content-body,.timeline-common-content-list-container) > :is(.hot-ranking-cell-wrapper,.horizontal-cell-wrapper,.timeline-weekday-item) {\n  box-sizing:border-box!important;position:relative!important;left:var(--single-row-hover-offset,0px)!important;\n  flex:0 0 var(--single-row-card-width)!important;width:var(--single-row-card-width)!important;max-width:none!important;min-width:0!important;margin:0!important;\n }\n html.homepagescript-active [data-native-single-row]:is(.inner-content-body,.timeline-common-content-list-container) > :is(.is-hover-active-play,.is-hover-active) {\n  flex-basis:var(--single-row-expanded-width)!important;width:var(--single-row-expanded-width)!important;z-index:20!important;\n }\n html.homepagescript-active [data-native-single-row]:is(.inner-content-body,.timeline-common-content-list-container) > :is(.hot-ranking-cell-wrapper,.timeline-weekday-item) :is(.ranking-ratio-item-container,.img-cover-ratio-item-container) {height:var(--single-row-cover-height)!important;}\n html.homepagescript-active [data-native-single-row]:is(.inner-content-body,.timeline-common-content-list-container) > .horizontal-cell-wrapper .horizontal-ratio-item-container {height:var(--single-row-cover-height)!important;padding-top:0!important;}\n html.homepagescript-active [data-native-single-row]:is(.inner-content-body,.timeline-common-content-list-container) > .timeline-common-content-list-blank {display:none!important;}\n /* Left follows the measured flex animation on every frame. A second native\n    left transition would lag behind the cover and leave the right edge loose. */\n html.homepagescript-active [data-native-single-row]:is(.inner-content-body,.timeline-common-content-list-container) > :is(.hot-ranking-cell-wrapper,.horizontal-cell-wrapper,.timeline-weekday-item) {transition-property:flex-basis,flex-grow,width!important;}\n}\n";
 
   // src/WebPage/Anime/style.js
-  var pageStyle5 = homeStyle() + content_default8 + card_hover_layout_default + native_single_row_default;
+  var pageStyle6 = homeStyle() + content_default8 + card_hover_layout_default + native_single_row_default;
 
   // src/common/card-hover-layout.js
   function mountCardHoverLayout({ rowSelector, cardSelector }) {
     const narrow = matchMedia("(max-width:1099px)");
-    const events = new AbortController(), rows = /* @__PURE__ */ new Set(), properties = /* @__PURE__ */ new Map();
+    const events2 = new AbortController(), rows = /* @__PURE__ */ new Set(), properties = /* @__PURE__ */ new Map();
     let frame = 0, stopped = false;
     function property(element, name, value) {
       let saved = properties.get(element);
@@ -5561,12 +4905,12 @@ html.homepagescript-active .search-layout .media-card:has(.media-footer) .media-
       if (records.some((r) => r.type === "childList" || r.target.matches?.(".hot-ranking-cell-wrapper,.timeline-weekday-item,.hover-c"))) schedule();
     });
     mutations.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style"] });
-    narrow.addEventListener("change", schedule, { signal: events.signal });
-    window.addEventListener("resize", schedule, { signal: events.signal });
+    narrow.addEventListener("change", schedule, { signal: events2.signal });
+    window.addEventListener("resize", schedule, { signal: events2.signal });
     update();
     return { destroy() {
       stopped = true;
-      events.abort();
+      events2.abort();
       mutations.disconnect();
       resize.disconnect();
       cancelAnimationFrame(frame);
@@ -5585,7 +4929,7 @@ html.homepagescript-active .search-layout .media-card:has(.media-footer) .media-
 
   // src/common/native-single-row.js
   function mountNativeSingleRows({ selector, describe }) {
-    const narrow = matchMedia("(max-width:1099px)"), events = new AbortController();
+    const narrow = matchMedia("(max-width:1099px)"), events2 = new AbortController();
     const states = /* @__PURE__ */ new Map();
     let frame = 0, motionFrame = 0, stopped = false;
     function property(state, element, name, value) {
@@ -5700,16 +5044,16 @@ html.homepagescript-active .search-layout .media-card:has(.media-footer) .media-
       if (records.some((record) => record.type === "childList" || record.attributeName === "class")) schedule();
     });
     mutations.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
-    narrow.addEventListener("change", schedule, { signal: events.signal });
-    window.addEventListener("resize", schedule, { signal: events.signal });
+    narrow.addEventListener("change", schedule, { signal: events2.signal });
+    window.addEventListener("resize", schedule, { signal: events2.signal });
     for (const type of ["transitionrun", "transitionend", "transitioncancel"]) document.addEventListener(type, (event) => {
       if (!["flex-basis", "flex-grow", "width"].includes(event.propertyName) || ![...states.values()].some((state) => state.row === event.target.parentElement)) return;
       if (!motionFrame) motionFrame = requestAnimationFrame(animate);
-    }, { capture: true, signal: events.signal });
+    }, { capture: true, signal: events2.signal });
     update();
     return { destroy() {
       stopped = true;
-      events.abort();
+      events2.abort();
       resize.disconnect();
       mutations.disconnect();
       cancelAnimationFrame(frame);
@@ -5804,7 +5148,7 @@ html.homepagescript-active .search-layout .media-card:has(.media-footer) .media-
   // src/WebPage/Anime/content-layout.js
   function mountAnimeContent() {
     const narrow = matchMedia("(max-width:1099px)");
-    const events = new AbortController();
+    const events2 = new AbortController();
     const properties = /* @__PURE__ */ new Map(), attributes = /* @__PURE__ */ new Map(), rails = /* @__PURE__ */ new Map(), timelines = /* @__PURE__ */ new Map(), filters = /* @__PURE__ */ new Map();
     const cards2 = mountCardHoverLayout({
       rowSelector: ".feenline-vcard-wrapper",
@@ -5847,7 +5191,7 @@ html.homepagescript-active .search-layout .media-card:has(.media-footer) .media-
         wrapper.append(button, panel);
         const rail = { marker, wrapper, button, panel, originalInert };
         rails.set(panel, rail);
-        button.addEventListener("click", () => expand(rail, !wrapper.hasAttribute("data-open")), { signal: events.signal });
+        button.addEventListener("click", () => expand(rail, !wrapper.hasAttribute("data-open")), { signal: events2.signal });
         expand(rail, false);
       }
       for (const rail of rails.values()) rail.panel.inert = narrow.matches ? !rail.wrapper.hasAttribute("data-open") : rail.originalInert;
@@ -5882,8 +5226,8 @@ html.homepagescript-active .search-layout .media-card:has(.media-footer) .media-
             if (event.type === "keydown") event.preventDefault();
             selectDay(container, state, [...container.querySelectorAll(".tl-head")].indexOf(head), true);
           };
-          container.addEventListener("click", choose, { signal: events.signal });
-          container.addEventListener("keydown", choose, { signal: events.signal });
+          container.addEventListener("click", choose, { signal: events2.signal });
+          container.addEventListener("keydown", choose, { signal: events2.signal });
         }
         const heads = [...container.querySelectorAll(".tl-head")];
         if (!heads.length) continue;
@@ -5931,24 +5275,24 @@ html.homepagescript-active .search-layout .media-card:has(.media-footer) .media-
       if (records.some((r) => r.type === "childList" || r.target.matches?.(".filter-item-wrapper") || r.type === "characterData" && r.target.parentElement?.closest(".btn-expand"))) schedule();
     });
     mutations.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style"], characterData: true });
-    narrow.addEventListener("change", schedule, { signal: events.signal });
-    window.addEventListener("resize", schedule, { signal: events.signal });
+    narrow.addEventListener("change", schedule, { signal: events2.signal });
+    window.addEventListener("resize", schedule, { signal: events2.signal });
     document.addEventListener("pointerdown", (event) => {
       for (const rail of rails.values()) if (rail.wrapper.hasAttribute("data-open") && !rail.wrapper.contains(event.target)) expand(rail, false);
-    }, { signal: events.signal, passive: true });
+    }, { signal: events2.signal, passive: true });
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
       for (const rail of rails.values()) if (rail.wrapper.hasAttribute("data-open")) {
         expand(rail, false);
         rail.button.focus();
       }
-    }, { signal: events.signal });
+    }, { signal: events2.signal });
     update();
     return { destroy() {
       cards2.destroy();
       pagination.destroy();
       stopped = true;
-      events.abort();
+      events2.abort();
       mutations.disconnect();
       resize.disconnect();
       cancelAnimationFrame(frame);
@@ -5971,7 +5315,7 @@ html.homepagescript-active .search-layout .media-card:has(.media-footer) .media-
   // src/WebPage/Anime/module.js
   var early11 = () => createPageOpening();
   var mount11 = () => {
-    const layout = mountHomeLayout(pageStyle5, () => pageId(location.href) === "Anime");
+    const layout = mountHomeLayout(pageStyle6, () => pageId(location.href) === "Anime");
     if (!layout) return;
     const content2 = mountAnimeContent();
     const instance = { destroy() {
@@ -5993,12 +5337,12 @@ html.homepagescript-active .search-layout .media-card:has(.media-footer) .media-
   var content_default9 = "\n@media(max-width:1099px) {\n html.homepagescript-active .home-v3-app-container {min-width:0!important;width:100%!important;}\n html.homepagescript-active .inner-content-wrapper {box-sizing:border-box!important;width:100%!important;max-width:100%!important;min-width:0!important;margin-left:0!important;margin-right:0!important;padding-left:8px!important;padding-right:8px!important;}\n html.homepagescript-active .home-banner-wrapper {height:auto!important;min-height:0!important;padding-top:56px!important;}\n html.homepagescript-active .banner-item-ratio-scale-container {padding-top:0!important;height:auto!important;aspect-ratio:16/9;}\n html.homepagescript-active .banner-item-ratio-scale-inner {position:relative!important;inset:auto!important;width:100%!important;height:100%!important;}\n html.homepagescript-active .banner-hover-group {position:relative!important;inset:auto!important;width:100%!important;padding:8px!important;box-sizing:border-box!important;}\n html.homepagescript-active .banner-hover-group-title {width:100%!important;padding:0!important;}\n html.homepagescript-active .banner-hover-group-body {width:100%!important;gap:8px!important;overflow-x:auto!important;align-items:start!important;padding:8px 0!important;}\n html.homepagescript-active .banner-hover-group-item {flex:0 0 140px!important;width:140px!important;}\n html.homepagescript-active .home-index-wrapper .inner-content-body {display:grid!important;grid-template-columns:1fr!important;gap:8px!important;}\n html.homepagescript-active .inner-content-item-index {width:100%!important;margin:0!important;}\n html.homepagescript-active :is(.home-page-switch-wrapper .inner-content-body,.feenline-vcard-wrapper) {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr))!important;gap:16px 12px!important;}\n html.homepagescript-active :is(.home-page-switch-wrapper .inner-content-body,.feenline-vcard-wrapper) > * {box-sizing:border-box!important;min-width:0!important;width:100%!important;max-width:100%!important;margin:0!important;}\n html.homepagescript-active .section-title-v2-wrapper {align-items:flex-start!important;gap:8px!important;flex-wrap:wrap!important;}\n html.homepagescript-active .title-right {min-width:0!important;max-width:100%!important;overflow-x:auto!important;}\n html.homepagescript-active .next-page {position:static!important;transform:none!important;display:block!important;margin:8px auto!important;}\n html.homepagescript-active .content-wrap {display:flex!important;flex-direction:column!important;min-width:0!important;width:100%!important;height:auto!important;}\n html.homepagescript-active .info-wrap {position:relative!important;inset:auto!important;width:100%!important;height:auto!important;min-height:0!important;}\n html.homepagescript-active .info-content-wrap {box-sizing:border-box!important;width:100%!important;height:auto!important;padding:12px!important;}\n html.homepagescript-active .video-wrap {position:relative!important;inset:auto!important;width:100%!important;height:auto!important;aspect-ratio:16/9;}\n html.homepagescript-active .carousel-wrap {width:100%!important;overflow-x:auto!important;position:relative!important;inset:auto!important;}\n html.homepagescript-active .feed-line-rank-body-container {flex-direction:column!important;gap:12px!important;}\n html.homepagescript-active .feed-line-rank-body-inner {min-width:0!important;width:100%!important;max-width:100%!important;}\n /* 电影/电视剧等页面采用 inner-c + grid 的另一套 PGC 模板。 */\n html.homepagescript-active .inner-c {box-sizing:border-box!important;min-width:0!important;width:100%!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;padding-left:8px!important;padding-right:8px!important;}\n html.homepagescript-active .banner-wrapper {min-width:0!important;height:auto!important;padding-top:56px!important;}\n html.homepagescript-active .banner-wrapper .bg-container {position:relative!important;inset:auto!important;width:100%!important;height:240px!important;}\n html.homepagescript-active .banner-wrapper .inner-c {height:auto!important;}\n html.homepagescript-active .side-list-wrp {position:relative!important;inset:auto!important;width:100%!important;height:auto!important;}\n html.homepagescript-active .side-list {flex-direction:row!important;width:100%!important;overflow-x:auto!important;gap:8px!important;padding:8px 0!important;}\n html.homepagescript-active .side-item {flex:0 0 150px!important;width:150px!important;}\n html.homepagescript-active .index-module > .inner-c {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr))!important;gap:12px!important;}\n html.homepagescript-active .index-item {width:100%!important;height:auto!important;margin:0!important;}\n html.homepagescript-active .index-item .value-c {height:auto!important;}\n html.homepagescript-active .grid {grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr))!important;grid-template-rows:none!important;grid-auto-rows:auto!important;gap:16px 12px!important;}\n html.homepagescript-active .grid > * {box-sizing:border-box!important;grid-column:auto!important;grid-row:auto!important;min-width:0!important;width:100%!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;}\n html.homepagescript-active .hot-module > .left {grid-column:1/-1!important;aspect-ratio:16/9;height:auto!important;}\n html.homepagescript-active .hot-item .cover {width:100%!important;height:auto!important;aspect-ratio:3/4;}\n}\n    @media (max-width:1099px) {\n      html.homepagescript-active .index-module { margin-top:0!important; }\n      html.homepagescript-active .banner-wrapper .bg-container {\n        height:auto!important; overflow:hidden!important;\n      }\n      html.homepagescript-active .banner-wrapper .bg-container > span { display:grid!important; }\n      html.homepagescript-active .banner-wrapper .bg-item {\n        grid-area:1/1;\n        box-sizing:border-box!important; position:relative!important; inset:auto!important;\n        width:100%!important; min-width:0!important; max-width:100%!important; height:auto!important;\n        margin:0!important; transform:none!important; background-size:contain!important; background-position:center!important;\n      }\n      html.homepagescript-active .banner-wrapper .bg-item > a :is(img,picture) {\n        display:block; position:relative!important; inset:auto!important; margin:0!important; transform:none!important;\n        width:100%!important; max-width:100%!important; height:auto!important; object-fit:contain!important;\n      }\n      html.homepagescript-active .banner-wrapper .bg-item-badge {\n        position:absolute!important; top:auto!important; bottom:8px!important; left:8px!important;\n        width:clamp(20px,8vw,80px)!important; height:auto!important;\n      }\n      html.homepagescript-active .banner-wrapper .side-list-wrp {\n        box-sizing:border-box!important; min-width:0!important; margin:0!important; padding:0!important;\n      }\n      html.homepagescript-active .banner-wrapper .side-list {\n        display:grid!important; grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr))!important;\n        box-sizing:border-box!important; height:auto!important; min-height:0!important;\n        overflow:visible!important; margin:0!important;\n      }\n      html.homepagescript-active .banner-wrapper .side-item {\n        box-sizing:border-box!important; position:relative!important; width:100%!important; min-width:0!important;\n        max-width:100%!important; height:auto!important; margin:0!important;\n      }\n    }\n  \n@media(max-width:1099px) {\n html.homepagescript-active .module .list-c {overflow:visible!important;display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr))!important;gap:20px 12px!important;}\n html.homepagescript-active .module .list-c > .hover-c {left:0!important;right:auto!important;height:auto!important;box-sizing:border-box!important;width:100%!important;min-width:0!important;max-width:100%!important;margin:0!important;}\n html.homepagescript-active .module .list-c :is(.hover-item,.season-cover-c,.season-cover) {height:auto!important;width:100%!important;min-width:0!important;}\n html.homepagescript-active .module .list-c .season-cover {height:auto!important;aspect-ratio:3/4;}\n html.homepagescript-active .module .list-c .season-cover :is(picture,img) {width:100%!important;height:100%!important;object-fit:cover;}\n html.homepagescript-active .module .list-c .title {max-width:100%!important;}\n html.homepagescript-active .module-column {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr))!important;gap:12px!important;}\n html.homepagescript-active .module-column .column-item {width:100%!important;min-width:0!important;margin:0!important;}\n}\n";
 
   // src/WebPage/PGC/style.js
-  var pageStyle6 = homeStyle() + content_default9 + card_hover_layout_default;
+  var pageStyle7 = homeStyle() + content_default9 + card_hover_layout_default;
 
   // src/WebPage/PGC/module.js
   var early12 = () => createPageOpening();
   var mount12 = () => {
-    const layout = mountHomeLayout(pageStyle6, () => pageId(location.href) === "PGC");
+    const layout = mountHomeLayout(pageStyle7, () => pageId(location.href) === "PGC");
     if (!layout) return;
     const cards2 = mountCardHoverLayout({ rowSelector: ".module .list-c:has(> .hover-c)", cardSelector: ":scope > .hover-c" });
     const instance = { destroy() {
@@ -6020,11 +5364,11 @@ html.homepagescript-active .search-layout .media-card:has(.media-footer) .media-
   var content_default10 = "\n@media(max-width:1099px) {\nhtml.homepagescript-active :is(.bili-footer,.b-footer-wrap,.footer) {box-sizing:border-box!important;min-width:0!important;width:100%!important;padding:12px!important;}\nhtml.homepagescript-active :is(.link-box,.other-link,.link-item__right) {flex-wrap:wrap!important;gap:12px!important;width:100%!important;}\nhtml.homepagescript-active :is(.link-item,.text-con,.text-con__line) {min-width:0!important;width:100%!important;white-space:normal!important;overflow-wrap:anywhere!important;}\n}@media(max-width:1099px) {\nhtml.homepagescript-active .page-width {box-sizing:border-box!important;width:100%!important;min-width:0!important;padding:8px!important;}\nhtml.homepagescript-active .header-content {flex-wrap:wrap!important;gap:8px!important;height:auto!important;}\nhtml.homepagescript-active .charity-header {height:auto!important;}\nhtml.homepagescript-active .charity-home {margin-top:20px!important;}\nhtml.homepagescript-active .charity-home > .s-be {flex-direction:column!important;gap:12px!important;}\nhtml.homepagescript-active :is(.number-show,.carousel-show,.charity-home > .s-be > .l-con,.charity-home > .s-be > .r-con,.gather-card) {width:100%!important;min-width:0!important;}\nhtml.homepagescript-active .charity-home > .s-be > * {box-sizing:border-box!important;margin-left:0!important;margin-right:0!important;max-width:100%!important;}\nhtml.homepagescript-active .el-carousel__container {height:auto!important;aspect-ratio:740/300;}\nhtml.homepagescript-active .carousel-item img {width:100%!important;height:100%!important;object-fit:cover!important;}\nhtml.homepagescript-active .card-box {display:grid!important;grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr))!important;gap:12px!important;}\nhtml.homepagescript-active :is(.card-c,.card-c .pic,.card-c .content,.funding-progress,.bulletin-board,.video-group,.card-v) {box-sizing:border-box!important;min-width:0!important;width:100%!important;}\nhtml.homepagescript-active .card-c img {max-width:100%!important;}\nhtml.homepagescript-active .charity-home .s-be {flex-wrap:wrap!important;}\n}";
 
   // src/WebPage/Charity/style.js
-  var pageStyle7 = homeStyle() + content_default10;
+  var pageStyle8 = homeStyle() + content_default10;
 
   // src/WebPage/Charity/module.js
   var early13 = () => createPageOpening();
-  var mount13 = () => mountHomeLayout(pageStyle7, () => pageId(location.href) === "Charity");
+  var mount13 = () => mountHomeLayout(pageStyle8, () => pageId(location.href) === "Charity");
 
   // src/WebPage/UHD/module.js
   var module_exports14 = {};
@@ -6037,11 +5381,11 @@ html.homepagescript-active .search-layout .media-card:has(.media-footer) .media-
   var content_default11 = '@media(max-width:1099px) {\nhtml.homepagescript-active :is(.rendererRoot,.layerWrapperRoot,[class*="_layoutContainerRoot_"],[class*="_layoutContainer_"],.video-list) {box-sizing:border-box!important;min-width:0!important;max-width:100%!important;}\nhtml.homepagescript-active .items-container {box-sizing:border-box!important;display:grid!important;width:100%!important;padding:8px!important;grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important;gap:16px 12px!important;}\nhtml.homepagescript-active .VideoItem {width:100%!important;min-width:0!important;margin:0!important;}\nhtml.homepagescript-active .VideoItem-Top {width:100%!important;height:auto!important;aspect-ratio:16/9;}\nhtml.homepagescript-active .VideoItem-Bottom {height:auto!important;min-height:40px!important;}\n}';
 
   // src/WebPage/UHD/style.js
-  var pageStyle8 = homeStyle() + content_default11;
+  var pageStyle9 = homeStyle() + content_default11;
 
   // src/WebPage/UHD/module.js
   var early14 = () => createPageOpening();
-  var mount14 = () => mountHomeLayout(pageStyle8, () => pageId(location.href) === "UHD");
+  var mount14 = () => mountHomeLayout(pageStyle9, () => pageId(location.href) === "UHD");
 
   // src/WebPage/Podcast/module.js
   var module_exports15 = {};
@@ -6054,11 +5398,11 @@ html.homepagescript-active .search-layout .media-card:has(.media-footer) .media-
   var content_default12 = '@media(max-width:1099px) {\nhtml.homepagescript-active :is(.rendererRoot,.layerWrapperRoot,[class*="_layoutContainerRoot_"],[class*="_layoutContainer_"],.video-list) {box-sizing:border-box!important;min-width:0!important;max-width:100%!important;}\nhtml.homepagescript-active .items-container {box-sizing:border-box!important;display:grid!important;width:100%!important;padding:8px!important;grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important;gap:16px 12px!important;}\nhtml.homepagescript-active .VideoItem {width:100%!important;min-width:0!important;margin:0!important;}\nhtml.homepagescript-active .VideoItem-Top {width:100%!important;height:auto!important;aspect-ratio:16/9;}\nhtml.homepagescript-active .VideoItem-Bottom {height:auto!important;min-height:40px!important;}\n}';
 
   // src/WebPage/Podcast/style.js
-  var pageStyle9 = homeStyle() + content_default12;
+  var pageStyle10 = homeStyle() + content_default12;
 
   // src/WebPage/Podcast/module.js
   var early15 = () => createPageOpening();
-  var mount15 = () => mountHomeLayout(pageStyle9, () => pageId(location.href) === "Podcast");
+  var mount15 = () => mountHomeLayout(pageStyle10, () => pageId(location.href) === "Podcast");
 
   // src/WebPage/Music/module.js
   var module_exports16 = {};
@@ -6296,7 +5640,7 @@ html.musicscript-active { color-scheme:dark!important; }
   var actionAttribute = "data-musicscript-page-action";
   function mountMusicPagination() {
     const narrow = matchMedia("(max-width:1099px)");
-    const events = new AbortController();
+    const events2 = new AbortController();
     const states = /* @__PURE__ */ new Map();
     let frame = 0, hoverFrame = 0, stopped = false;
     function remember(state, element, name, value) {
@@ -6522,17 +5866,17 @@ html.musicscript-active { color-scheme:dark!important; }
       if (records.some((record) => record.type === "childList" || record.target.matches?.('[style*="--musicscript-hover-offset"]'))) schedule();
     });
     mutations.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
-    narrow.addEventListener("change", schedule, { signal: events.signal });
-    document.addEventListener("click", navigate, { capture: true, signal: events.signal });
-    document.addEventListener("keydown", navigate, { capture: true, signal: events.signal });
+    narrow.addEventListener("change", schedule, { signal: events2.signal });
+    document.addEventListener("click", navigate, { capture: true, signal: events2.signal });
+    document.addEventListener("keydown", navigate, { capture: true, signal: events2.signal });
     for (const type of ["transitionrun", "transitionend", "transitioncancel"]) {
-      document.addEventListener(type, transition, { capture: true, signal: events.signal });
+      document.addEventListener(type, transition, { capture: true, signal: events2.signal });
     }
     update();
     return { destroy() {
       if (stopped) return;
       stopped = true;
-      events.abort();
+      events2.abort();
       mutations.disconnect();
       resize.disconnect();
       cancelAnimationFrame(frame);
@@ -6570,23 +5914,191 @@ html.musicscript-active { color-scheme:dark!important; }
   });
 
   // src/WebPage/Article/content.css
-  var content_default14 = "/* /read/home and /opus/:id use different native layouts. Scope all rules\n   to Article and restore the site's content layout above 1099px. */\nhtml.articlescript-active:has(#app.dark_mode) { color-scheme:dark!important; }\n\n@media (max-width:1099px) {\n  html.articlescript-active { --articlescript-content-inset:12px; }\n  html.articlescript-active #app {\n    box-sizing:border-box!important; width:100%!important; min-width:0!important; max-width:100%!important;\n  }\n\n  /* Recommendation list: remove its fixed 680px content width. */\n  html.articlescript-active .page-home,\n  html.articlescript-active .page-home :is(.main,.content,.feed) {\n    box-sizing:border-box!important; width:100%!important; min-width:0!important; max-width:100%!important;\n  }\n  html.articlescript-active .page-home .main { padding:0 8px!important; margin-left:0!important; margin-right:0!important; }\n  html.articlescript-active .page-home .header { width:100%!important; min-width:0!important; height:auto!important; flex-wrap:wrap!important; gap:8px!important; }\n  html.articlescript-active .page-home .header > * { min-width:0!important; max-width:100%!important; }\n  html.articlescript-active .page-home .article-item { width:100%!important; min-width:0!important; height:auto!important; align-items:flex-start!important; padding:16px 0!important; }\n  html.articlescript-active .page-home :is(.article-item__left,.article-item__details) { min-width:0!important; height:auto!important; }\n  html.articlescript-active .page-home .article-item__title { display:-webkit-box!important; -webkit-box-orient:vertical!important; -webkit-line-clamp:2!important; white-space:normal!important; height:auto!important; }\n  html.articlescript-active .page-home :is(.article-item__title,.article-item__desc) { overflow-wrap:anywhere!important; }\n  html.articlescript-active .page-home .article-item__right { margin-left:12px!important; }\n  html.articlescript-active .page-home .article-item__meta { flex-wrap:wrap!important; height:auto!important; gap:6px 10px!important; }\n  html.articlescript-active .page-home :is(.article-item__author,.article-item__label,.article-item__stat) { margin-right:0!important; }\n  html.articlescript-active .page-home .article-item__author { min-width:0!important; max-width:100%!important; }\n  html.articlescript-active .page-home .article-item__avatar { flex:none!important; }\n  html.articlescript-active .page-home .article-item__uname { min-width:0!important; overflow:hidden!important; text-overflow:ellipsis!important; white-space:nowrap!important; }\n  html.articlescript-active .page-home .article-item__stats { flex-wrap:wrap!important; width:auto!important; min-width:0!important; gap:6px 10px!important; }\n\n  /* Opus: use available width for text and constrain native media. */\n  html.articlescript-active #app:has(.opus-detail) { padding-bottom:calc(76px + env(safe-area-inset-bottom,0px))!important; }\n  html.articlescript-active .opus-detail {\n    box-sizing:border-box!important; width:calc(100% - 16px)!important; min-width:0!important; max-width:100%!important;\n    margin-left:8px!important; margin-right:8px!important;\n  }\n  html.articlescript-active .opus-detail :is(.bili-opus-view,.opus-tabs,.bili-tabs__content,.comment-wrap,.bili-comment-container) {\n    box-sizing:border-box!important; width:100%!important; min-width:0!important; max-width:100%!important;\n  }\n  html.articlescript-active .bili-opus-view > :is(.opus-module-title,.opus-module-author,.opus-module-collection,.opus-module-content,.opus-module-copyright) {\n    box-sizing:border-box!important; width:100%!important; min-width:0!important;\n    padding-left:var(--articlescript-content-inset)!important; padding-right:var(--articlescript-content-inset)!important;\n  }\n  html.articlescript-active .opus-module-bottom { margin-left:var(--articlescript-content-inset)!important; margin-right:var(--articlescript-content-inset)!important; flex-wrap:wrap!important; gap:12px!important; }\n  html.articlescript-active :is(.opus-module-title__inner,.opus-module-content) { overflow-wrap:anywhere!important; }\n  html.articlescript-active .opus-module-author { gap:8px!important; }\n  html.articlescript-active .opus-module-author__left { flex:none!important; }\n  html.articlescript-active .opus-module-author__center { flex:1!important; min-width:0!important; width:auto!important; margin:0!important; }\n  html.articlescript-active .opus-module-author__right { flex:none!important; width:auto!important; }\n  html.articlescript-active .opus-module-author__name-row { min-width:0!important; max-width:100%!important; flex-wrap:wrap!important; }\n  html.articlescript-active .opus-module-author__pub { white-space:normal!important; }\n  html.articlescript-active .opus-module-collection__box { min-width:0!important; max-width:100%!important; }\n  html.articlescript-active .opus-module-copyright { flex-wrap:wrap!important; gap:8px!important; }\n  html.articlescript-active .opus-module-top :is(.opus-module-top__display,.opus-module-top__album,.opus-module-top__album__cover,.b-img,.b-img__inner) {\n    width:100%!important; max-width:100%!important; height:auto!important;\n  }\n  html.articlescript-active .opus-module-top img { width:100%!important; height:auto!important; }\n  html.articlescript-active .opus-module-content :is(.opus-para-pic,.opus-pic-view,.bili-dyn-pic,.bili-dyn-pic__img,.b-img,.b-img__inner) { max-width:100%!important; height:auto!important; }\n  html.articlescript-active .opus-module-content :is(img,video) { max-width:100%!important; height:auto!important; }\n  html.articlescript-active .opus-module-content pre { max-width:100%!important; overflow-x:auto!important; white-space:pre!important; }\n  html.articlescript-active .opus-module-content table { display:block!important; max-width:100%!important; overflow-x:auto!important; }\n  /* Native comments retain 56px padding and tabs add a 30px leading gap.\n     Share the article inset, shifting the whole nav strip so item offsets\n     and the native active underline still agree after tab changes. */\n  html.articlescript-active .opus-tabs :is(.bili-tabs__header,.bili-comment-container,.reaction-list) {\n    box-sizing:border-box!important; width:100%!important; min-width:0!important;\n    padding-left:var(--articlescript-content-inset)!important; padding-right:var(--articlescript-content-inset)!important;\n  }\n  html.articlescript-active .opus-tabs .bili-tabs__nav__items { margin-left:-30px!important; width:calc(100% + 30px)!important; }\n\n  /* Keep all seven native actions accessible while reading. No cloned\n     buttons: collection, comment and back-to-top retain their events. */\n  html.articlescript-active .opus-detail .right-sidebar-wrap {\n    position:fixed!important; z-index:100!important; left:8px!important; right:8px!important; top:auto!important;\n    bottom:calc(8px + env(safe-area-inset-bottom,0px))!important; width:auto!important; min-width:0!important; margin:0!important; transform:none!important;\n  }\n  html.articlescript-active .right-sidebar-wrap .side-toolbar {\n    display:flex!important; align-items:center!important; justify-content:space-around!important;\n    box-sizing:border-box!important; width:100%!important; height:56px!important; padding:4px!important;\n    background:var(--bg1,#fff)!important; border:1px solid var(--line_regular,#e3e5e7)!important; border-radius:8px!important;\n  }\n  html.articlescript-active .side-toolbar :is(.side-toolbar__top,.side-toolbar__box,.side-toolbar__bottom) { display:contents!important; }\n  html.articlescript-active .side-toolbar :is(.side-toolbar__action,.side-toolbar__btn) { box-sizing:border-box!important; flex:1 1 0!important; width:auto!important; min-width:0!important; height:46px!important; margin:0!important; padding:0!important; }\n  html.articlescript-active .side-toolbar .ring-progress { left:calc(50% - 15px)!important; }\n  html.articlescript-active .right-sidebar-wrap .opus-collection {\n    position:fixed!important; left:8px!important; right:8px!important; top:auto!important; bottom:calc(72px + env(safe-area-inset-bottom,0px))!important;\n    box-sizing:border-box!important; width:auto!important; max-width:480px!important; max-height:calc(100dvh - 180px)!important; overflow-y:auto!important; transform:none!important;\n  }\n  html.articlescript-active #app > .bili-popup .bili-popup__wrap { box-sizing:border-box!important; max-width:calc(100vw - 16px)!important; }\n}\n\n@media (max-width:399px) {\n  html.articlescript-active { --articlescript-content-inset:8px; }\n  html.articlescript-active .page-home .article-item__right,\n  html.articlescript-active .page-home .article-item__cover { width:88px!important; }\n  html.articlescript-active .page-home .article-item__cover { height:66px!important; }\n  html.articlescript-active .page-home .article-item__cover :is(.b-img,.b-img__inner,img) { width:100%!important; height:100%!important; object-fit:cover!important; }\n}\n";
+  var content_default14 = "/* /read/home and /opus/:id use different native layouts. Scope all rules\n   to Article and restore the site's content layout above 1099px. */\nhtml.articlescript-active:has(#app.dark_mode) { color-scheme:dark!important; }\n\n@media (max-width:1099px) {\n  html.articlescript-active { --articlescript-content-inset:12px; }\n  html.articlescript-active #app {\n    box-sizing:border-box!important; width:100%!important; min-width:0!important; max-width:100%!important;\n  }\n\n  /* Recommendation list: remove its fixed 680px content width. */\n  html.articlescript-active .page-home,\n  html.articlescript-active .page-home :is(.main,.content,.feed) {\n    box-sizing:border-box!important; width:100%!important; min-width:0!important; max-width:100%!important;\n  }\n  html.articlescript-active .page-home .main { padding:0 8px!important; margin-left:0!important; margin-right:0!important; }\n  html.articlescript-active .page-home .header { width:100%!important; min-width:0!important; height:auto!important; flex-wrap:wrap!important; gap:8px!important; }\n  html.articlescript-active .page-home .header > * { min-width:0!important; max-width:100%!important; }\n  html.articlescript-active .page-home .article-item { width:100%!important; min-width:0!important; height:auto!important; align-items:flex-start!important; padding:16px 0!important; }\n  html.articlescript-active .page-home :is(.article-item__left,.article-item__details) { min-width:0!important; height:auto!important; }\n  html.articlescript-active .page-home .article-item__title { display:-webkit-box!important; -webkit-box-orient:vertical!important; -webkit-line-clamp:2!important; white-space:normal!important; height:auto!important; }\n  html.articlescript-active .page-home :is(.article-item__title,.article-item__desc) { overflow-wrap:anywhere!important; }\n  html.articlescript-active .page-home .article-item__right { margin-left:12px!important; }\n  html.articlescript-active .page-home .article-item__meta { flex-wrap:wrap!important; height:auto!important; gap:6px 10px!important; }\n  html.articlescript-active .page-home :is(.article-item__author,.article-item__label,.article-item__stat) { margin-right:0!important; }\n  html.articlescript-active .page-home .article-item__author { min-width:0!important; max-width:100%!important; }\n  html.articlescript-active .page-home .article-item__avatar { flex:none!important; }\n  html.articlescript-active .page-home .article-item__uname { min-width:0!important; overflow:hidden!important; text-overflow:ellipsis!important; white-space:nowrap!important; }\n  html.articlescript-active .page-home .article-item__stats { flex-wrap:wrap!important; width:auto!important; min-width:0!important; gap:6px 10px!important; }\n\n  /* Opus: use available width for text and constrain native media. */\n  html.articlescript-active .opus-detail {\n    box-sizing:border-box!important; width:calc(100% - 16px)!important; min-width:0!important; max-width:100%!important;\n    margin-left:8px!important; margin-right:8px!important;\n  }\n  html.articlescript-active .opus-detail :is(.bili-opus-view,.opus-tabs,.bili-tabs__content,.comment-wrap,.bili-comment-container) {\n    box-sizing:border-box!important; width:100%!important; min-width:0!important; max-width:100%!important;\n  }\n  html.articlescript-active .bili-opus-view > :is(.opus-module-title,.opus-module-author,.opus-module-collection,.opus-module-content,.opus-module-copyright) {\n    box-sizing:border-box!important; width:100%!important; min-width:0!important;\n    padding-left:var(--articlescript-content-inset)!important; padding-right:var(--articlescript-content-inset)!important;\n  }\n  html.articlescript-active .opus-module-bottom { margin-left:var(--articlescript-content-inset)!important; margin-right:var(--articlescript-content-inset)!important; flex-wrap:wrap!important; gap:12px!important; }\n  html.articlescript-active :is(.opus-module-title__inner,.opus-module-content) { overflow-wrap:anywhere!important; }\n  html.articlescript-active .opus-module-author { gap:8px!important; }\n  html.articlescript-active .opus-module-author__left { flex:none!important; }\n  html.articlescript-active .opus-module-author__center { flex:1!important; min-width:0!important; width:auto!important; margin:0!important; }\n  html.articlescript-active .opus-module-author__right { flex:none!important; width:auto!important; }\n  html.articlescript-active .opus-module-author__name-row { min-width:0!important; max-width:100%!important; flex-wrap:wrap!important; }\n  html.articlescript-active .opus-module-author__pub { white-space:normal!important; }\n  html.articlescript-active .opus-module-collection__box { min-width:0!important; max-width:100%!important; }\n  html.articlescript-active .opus-module-copyright { flex-wrap:wrap!important; gap:8px!important; }\n  html.articlescript-active .opus-module-top :is(.opus-module-top__display,.opus-module-top__album,.opus-module-top__album__cover,.b-img,.b-img__inner) {\n    width:100%!important; max-width:100%!important; height:auto!important;\n  }\n  html.articlescript-active .opus-module-top img { width:100%!important; height:auto!important; }\n  html.articlescript-active .opus-module-content :is(.opus-para-pic,.opus-pic-view,.bili-dyn-pic,.bili-dyn-pic__img,.b-img,.b-img__inner) { max-width:100%!important; height:auto!important; }\n  html.articlescript-active .opus-module-content :is(img,video) { max-width:100%!important; height:auto!important; }\n  html.articlescript-active .opus-module-content pre { max-width:100%!important; overflow-x:auto!important; white-space:pre!important; }\n  html.articlescript-active .opus-module-content table { display:block!important; max-width:100%!important; overflow-x:auto!important; }\n  /* Native comments retain 56px padding and tabs add a 30px leading gap.\n     Share the article inset, shifting the whole nav strip so item offsets\n     and the native active underline still agree after tab changes. */\n  html.articlescript-active .opus-tabs :is(.bili-tabs__header,.bili-comment-container,.reaction-list) {\n    box-sizing:border-box!important; width:100%!important; min-width:0!important;\n    padding-left:var(--articlescript-content-inset)!important; padding-right:var(--articlescript-content-inset)!important;\n  }\n  html.articlescript-active .opus-tabs .bili-tabs__nav__items { margin-left:-30px!important; width:calc(100% + 30px)!important; }\n\n  /* Native vertical layout and button geometry. A document-level pointer\n     tracker enables the transparent rail without intercepting text selection. */\n  html.articlescript-active .opus-detail .right-sidebar-wrap {\n    position:fixed!important; z-index:100!important; left:auto!important; right:2px!important;\n    top:var(--articlescript-sidebar-top,180px)!important; bottom:auto!important;\n    margin:0!important; transform:none!important; transition:none!important; pointer-events:none!important;\n  }\n  html.articlescript-active .right-sidebar-wrap .side-toolbar {\n    max-height:var(--articlescript-sidebar-room,none)!important; overflow-x:hidden!important; overflow-y:auto!important; scrollbar-width:none!important;\n  }\n  html.articlescript-active .right-sidebar-wrap .side-toolbar::-webkit-scrollbar { display:none!important; }\n  html.articlescript-active .right-sidebar-wrap.articlescript-sidebar-hover :is(.side-toolbar__top,.side-toolbar__box),\n  html.articlescript-active .right-sidebar-wrap .opus-collection { pointer-events:auto!important; }\n  html.articlescript-active .right-sidebar-wrap:not(.articlescript-sidebar-hover) :is(.side-toolbar__top,.side-toolbar__box),\n  html.articlescript-active .right-sidebar-wrap:not(.articlescript-sidebar-hover) :is(.side-toolbar__top,.side-toolbar__box) * {\n    pointer-events:none!important; background:transparent!important; border-color:transparent!important; box-shadow:none!important;\n  }\n  html.articlescript-active .right-sidebar-wrap:not(.articlescript-sidebar-hover) :is(.side-toolbar__top,.side-toolbar__box) :is(svg,img,.side-toolbar__action__text) { opacity:.5!important; }\n  html.articlescript-active .right-sidebar-wrap:not(.articlescript-sidebar-hover) :is(.side-toolbar__top,.side-toolbar__box) :is(.side-toolbar__audit-btn__text,.ring-progress,.side-toolbar__action__combosvga) { opacity:0!important; }\n  html.articlescript-active .side-toolbar .side-toolbar__bottom {\n    position:fixed!important; z-index:100!important; left:auto!important; right:2px!important; top:auto!important;\n    bottom:var(--articlescript-backtop-bottom,2px)!important; pointer-events:auto;\n  }\n  html.articlescript-active .right-sidebar-wrap .opus-collection {\n    position:fixed!important; left:8px!important; right:8px!important; top:auto!important; bottom:calc(72px + env(safe-area-inset-bottom,0px))!important;\n    box-sizing:border-box!important; width:auto!important; max-width:480px!important; max-height:calc(100dvh - 180px)!important; overflow-y:auto!important; transform:none!important;\n  }\n  html.articlescript-active #app > .bili-popup .bili-popup__wrap { box-sizing:border-box!important; max-width:calc(100vw - 16px)!important; }\n}\n\n@media (max-width:399px) {\n  html.articlescript-active { --articlescript-content-inset:8px; }\n  html.articlescript-active .page-home .article-item__right,\n  html.articlescript-active .page-home .article-item__cover { width:88px!important; }\n  html.articlescript-active .page-home .article-item__cover { height:66px!important; }\n  html.articlescript-active .page-home .article-item__cover :is(.b-img,.b-img__inner,img) { width:100%!important; height:100%!important; object-fit:cover!important; }\n}\n";
 
   // src/WebPage/Article/style.js
-  var pageStyle10 = homeStyle() + content_default14;
+  var pageStyle11 = homeStyle() + content_default14;
+
+  // src/WebPage/Article/sidebar.js
+  function mountArticleSidebar() {
+    const html = document.documentElement;
+    const narrow = matchMedia("(max-width:1099px)");
+    const events2 = new AbortController();
+    const roots = /* @__PURE__ */ new Map(), sized = /* @__PURE__ */ new Set(), rails = /* @__PURE__ */ new Set();
+    const variables = ["--articlescript-backtop-bottom", "--articlescript-sidebar-top", "--articlescript-sidebar-room"];
+    let stopped = false, frame = 0, pointer = null, dragging = false;
+    const selected = () => !!document.getSelection()?.toString();
+    function containsPoint(element) {
+      if (!pointer) return false;
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0 && pointer.x >= rect.left && pointer.x < rect.right && pointer.y >= rect.top && pointer.y < rect.bottom;
+    }
+    function hover() {
+      const allowed = narrow.matches && !dragging && !selected();
+      for (const rail of rails) {
+        const inside = allowed && [...rail.querySelectorAll(".side-toolbar__top,.side-toolbar__box")].some(containsPoint) && containsPoint(rail);
+        if (rail.classList.contains("articlescript-sidebar-hover") !== inside) rail.classList.toggle("articlescript-sidebar-hover", inside);
+      }
+    }
+    function schedule() {
+      if (!stopped && !frame) frame = requestAnimationFrame(sync);
+    }
+    const resize = new ResizeObserver(schedule);
+    function observe(root) {
+      if (!root || roots.has(root)) return false;
+      const mutations = new MutationObserver(schedule);
+      roots.set(root, mutations);
+      mutations.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "class", "hidden"] });
+      return true;
+    }
+    function watchSize(element) {
+      if (!sized.has(element)) {
+        sized.add(element);
+        resize.observe(element);
+      }
+    }
+    function variable(name, value) {
+      if (html.style.getPropertyValue(name) !== value) html.style.setProperty(name, value);
+    }
+    function discoverComments() {
+      let changed = false;
+      const current2 = /* @__PURE__ */ new Set([document.body]);
+      const composers = [...document.querySelectorAll(".bili-comments-bottom-fixed-wrapper")];
+      for (const comments of document.querySelectorAll(".opus-detail bili-comments")) {
+        const root = comments.shadowRoot;
+        if (!root) continue;
+        current2.add(root);
+        for (const header of root.querySelectorAll("bili-comments-header-renderer")) {
+          if (header.shadowRoot) current2.add(header.shadowRoot);
+          composers.push(...header.shadowRoot?.querySelectorAll(".bili-comments-bottom-fixed-wrapper") || []);
+        }
+      }
+      for (const [root, observer] of roots) if (!current2.has(root) || !root.isConnected) {
+        observer.disconnect();
+        roots.delete(root);
+        changed = true;
+      }
+      for (const root of current2) if (observe(root)) changed = true;
+      return { composers, changed };
+    }
+    function sync() {
+      frame = 0;
+      if (stopped) return;
+      for (const rail of rails) if (!rail.isConnected) {
+        rail.classList.remove("articlescript-sidebar-hover");
+        rails.delete(rail);
+      }
+      for (const rail of document.querySelectorAll(".opus-detail .right-sidebar-wrap")) {
+        rails.add(rail);
+        watchSize(rail);
+      }
+      const { composers } = discoverComments();
+      for (const element of sized) if (!element.isConnected) {
+        resize.unobserve(element);
+        sized.delete(element);
+      }
+      if (!narrow.matches) {
+        for (const name of variables) html.style.removeProperty(name);
+        hover();
+        return;
+      }
+      const height2 = document.documentElement.clientHeight;
+      let composerTop = height2;
+      for (const composer of composers) {
+        watchSize(composer);
+        const rect = composer.getBoundingClientRect(), style = getComputedStyle(composer);
+        if (rect.width && rect.height && rect.bottom > 0 && rect.top >= 0 && rect.top < height2 && style.visibility !== "hidden" && style.display !== "none" && style.opacity !== "0") composerTop = Math.min(composerTop, rect.top);
+      }
+      variable("--articlescript-backtop-bottom", `${height2 - composerTop + 2}px`);
+      let headerBottom = 0;
+      for (const header of document.querySelectorAll("#broadcast-navigation,.bili-header__bar")) {
+        const rect = header.getBoundingClientRect();
+        if (rect.height && rect.bottom > 0 && rect.top < height2) headerBottom = Math.max(headerBottom, rect.bottom);
+      }
+      for (const rail of rails) {
+        const bottom = rail.querySelector(".side-toolbar__bottom");
+        const limit = Math.min(composerTop, bottom?.getBoundingClientRect().top ?? composerTop) - 2;
+        const naturalHeight = rail.querySelector(".side-toolbar")?.scrollHeight || rail.scrollHeight;
+        const top = Math.max(headerBottom + 2, Math.min(180, limit - naturalHeight));
+        variable("--articlescript-sidebar-top", `${top}px`);
+        variable("--articlescript-sidebar-room", `${Math.max(0, limit - top)}px`);
+      }
+      hover();
+    }
+    const options = { signal: events2.signal, capture: true };
+    document.addEventListener("pointermove", (event) => {
+      if (event.pointerType !== "mouse") return;
+      if (!event.buttons) dragging = false;
+      pointer = { x: event.clientX, y: event.clientY };
+      hover();
+    }, options);
+    document.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      dragging = !event.composedPath().some((node) => node instanceof Element && node.matches(".right-sidebar-wrap.articlescript-sidebar-hover"));
+      hover();
+    }, options);
+    document.addEventListener("pointerup", () => {
+      dragging = false;
+      hover();
+    }, options);
+    document.addEventListener("pointercancel", () => {
+      dragging = false;
+      pointer = null;
+      hover();
+    }, options);
+    document.addEventListener("selectionchange", hover, options);
+    document.addEventListener("pointerleave", (event) => {
+      if (event.target === document || event.target === html) {
+        pointer = null;
+        hover();
+      }
+    }, options);
+    window.addEventListener("blur", () => {
+      pointer = null;
+      dragging = false;
+      hover();
+    }, { signal: events2.signal });
+    document.addEventListener("scroll", schedule, { ...options, passive: true });
+    window.addEventListener("resize", schedule, { signal: events2.signal });
+    narrow.addEventListener("change", schedule, { signal: events2.signal });
+    observe(document.body);
+    watchSize(html);
+    const upgrades = setInterval(() => {
+      if (discoverComments().changed) schedule();
+    }, 1e3);
+    sync();
+    return {
+      destroy() {
+        if (stopped) return;
+        stopped = true;
+        events2.abort();
+        clearInterval(upgrades);
+        cancelAnimationFrame(frame);
+        for (const observer of roots.values()) observer.disconnect();
+        roots.clear();
+        resize.disconnect();
+        sized.clear();
+        for (const rail of rails) rail.classList.remove("articlescript-sidebar-hover");
+        rails.clear();
+        for (const name of variables) html.style.removeProperty(name);
+      }
+    };
+  }
 
   // src/WebPage/Article/module.js
   var early17 = () => createPageOpening();
   function mount17() {
-    const layout = mountHomeLayout(pageStyle10, () => pageId(location.href) === "Article");
+    const layout = mountHomeLayout(pageStyle11, () => pageId(location.href) === "Article");
     if (!layout) return;
     const html = document.documentElement;
     html.classList.add("articlescript-active");
+    const sidebar = mountArticleSidebar();
     let stopped = false;
     return {
       destroy() {
         if (stopped) return;
         stopped = true;
+        sidebar.destroy();
         layout.destroy();
         html.classList.remove("articlescript-active");
       }

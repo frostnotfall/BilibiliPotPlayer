@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 #include <new>
+#include <regex>
 
 static std::string workspace;
 static std::vector<std::string> logs;
@@ -144,6 +145,32 @@ static void call_int(asIScriptGeneric *g) {
 static void tick(asIScriptGeneric *g) { g->SetReturnDWord(GetTickCount()); }
 static void inc_timeout(asIScriptGeneric *) {}
 
+static void regexp_parse(asIScriptGeneric *g) {
+    std::smatch match;
+    const auto &input = str(g, 0);
+    std::regex pattern(str(g, 1));
+    return_string(g, std::regex_search(input, match, pattern) && match.size() == 2 ? match[1].str() : "");
+}
+static void url_decode(asIScriptGeneric *g) {
+    const auto &input = str(g, 0);
+    std::string result;
+    for (size_t i = 0; i < input.size(); ++i) {
+        if (input[i] == '%' && i + 2 < input.size() && isxdigit(input[i + 1]) && isxdigit(input[i + 2])) {
+            result += static_cast<char>(std::stoi(input.substr(i + 1, 2), nullptr, 16)); i += 2;
+        } else result += input[i];
+    }
+    return_string(g, result);
+}
+static void trim(asIScriptGeneric *g) {
+    const auto &input = *static_cast<std::string *>(g->GetObject());
+    auto first = input.find_first_not_of(" \t\r\n"), last = input.find_last_not_of(" \t\r\n");
+    return_string(g, first == std::string::npos ? "" : input.substr(first, last - first + 1));
+}
+static void string_find(asIScriptGeneric *g) {
+    const auto &input = *static_cast<std::string *>(g->GetObject());
+    g->SetReturnDWord(static_cast<asDWORD>(input.find(str(g, 0), g->GetArgDWord(1))));
+}
+
 int main(int argc, char **argv) {
     if (argc != 3) return 1;
     workspace = argv[2];
@@ -152,7 +179,10 @@ int main(int argc, char **argv) {
     engine->RegisterTypedef("uintptr", "uint64");
     RegisterStdString(engine); RegisterScriptArray(engine, true);
     engine->RegisterObjectMethod("string", "bool empty() const", asFUNCTION(string_empty), asCALL_GENERIC);
+    engine->RegisterObjectMethod("string", "string Trim() const", asFUNCTION(trim), asCALL_GENERIC);
+    engine->RegisterObjectMethod("string", "int find(const string &in, uint start = 0) const", asFUNCTION(string_find), asCALL_GENERIC);
     engine->RegisterObjectMethod("array<T>", "bool empty() const", asFUNCTION(array_empty), asCALL_GENERIC);
+    RegisterStdStringUtils(engine);
     RegisterScriptDictionary(engine); RegisterScriptAny(engine);
 #define BIND(decl, fn) if (engine->RegisterGlobalFunction(decl, asFUNCTION(fn), asCALL_GENERIC) < 0) return 1
     BIND("void Assert(bool, const string &in)", assertion);
@@ -174,6 +204,8 @@ int main(int argc, char **argv) {
     BIND("string ReadTestFile(const string &in)", read_test_file);
     BIND("uint HostGetTickCount()", tick);
     BIND("void HostIncTimeOut(int)", inc_timeout);
+    BIND("string HostRegExpParse(const string &in, const string &in)", regexp_parse);
+    BIND("string HostUrlDecode(const string &in)", url_decode);
     BIND("uintptr HostCallProcUIntPtr(uintptr, const string &in, uint64=0, uint64=0, uint64=0, uint64=0, uint64=0, uint64=0)", call_pointer);
     BIND("int HostCallProcInt(uintptr, const string &in, uint64=0, uint64=0, uint64=0, uint64=0, uint64=0, uint64=0)", call_int);
     std::ifstream file(argv[1]); std::stringstream buffer; buffer << file.rdbuf();
