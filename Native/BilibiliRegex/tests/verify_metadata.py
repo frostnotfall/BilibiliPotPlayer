@@ -15,8 +15,8 @@ def metadata_script(repo):
         b = re.search(r'return "([^"]+)";', function(stats, f"string {name}()")).group(1)
         assert a == b, name
     assert a.split(";")[0] == "www.bilibili.com"
-    assert 'MetaData["vid"] = epid;' in function(parse, "string Bangumi(")
-    assert 'MetaData["vid"] = cid;' in function(parse, "string Video(")
+    assert 'MetaData["vid"] = "bilibili.com|" + epid;' in function(parse, "string Bangumi(")
+    assert 'MetaData["vid"] = "bilibili.com|" + cid;' in function(parse, "string Video(")
     for signature in ("string Bangumi(", "string Video("):
         body = function(parse, signature)
         assert 'MetaData["webUrl"] = webUrl;' in body

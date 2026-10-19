@@ -3900,7 +3900,7 @@ string Bangumi(const string&in path, dictionary& MetaData, array<dictionary>& Qu
 
 			if (@MetaData !is null) {
 				MetaData["title"] = title;
-				MetaData["vid"] = epid;
+				MetaData["vid"] = "bilibili.com|" + epid;
 				MetaData["duration"] = formatInt(duration);
 				MetaData["thumbnail"] = episode["cover"].asString();
 				MetaData["webUrl"] = webUrl;
@@ -4040,7 +4040,7 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 	if (is_upower_exclusive) title = "【充电专属】\n" + title;
 
 	if (@MetaData !is null) {
-		MetaData["vid"] = cid;
+		MetaData["vid"] = "bilibili.com|" + cid;
 		MetaData["title"] = title;
 		MetaData["duration"] = formatInt(duration);
 		MetaData["thumbnail"] = thumbnail;
