@@ -232,9 +232,10 @@ class QualityListItem {
 	string bitrate;
 	string format;
 	int itag = 0;
-	int fps = 0.0;
+	double fps = 0.0;
 	int type3D = 0; // 1:sbs, 2:t&b
 	bool is360 = false;
+	bool is180 = false; // VR180(mesh 투영).
 	bool isHDR = false;
 	string audioName;
 	string audioCode;
@@ -259,6 +260,7 @@ class QualityListItem {
 		ret["fps"] = fps;
 		ret["type3D"] = type3D;
 		ret["is360"] = is360;
+		ret["is180"] = is180;
 		ret["isHDR"] = isHDR;
 		ret["audioName"] = audioName;
 		ret["audioCode"] = audioCode;
