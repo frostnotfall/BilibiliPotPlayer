@@ -18,6 +18,7 @@
 // void PlaybackComplete(const string &in)
 // void PlaybackClose(const string &in)
 
+VodHeartbeat heartbeat;
 
 void OnInitialize() {
 	// HostOpenConsole();
@@ -216,42 +217,89 @@ class DanmujiManager {
 	}
 }
 
-void vodHeartBeatThread(any@ param) {
-	string ids;
-	if (!param.retrieve(ids)) return;
+class VodHeartbeat {
+	private bool playing = false;
+	private uint lastTick = 0;
+	private JsonValue video;
+	private string startTs;
 
-	JsonReader reader;
-	JsonValue root;
+	void Start() {
+		Stop();
+		JsonReader reader;
+		if (!reader.parse(GetIds(), video) || !video.isObject()) return;
+		if (video["aid"].asInt64() == 0 && video["bvid"].asString().empty()) return;
+		startTs = GetUnixTime();
+		lastTick = HostGetTickCount();
+		playing = true;
+		Send(0);
+	}
 
-	if (!reader.parse(ids, root) || !root.isObject()) return;
+	void Pause() {
+		playing = false;
+		lastTick = 0;
+	}
 
-	int64 aid = root["aid"].asInt64();
-	string bvid = root["bvid"].asString();
-	int64 cid = root["cid"].asInt64();
-	int64 epid = root["epid"].asInt64();
-	int64 ssid = root["ssid"].asInt64();
-	int64 mid = root["mid"].asInt64();
+	void Resume() {
+		if (startTs.empty() || playing) return;
+		lastTick = HostGetTickCount();
+		playing = true;
+	}
 
-	string unixTime = GetUnixTime();
+	void Tick(int positionMs) {
+		if (!playing) return;
+		int interval = parseInt(HostLoadString("BilibiliPotPlayer.HeartBeatInterval()"));
+		if (interval < 15) interval = 15;
+		uint now = HostGetTickCount();
+		if (uint(now - lastTick) / 1000 < uint(interval)) return;
+		lastTick = now;
+		Send(positionMs > 0 ? positionMs / 1000 : 0);
+	}
 
-	array<string> postDataArray;
-	postDataArray.insertLast("start_ts=" + unixTime);
+	void Complete() {
+		if (startTs.empty()) return;
+		Send(-1);
+		Stop();
+	}
 
-	if (aid != 0) postDataArray.insertLast("aid=" + formatInt(aid));
-	if (bvid != "") postDataArray.insertLast("bvid=" + bvid);
-	if (cid != 0) postDataArray.insertLast("cid=" + formatInt(cid));
-	if (epid != 0) postDataArray.insertLast("epid=" + formatInt(epid));
-	if (ssid != 0) postDataArray.insertLast("ssid=" + formatInt(ssid));
-	if (mid != 0) postDataArray.insertLast("mid=" + formatInt(mid));
+	void Stop() {
+		playing = false;
+		lastTick = 0;
+		startTs = "";
+	}
 
-	string postData = join(postDataArray, "&");
+	void Send(int playedTime) {
+		if (HostLoadInteger("BilibiliPotPlayer.HeartBeat()") == 0) return;
 
-	string headers =
-		"Content-Type: application/x-www-form-urlencoded\r\n"
-		"Referer: https://www.bilibili.com/video/" + bvid + "/\r\n"
-		"Origin: https://www.bilibili.com\r\n";
+		string aid = video["aid"].asString();
+		string mid = video["mid"].asString();
+		string bvid = video["bvid"].asString();
+		bool bangumi = video["epid"].asInt64() != 0;
 
-	post("https://api.bilibili.com/x/click-interface/web/heartbeat?w_start_ts=" + unixTime + "&w_mid=" + formatInt(mid) + "&w_aid=" + formatInt(aid), postData, headers);
+		array<string> body = {
+			"start_ts=" + startTs,
+			"mid=" + mid,
+			"cid=" + video["cid"].asString(),
+			"played_time=" + formatInt(playedTime)
+		};
+
+		if (video["aid"].asInt64() != 0) body.insertLast("aid=" + aid);
+		if (!bvid.empty()) body.insertLast("bvid=" + HostUrlEncode(bvid));
+		if (bangumi) body.insertLast("epid=" + video["epid"].asString());
+		if (video["ssid"].asInt64() != 0) body.insertLast("sid=" + video["ssid"].asString());
+
+		string referer = bangumi ? "https://www.bilibili.com/bangumi/play/ep" + video["epid"].asString() : "https://www.bilibili.com/video/" + (bvid.empty() ? "av" + aid : bvid) + "/";
+		string headers = "Content-Type: application/x-www-form-urlencoded\r\nReferer: " + referer + "\r\nOrigin: https://www.bilibili.com\r\n";
+
+		string response = post("https://api.bilibili.com/x/click-interface/web/heartbeat", join(body, "&"), headers);
+
+		JsonReader reader;
+		JsonValue result;
+		if (!reader.parse(response, result) || !result.isObject() || !result["code"].isInt()) {
+			log("VOD heartbeat: invalid response");
+		} else if (result["code"].asInt() != 0) {
+			log("VOD heartbeat failed", result["code"].asString() + ": " + result["message"].asString());
+		}
+	}
 }
 
 void liveHeartBeatThread(any@ param) {
@@ -284,13 +332,6 @@ void liveHeartBeatThread(any@ param) {
 	}
 }
 
-void vodHeartBeat() {
-	string ids = GetIds();
-	if (ids.isEmpty()) return;
-
-	HostCreateThread(vodHeartBeatThread, ids);
-}
-
 void liveHeartBeat() {
 	int id = parseInt(HostGetPlayingFileName());
 	if (id <= 0) return;
@@ -315,28 +356,31 @@ void PlaybackOpen(const string &in path) {
 	DanmujiManager(server).Start(id);
 }
 
-void PlaybackStart(const string &in path, int) {
+void PlaybackStart(const string &in path, int durationMs) {
 	// log("PlaybackStart()", path);
 	if (HostLoadInteger("BilibiliPotPlayer.HeartBeat()") == 0) return;
 
-	if (path.find("/upgcxcode/") >= 0) vodHeartBeat();
+	if (path.find("/upgcxcode/") >= 0) heartbeat.Start();
 	if (path.find("/live-bvc/") >= 0) liveHeartBeat();
 }
 
-void PlaybackTime(const string &in path, int, int) {
-	// log("PlaybackTime()", path);
+void PlaybackTime(const string &in path, int positionMs, int durationMs) {
+	heartbeat.Tick(positionMs);
 }
 
 void PlaybackPause(const string &in path) {
 	// log("PlaybackPause()", path);
+	heartbeat.Pause();
 }
 
 void PlaybackResume(const string &in path) {
 	// log("PlaybackResume()", path);
+	heartbeat.Resume();
 }
 
 void PlaybackComplete(const string &in path) {
 	// log("PlaybackComplete()", path);
+	heartbeat.Complete();
 
 	int id = parseInt(HostRegExpParse(path, "live.bilibili.com/([0-9]+)"));
 	if (id <= 0) return;
@@ -349,6 +393,7 @@ void PlaybackComplete(const string &in path) {
 
 void PlaybackClose(const string &in path) {
 	// log("PlaybackClose()", path);
+	heartbeat.Stop();
 
 	int id = parseInt(HostRegExpParse(path, "live.bilibili.com/([0-9]+)"));
 	if (id <= 0) return;

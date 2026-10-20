@@ -27,7 +27,7 @@
 
 **_注意：由于登录机制的改变，从上游项目迁移过来的同学， 旧的 Cookie、Header、Referer 一定要删除。参考 [wiki](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/常见问题与故障排查#1-播放视频时一直转圈右下角画质选项不断跳动)。_**
 
-**_提示：3.7.38 请搭配 [PotPlayer 64 位测试版 26.10.19 或更新版本](https://t1.kakaocdn.net/potplayer/beta/PotPlayerSetup64.exe) 使用，支持 Cookie 自动同步与保存。登录失效时可在网页登录窗口重新登录。_**
+**_提示：3.7.39 请搭配 [PotPlayer 64 位测试版 26.10.19 或更新版本](https://t1.kakaocdn.net/potplayer/beta/PotPlayerSetup64.exe) 使用，支持 Cookie 自动同步与保存。登录失效时可在网页登录窗口重新登录。_**
 
 ### 侧边栏网页浏览
 
@@ -39,6 +39,16 @@
 
 ## 其它改进
 
+### 可视化配置工具
+
+双击 `Extension/Media/PlayParse/Bilibili_Config_Editor.exe`，即可用中文界面编辑同目录的
+`Bilibili_Config.json`，支持弹幕样式预览和本地屏蔽规则管理。
+
+工具为 Windows 10/11 x64 原生单文件程序，约 360 KiB，无需安装额外运行库。
+支持系统字体与字号下拉选择、三类屏蔽规则多行编辑、全部或分页初始化配置。
+点击“应用”或“确定”保存后，重新加载插件或重启 PotPlayer 使设置生效。
+构建方式和详细说明见 [配置工具说明](Native/BilibiliConfig/README.md)。
+
 ### 🔧 整体优化
 
 - 正确选择默认播放画质，支持设定编码格式优先级。
@@ -47,7 +57,7 @@
 - 支持屏蔽 P2PCDN。
 - 优化风控策略。
 - 动态生成画质选项，与官方保持一致。
-- 增加心跳上报功能，用于历史记录同步。
+- 支持将观看记录及点播播放进度同步至 B 站云端，由 `heartBeat` 开关控制（默认关闭）；`vod.heartBeatInterval` 设置点播心跳上报间隔，单位为秒，默认和最小值均为 15。
 - 支持新版本更新检测。
 - 首次打开时，账号异常弹出对话框。
 - 支持 PotPlayer 聊天窗口，设置方法见 [聊天窗口](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/聊天窗口)。

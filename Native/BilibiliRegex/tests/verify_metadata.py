@@ -53,12 +53,24 @@ def metadata_script(repo):
     pieces.append(function(stats, 'string GetCookieValue('))
     pieces.append(function(stats, 'string GetBiliJct()'))
     pieces.extend(function(stats, signature) for signature in (
-        'void liveHeartBeatThread(', 'void liveHeartBeat()', 'void PlaybackStart('))
+        'void liveHeartBeatThread(', 'void liveHeartBeat()', 'void PlaybackStart(',
+        'void PlaybackTime(', 'void PlaybackPause(', 'void PlaybackResume('))
+    # Run the production heartbeat with a controllable clock; no real waiting or
+    # HTTP requests are needed to check interval and playback state transitions.
+    pieces.append(stats[stats.index('class VodHeartbeat {'):stats.index('\nvoid liveHeartBeatThread(')]
+                  .replace('HostGetTickCount()', 'HeartbeatTickCount()'))
     pieces.append(r'''
+VodHeartbeat heartbeat;
 bool heartbeatEnabled = true, validJson = true;
 int responseCode = 0, cookieReads = 0, requests = 0, alerts = 0, vodStarts = 0;
-string cookieFixture, requestUrl, requestHeaders;
+string cookieFixture, requestUrl, requestHeaders, requestBody;
 string fallbackJct;
+uint heartbeatTick = 100;
+string heartbeatInterval = "15", idsFixture = "ids";
+string episodeId = "0", seasonId = "0";
+uint HeartbeatTickCount() { return heartbeatTick; }
+string GetUnixTime() { return "1792512000"; }
+string GetIds() { vodStarts++; return idsFixture; }
 int fallbackReads = 0;
 bool requestDebug = true;
 const string Host = "https://api.bilibili.com";
@@ -68,28 +80,41 @@ bool historyObject = true;
 class JsonValue {
     string key;
     bool isObject() { return key != "data" || historyObject; }
+    bool isInt() { return key == "code"; }
     JsonValue opIndex(const string &in name) const { JsonValue item; item.key = name; return item; }
     int asInt() { return key == "id" ? 42 : responseCode; }
-    string asString() { return key == "last_play_cid" ? historyCid : "fixture response"; }
+    string asString() {
+        if (key == "aid") return "123";
+        if (key == "bvid") return "BVtest";
+        if (key == "cid") return "62131";
+        if (key == "mid") return "456";
+        if (key == "epid") return episodeId;
+        if (key == "ssid") return seasonId;
+        return key == "last_play_cid" ? historyCid : "fixture response";
+    }
+    int64 asInt64() { return parseInt(asString()); }
     double asDouble() { return historyMilliseconds; }
 }
 class JsonReader {
     bool parse(const string &in input, JsonValue &out root) { return validJson && !input.empty(); }
 }
 string HostGetCookie() { cookieReads++; return cookieFixture; }
-string HostLoadString(const string &in key) { fallbackReads++; return fallbackJct; }
+string HostLoadString(const string &in key) {
+    if (key == "BilibiliPotPlayer.HeartBeatInterval()") return heartbeatInterval;
+    fallbackReads++; return fallbackJct;
+}
 string HostUrlEncode(const string &in input) { return input; }
 string HostGetPlayingFileName() { return "42"; }
 int HostLoadInteger(const string &in key) { return heartbeatEnabled ? 1 : 0; }
 void HostMessageBox(const string &in text, const string &in title, int icon, int buttons) { alerts++; }
-string post(string url, string data, string headers, bool debug) {
-    requests++; requestUrl = url; requestHeaders = headers; requestDebug = debug;
+string post(string url, string data, string headers, bool debug = true) {
+    requests++; requestUrl = url; requestHeaders = headers; requestDebug = debug; requestBody = data;
     return responseFixture;
 }
 int HostCreateThread(ThreadFunction@ callback, const string &in task) {
     any args(task); callback(args); return 1;
 }
-void vodHeartBeat() { vodStarts++; }
+void log(string item, string info) { log(item + ": " + info); }
 void CheckHeartbeat() {
     heartbeatEnabled = false; cookieFixture = "bili_jct=unused";
     PlaybackStart("/live-bvc/fixture", 0);
@@ -108,7 +133,7 @@ void CheckHeartbeat() {
     PlaybackStart("/upgcxcode/fixture", 0);
     Assert(vodStarts == 1 && cookieReads == 3, "VOD heartbeat needs no cookie getter");
     validJson = false; PlaybackStart("/live-bvc/fixture", 0);
-    Assert(cookieReads == 3 && requests == 2, "invalid task stops before cookie/request");
+    Assert(cookieReads == 3 && requests == 3, "invalid task stops before cookie/request");
     validJson = true;
     responseCode = 0; fallbackJct = "manual"; fallbackReads = 0;
     cookieFixture = "bili_jct=native";
@@ -121,6 +146,56 @@ void CheckHeartbeat() {
     fallbackJct = ""; before = requests;
     PlaybackStart("/live-bvc/fixture", 0);
     Assert(fallbackReads == 2 && requests == before, "empty fallback skips heartbeat");
+    heartbeat.Stop();
+}
+void CheckVodProgress() {
+    validJson = true; responseCode = 0; heartbeatEnabled = true;
+    requests = 0; vodStarts = 0; heartbeatTick = 100; heartbeatInterval = "15";
+    PlaybackStart("/upgcxcode/fixture", 300000);
+    Assert(requests == 1 && requestBody.find("played_time=0") >= 0 &&
+        requestBody.find("cid=62131") >= 0 && requestBody.find("aid=123") >= 0 &&
+        requestBody.find("bvid=BVtest") >= 0, "start reports video identifiers and zero progress");
+    heartbeatTick += 14999; PlaybackTime("fixture", 90500, 300000);
+    Assert(requests == 1, "no report before interval");
+    heartbeatTick++; PlaybackTime("fixture", 90500, 300000);
+    Assert(requests == 2 && requestBody.find("played_time=90") >= 0,
+        "periodic progress converts milliseconds to seconds");
+    PlaybackPause("fixture"); heartbeatTick += 60000; PlaybackTime("fixture", 90500, 300000);
+    Assert(requests == 2, "pause suppresses progress reports");
+    PlaybackResume("fixture"); PlaybackTime("fixture", 90500, 300000);
+    Assert(requests == 2, "resume starts a fresh interval");
+    heartbeatTick += 15000; PlaybackTime("fixture", 120000, 300000);
+    Assert(requests == 3 && requestBody.find("played_time=120") >= 0, "resume reports current position");
+    heartbeatInterval = "30"; heartbeatTick += 15000; PlaybackTime("fixture", 135000, 300000);
+    Assert(requests == 3, "custom interval is respected");
+    heartbeatTick += 15000; PlaybackTime("fixture", 150000, 300000);
+    Assert(requests == 4, "custom interval sends at boundary");
+    heartbeatInterval = "1"; heartbeatTick += 14999; PlaybackTime("fixture", 160000, 300000);
+    Assert(requests == 4, "minimum interval enforced");
+    heartbeatTick++; PlaybackTime("fixture", 165000, 300000);
+    Assert(requests == 5, "minimum interval sends at 15 seconds");
+    heartbeatEnabled = false; heartbeatTick += 15000; PlaybackTime("fixture", 180000, 300000);
+    Assert(requests == 5, "heartBeat switch disables periodic uploads");
+    heartbeatEnabled = true; heartbeat.Complete();
+    Assert(requests == 6 && requestBody.find("played_time=-1") >= 0, "completion reports finished state");
+    heartbeatTick += 60000; PlaybackResume("fixture"); PlaybackTime("fixture", 300000, 300000);
+    heartbeat.Complete();
+    Assert(requests == 6, "completion clears state and is idempotent");
+    episodeId = "1234"; seasonId = "5678";
+    PlaybackStart("/upgcxcode/fixture", 300000);
+    Assert(requestBody.find("epid=1234") >= 0 && requestBody.find("sid=5678") >= 0 &&
+        requestHeaders.find("/bangumi/play/ep1234") >= 0, "PGC episode and season identifiers");
+    heartbeat.Stop(); heartbeatTick += 60000; PlaybackTime("fixture", 200000, 300000);
+    Assert(requests == 7, "stop suppresses stale uploads");
+    episodeId = "0"; seasonId = "0"; idsFixture = "";
+    PlaybackStart("/upgcxcode/fixture", 300000);
+    Assert(requests == 7, "missing identifiers cannot start heartbeat");
+    idsFixture = "ids"; heartbeatInterval = "15";
+    heartbeatTick = 0xFFFFFF00; PlaybackStart("/upgcxcode/fixture", 300000);
+    heartbeatTick += 15000; PlaybackTime("fixture", 15000, 300000);
+    Assert(requests == 9 && requestBody.find("played_time=15") >= 0, "tick count wraparound");
+    heartbeat.Stop();
+    HostPrintUTF8("[heartbeat] PASS: switch, interval, progress, pause/resume, completion, stop, PGC and tick wraparound");
 }
 bool fixtureExists = true, fixtureOpen = true;
 int fixtureClosed = 0;
@@ -132,6 +207,7 @@ string HostFileRead(uintptr fp, int length) { return fixtureJS; }
 void HostFileClose(uintptr fp) { fixtureClosed++; }
 void CheckMetadata() {
     CheckHeartbeat();
+    CheckVodProgress();
     responseCode = 0; alerts = 0; requests = 0;
     array<string> input = {"90", "90.9", "0.9", "0", "-90", "", "bogus", "1m30s",
         "1h2m3.5s", "01:02:03.500", "02:03", "1%3A30.9", "90#comments", "90junk",

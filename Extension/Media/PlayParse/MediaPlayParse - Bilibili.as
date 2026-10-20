@@ -95,7 +95,7 @@ string GetTitle() {
 }
 
 string GetVersion() {
-	return "3.7.38";
+	return "3.7.39";
 }
 
 string GetDesc() {
@@ -287,8 +287,8 @@ class Config {
 	bool danmakuEnable = false;
 	string danmakuServer;
 	string danmakuFont;
-	float danmakuFontSize = 30.0;
-	float danmakuOpacity = 0.9;
+	float danmakuFontSize = 32.0;
+	float danmakuOpacity = 0.85;
 	float danmakuDisplayArea = 0.8;
 	float danmakuStayTime = 15.0;
 	bool danmakuBold = true;
@@ -324,6 +324,7 @@ class Config {
 	bool showTrailer = true;
 	bool enableVodChatUrl = false;
 	bool queryPlayPosition = false;
+	int heartBeatInterval = 15;
 
 	bool useHttpStream = false;
 	bool parseM3u8RealUrl = true;
@@ -514,7 +515,12 @@ Config ReadConfigFile(string file) {
 		if (vod["queryPlayPosition"].isBool()) {
 			config.queryPlayPosition = vod["queryPlayPosition"].asBool();
 		}
+		if (vod["heartBeatInterval"].isNumeric()) {
+			config.heartBeatInterval = vod["heartBeatInterval"].asInt();
+		}
 	}
+	if (config.heartBeatInterval < 15) config.heartBeatInterval = 15;
+	HostSaveString("BilibiliPotPlayer.HeartBeatInterval()", formatInt(config.heartBeatInterval));
 
 	if (root["live"].isObject()) {
 		JsonValue live = root["live"];
@@ -912,9 +918,6 @@ string getMixinKey() {
 				HostMessageBox("error code: " + Root["code"].asInt() + "\n" + "error message: " + Root["message"].asString(), "BilibiliPotPlayer", 0, 0);
 			}
 		}
-	}
-	if (key.empty()) {
-		return key;
 	}
 	return key.substr(0, 32);
 }
@@ -3478,9 +3481,9 @@ array<dictionary> UGCSeason(const string&in path) {
 				for (int k = 0; k < pages.size(); k++) {
 					JsonValue page = pages[k];
 					if (!page.isObject()) continue;
-					
+
 					bool isCurrent = ((episode["bvid"].asString() == bvid || episode["aid"].asString() == aid) && page["page"].asString() == p) ? true : false;
-					
+
 					if (!ConfigData.showUgcSeason && !isCurrent) continue;
 
 					string finalTitle;

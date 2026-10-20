@@ -22,9 +22,9 @@
         // 字体
         "font": "微软雅黑 Light",
         // 字号
-        "fontSize": 24.0,
+        "fontSize": 32.0,
         // 弹幕不透明度，取值范围 0.0 ~ 1.0
-        "opacity": 0.9,
+        "opacity": 0.85,
         // 弹幕显示区域大小，取值范围 0.0 ~ 1.0
         "displayArea": 0.8,
         // 弹幕显示时间
@@ -65,20 +65,6 @@
         // ]
     },
 
-    // 是否屏蔽 P2P CDN。默认：true。
-    "blockP2PCDN": true,
-
-    // 设定请求缓存的时间，单位(s)。默认：300。
-    "cacheValidTime": 300,
-
-    // 启用空降助手，默认：false。其域名 ipv6 地址波动较大，如遇到 potplayer 超时问题先禁用。
-    "enableSponsorBlock": false,
-    // 空降助手镜像地址
-    "sponsorBlockMirror": "",
-
-    // 心跳上报。默认：false。用于同步bilibili历史记录。
-    "heartBeat" : false,
-
     // 各类页面的视频生成数量。数字越大视频越多，但会增加加载时间，极端情况会因超时而加载失败，以及触发风控，需谨慎设置。
     "videoNums": {
         // “我的动态”页数，默认 50。从 “我的动态” 页面(每次查询20个)过滤出视频，视频数量取决于实际情况。
@@ -107,8 +93,10 @@
         "showTrailer": true,
         // 点播视频启用网页版评论区，默认：false。观看视频时 potplayer 播放列表侧会展示该视频评论区。
         "enableVodChatUrl": true,
-        // 查询云端播放进度，默认：false。
-        "queryPlayPosition": false
+        // 查询并使用云端播放进度，默认：false。精准空降时不使用，以降低视频打开耗时。
+        "queryPlayPosition": false,
+        // 心跳上报间隔，单位：秒，默认: 15，最小：15
+        "heartBeatInterval": 15
     },
 
     // 直播
@@ -138,6 +126,21 @@
         "showRecommendedLiveRooms": false
     },
 
+    // 其他设置
+    // 是否屏蔽 P2P CDN。默认：true。
+    "blockP2PCDN": true,
+
+    // 设定请求缓存的时间，单位(s)。默认：300。
+    "cacheValidTime": 300,
+
+    // 启用空降助手，默认：false。其域名 ipv6 地址波动较大，如遇到 potplayer 超时问题先禁用。
+    "enableSponsorBlock": false,
+    // 空降助手镜像地址
+    "sponsorBlockMirror": "",
+
+    // 心跳上报。默认：false。用于同步bilibili历史记录。
+    "heartBeat" : false,
+
     // 禁用 AVC 编码（仅当存在其他编码时生效）。默认：false。仅当存在其他编码时生效。可根据个人需求使用。推荐设为 true，以免影响默认画质选择。不包括直播。
     "disableAVC": false,
 
@@ -146,12 +149,6 @@
     "defaultCodec": ["hevc", "avc", "av1"],
     // HDR优先。默认：false。跟随官方设定，“8K超高清” 优先级高于 “HDR/杜比视界”。设为 true：“杜比视界/HDR真彩色” 优先级高于“8K超高清”。
     "preferHDR": false,
-
-    // Bilibili CSRF Token，用于直播心跳上报。(PotPlayer测试版 26.10.19已不再需要此项配置)。
-    // 获取方式：
-    // 1. 下载 yt-dlp 2. 关闭 Potplayer 3. 注意 Potplayer 安装路径 4. 随便指定一个视频url
-    // .\yt-dlp.exe --skip-download --cookies-from-browser "chrome:D:\Program Files\DAUM\PotPlayer\WebView2\EBWebView" --cookies potplayer-cookies.txt "https://www.bilibili.com/video/BVxxxx"
-    "bili_jct": "",
 
     "debug": false
 }
