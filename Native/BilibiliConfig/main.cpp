@@ -101,6 +101,23 @@ struct App {
         if (!child) throw Error("创建窗口控件失败。");
         SendMessageW(child, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE); return child;
     }
+    int comboContentWidth(HWND combo) const {
+        HDC dc = GetDC(combo);
+        HGDIOBJ previous = SelectObject(dc, reinterpret_cast<HFONT>(SendMessageW(combo, WM_GETFONT, 0, 0)));
+        int textWidth = 0;
+        int count = static_cast<int>(SendMessageW(combo, CB_GETCOUNT, 0, 0));
+        for (int i = 0; i < count; ++i) {
+            int length = static_cast<int>(SendMessageW(combo, CB_GETLBTEXTLEN, i, 0));
+            if (length == CB_ERR) continue;
+            std::wstring label(static_cast<size_t>(length) + 1, L'\0');
+            SendMessageW(combo, CB_GETLBTEXT, i, reinterpret_cast<LPARAM>(label.data()));
+            SIZE size{}; GetTextExtentPoint32W(dc, label.data(), length, &size);
+            textWidth = std::max(textWidth, static_cast<int>(size.cx));
+        }
+        SelectObject(dc, previous); ReleaseDC(combo, dc);
+        // Allow for the arrow/scrollbar, borders and text padding at the current DPI.
+        return std::max(px(64), textWidth + GetSystemMetricsForDpi(SM_CXVSCROLL, dpi) + px(16));
+    }
     void create(HWND hwnd) {
         window = hwnd; dpi = GetDpiForWindow(hwnd);
         font = CreateFontW(-MulDiv(9, dpi, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
@@ -112,9 +129,9 @@ struct App {
         sections = add(hwnd,WC_TABCONTROLW,L"",WS_TABSTOP|WS_CLIPSIBLINGS,0,0,0,0,SectionId);
         int position = 0;
         for (auto title : {L"字幕与样式",L"字体效果",L"弹幕过滤"}) { TCITEMW item{};item.mask=TCIF_TEXT;item.pszText=const_cast<wchar_t*>(title);TabCtrl_InsertItem(sections,position++,&item); }
-        pane = add(hwnd, PaneClass, L"", WS_VSCROLL, 0,0,0,0,0,WS_EX_CONTROLPARENT);
+        pane = add(hwnd, PaneClass, L"", WS_VSCROLL | WS_CLIPSIBLINGS, 0,0,0,0,0,WS_EX_CONTROLPARENT);
         SetWindowLongPtrW(pane, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
-        preview = add(hwnd, PreviewClass, L"", 0,0,0,0,0);
+        preview = add(hwnd, PreviewClass, L"", WS_CLIPSIBLINGS,0,0,0,0);
         SetWindowLongPtrW(preview, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
         status = add(hwnd, L"STATIC", L"请打开 Bilibili_Config.json。", SS_LEFT,0,0,0,0);
         ok = add(hwnd, WC_BUTTONW, L"确定", BS_DEFPUSHBUTTON | WS_TABSTOP,0,0,0,0,IDOK);
@@ -165,9 +182,10 @@ struct App {
         int formWidth = innerWidth-(previewWidth?previewWidth+px(12):0), sectionHeight = page==1?px(31):0;
         ShowWindow(sections,page==1&&document?SW_SHOW:SW_HIDE);
         if(page==1) SetWindowPos(sections,HWND_TOP,panel.left+px(10),panel.top+px(5),formWidth-px(16),px(27),SWP_NOACTIVATE);
-        MoveWindow(pane,panel.left+px(2),panel.top+px(2)+sectionHeight,formWidth,std::max(px(80),static_cast<int>(panel.bottom-panel.top)-px(4)-sectionHeight),TRUE);
+        // Page surfaces are siblings of the tab; keep them above its themed background.
+        SetWindowPos(pane,HWND_TOP,panel.left+px(2),panel.top+px(2)+sectionHeight,formWidth,std::max(px(80),static_cast<int>(panel.bottom-panel.top)-px(4)-sectionHeight),SWP_NOACTIVATE);
         ShowWindow(preview,previewWidth?SW_SHOW:SW_HIDE);
-        if (previewWidth) MoveWindow(preview,panel.right-previewWidth-px(5),panel.top+px(14),previewWidth,static_cast<int>(panel.bottom-panel.top)-px(24),TRUE);
+        if (previewWidth) SetWindowPos(preview,HWND_TOP,panel.right-previewWidth-px(5),panel.top+px(14),previewWidth,static_cast<int>(panel.bottom-panel.top)-px(24),SWP_NOACTIVATE);
         MoveWindow(status,px(18),h-px(70),w-px(36),px(23),TRUE);
         MoveWindow(ok,w-px(280),h-px(40),px(80),px(27),TRUE);
         MoveWindow(cancel,w-px(188),h-px(40),px(80),px(27),TRUE);
@@ -246,7 +264,9 @@ struct App {
                     if(selected<0){std::wstring custom=(f.widget==Widget::Font?L"当前字体（未安装）：":L"当前自定义值：")+draft[i];SendMessageW(b.control,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(custom.c_str()));b.options.push_back(settingJson(f,draft[i]));selected=static_cast<int>(b.options.size()-1);}
                     SendMessageW(b.control,CB_SETCURSEL,selected,0);
                     SendMessageW(b.control,CB_SETMINVISIBLE,12,0);
-                    if(f.widget==Widget::Font)SendMessageW(b.control,CB_SETDROPPEDWIDTH,px(320),0);
+                    int fittedWidth=comboContentWidth(b.control);
+                    MoveWindow(b.control,controlX,y-origin,std::min(controlWidth,fittedWidth),px(220),TRUE);
+                    SendMessageW(b.control,CB_SETDROPPEDWIDTH,fittedWidth,0);
                 } else if(f.widget==Widget::Slider){
                     b.control=make(TRACKBAR_CLASSW,L"",WS_TABSTOP|TBS_HORZ|TBS_AUTOTICKS,controlX,y,controlWidth-px(54),px(29),id);
                     SendMessageW(b.control,TBM_SETRANGE,TRUE,MAKELPARAM(static_cast<int>(f.minimum*100),100));SendMessageW(b.control,TBM_SETTICFREQ,10,0);

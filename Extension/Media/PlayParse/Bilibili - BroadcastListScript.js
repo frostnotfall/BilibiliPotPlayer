@@ -1,4 +1,4 @@
-// bilibili-broadcast-list-script version: 2026-10-20 02:00:37
+// bilibili-broadcast-list-script version: 8
 // 本文件可单独从 https://github.com/frostnotfall/BilibiliBroadcastListScript/releases 手动替换更新。
 // MIT License
 // 
@@ -606,7 +606,7 @@
   }
 
   // src/common/version.js
-  var version = "2026-10-20 02:00:37";
+  var version = "8";
 
   // src/common/resolver-cache.js
   function createResolverCache(start, { concurrency = 4, maxQueued = 128, capacity = 256, ttl = 3e5, retryDelay = 3e4 } = {}) {
@@ -963,13 +963,25 @@
       if (!stopped && click && handle(args[0], click, () => Reflect.apply(originalOpen, this, args))) return null;
       return Reflect.apply(originalOpen, this, args);
     }
-    function onAuxClick(event) {
-      if (stopped || !event.isTrusted || event.button !== 1 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.defaultPrevented) return;
-      if (typeof window.chrome?.webview?.postMessage !== "function") return;
+    function middleTarget(event) {
+      if (stopped || !event.isTrusted || event.button !== 1 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.defaultPrevented) return null;
+      if (typeof window.chrome?.webview?.postMessage !== "function") return null;
       const target = linkTarget(event);
-      if (!target) return;
+      if (!target) return null;
       const resolved = shortLinks.peek(target.url) || target.url;
-      if (isIgnored(target.url, true, true) || isIgnored(resolved, true, true)) return;
+      if (isIgnored(target.url, true, true) || isIgnored(resolved, true, true)) return null;
+      return isPlayerUrl(resolved) || isShortUrl(resolved) || isPageUrl(resolved) ? { ...target, resolved } : null;
+    }
+    function onMouseDown(event) {
+      const target = middleTarget(event);
+      if (!target || target.anchor.matches?.("a[href]")) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+    function onAuxClick(event) {
+      const target = middleTarget(event);
+      if (!target) return;
+      const { resolved } = target;
       if (isPlayerUrl(resolved) || isShortUrl(resolved)) {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -1073,6 +1085,7 @@
     syncPageState();
     window.open = open;
     document.addEventListener("click", onClick, { capture: true, passive: false, signal: events2.signal });
+    document.addEventListener("mousedown", onMouseDown, { capture: true, passive: false, signal: events2.signal });
     document.addEventListener("auxclick", onAuxClick, { capture: true, passive: false, signal: events2.signal });
     document.addEventListener("DOMContentLoaded", () => schedule(document), { signal: events2.signal });
     observe(document);
@@ -4785,7 +4798,8 @@ html.homepagescript-active .search-layout .media-card:has(.media-footer) .media-
       html.homepagescript-active .rank-tips { white-space:normal!important; height:auto!important; }
       html.homepagescript-active .rank-list { display:grid!important; grid-template-columns:repeat(var(--homepagescript-columns,2),minmax(0,1fr))!important; gap:16px 12px!important; }
       html.homepagescript-active .rank-item { box-sizing:border-box!important; width:100%!important; min-width:0!important; margin:0!important; }
-      html.homepagescript-active .rank-item .content { display:flex!important; flex-direction:column!important; width:100%!important; min-width:0!important; }
+      /* 行间距由网格统一提供，移除原生列表上下各 20px 的内边距。 */
+      html.homepagescript-active .rank-item .content { display:flex!important; flex-direction:column!important; width:100%!important; min-width:0!important; padding:0!important; }
       html.homepagescript-active .rank-item :is(.img,.info,.detail,.detail-state) { box-sizing:border-box!important; width:100%!important; min-width:0!important; height:auto!important; margin:0!important; }
       html.homepagescript-active .rank-list:not(.pgc-list) .rank-item .img { aspect-ratio:16/9; }
       html.homepagescript-active .rank-item .img :is(a,img) { display:block; width:100%!important; }
@@ -4793,8 +4807,20 @@ html.homepagescript-active .search-layout .media-card:has(.media-footer) .media-
       /* 官方 pgc-list 使用竖封面；解除固定高度，沿用原生缩略图比例。 */
       html.homepagescript-active .rank-list.pgc-list .rank-item .img :is(a,img) { height:auto!important; }
       html.homepagescript-active .rank-item .info { padding:8px 0 0!important; }
-      html.homepagescript-active .rank-item .title { width:100%!important; }
+      /* 原生标题固定预留三行，窄屏卡片按实际文字高度排列。 */
+      html.homepagescript-active .rank-item .title { width:100%!important; height:auto!important; margin-bottom:8px!important; }
       html.homepagescript-active .rank-item .detail-state { display:flex!important; flex-wrap:wrap!important; gap:4px 10px!important; }
+      /* 保留原生 DOM 和弹层事件，通过网格将上榜入口排在作者右侧，统计另起一行。 */
+      html.homepagescript-active .rank-list:not(.pgc-list) .rank-item .content { display:grid!important; grid-template-columns:minmax(0,1fr) auto!important; column-gap:8px!important; }
+      html.homepagescript-active .rank-list:not(.pgc-list) .rank-item :is(.info,.detail,.content > span:has(.more-data)) { display:contents!important; }
+      html.homepagescript-active .rank-list:not(.pgc-list) .rank-item .img { grid-area:1 / 1 / 2 / -1; }
+      html.homepagescript-active .rank-list:not(.pgc-list) .rank-item .title { grid-area:2 / 1 / 3 / -1; padding-top:8px!important; }
+      html.homepagescript-active .rank-list:not(.pgc-list) .rank-item .detail > a { grid-area:3 / 1; min-width:0!important; align-self:center; }
+      html.homepagescript-active .rank-list:not(.pgc-list) .rank-item .up-name { width:100%!important; max-width:100%!important; margin:0!important; }
+      html.homepagescript-active .rank-list:not(.pgc-list) .rank-item .detail-state { grid-area:4 / 1 / 5 / -1; margin-top:4px!important; }
+      html.homepagescript-active .rank-item .more-data { grid-area:3 / 2; position:static!important; display:inline-flex!important; align-items:center!important; align-self:center; max-width:100%!important; margin:0!important; white-space:nowrap!important; }
+      html.homepagescript-active .van-popover.other { min-width:0!important; max-width:calc(100vw - 24px)!important; }
+      html.homepagescript-active .van-popover.other .other-link { width:auto!important; max-width:100%!important; white-space:normal!important; overflow-wrap:anywhere!important; }
       /* 音乐榜使用 CSS Modules；按语义前缀匹配，避免绑定构建哈希。 */
       html.homepagescript-active .music-rank-list [class*="_cardList_"] { display:flex!important; flex-direction:column!important; gap:12px!important; width:100%!important; }
       html.homepagescript-active .music-rank-list :is([class*="_card_"],[class*="_cardContainer_"]) { box-sizing:border-box!important; width:100%!important; min-width:0!important; height:auto!important; margin:0!important; padding:12px!important; }

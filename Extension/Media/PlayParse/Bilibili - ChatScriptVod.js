@@ -1,4 +1,4 @@
-// @version      1.0.51
+// @version      1.0.53
 
 (() => {
   'use strict';
@@ -577,16 +577,38 @@
       return {anchor, url:url.href, preciseUrl:precise.href, seconds, kind:'seek', playbackOnly:true};
     }
 
+    function mediaLink(path) {
+      const single = path.find(node => node.matches?.('.video-pod .pod-item[data-key] .single-p'));
+      if (single && !path.some(node => node.matches?.('button, input, [role="button"]'))) {
+        const item = single.closest('.pod-item[data-key]'), bvid = item.getAttribute('data-key');
+        // 合集条目没有 href；data-key 是官方用于定位当前视频的 BV 号。
+        if (/^BV[a-z\d]+$/i.test(bvid)) return {anchor:item, url:`https://www.bilibili.com/video/${bvid}/`};
+      }
+      // 封面时长/预览遮罩不在 a 内；只从封面取链接，避免接管稍后再看等按钮。
+      const anchor = path.find(node => node.matches?.('a[href]'))
+        || path.find(node => node.matches?.('.video-page-card-small .pic'))?.querySelector('a[href]');
+      if (!anchor || anchor.hasAttribute('download') || avatarNavigation.isLink(anchor)) return null;
+      let href = anchor.getAttribute('href');
+      if (href?.trim().startsWith('#')) return null;
+      // 图片/视频推广的 href 是计费跳转；播放、确认和菜单统一使用官方实际目标。
+      const target = (anchor.matches?.('.video-card-ad-small a[data-target-url]')
+        || anchor.matches?.('.ad-report a[data-target-url]'))
+        && urlOf(anchor.getAttribute('data-target-url'));
+      if (target) href = target.href;
+      const url = urlOf(href)?.href;
+      return url ? {anchor, url} : null;
+    }
+
     function menuTarget(event) {
       if (!pageType()) return null;
       const path = event.composedPath();
+      if (path.some(node => node.matches?.('#bilibili-vod-media-menu, #bilibili-vod-external-dialog'))) return;
       const seek = seekTarget(path);
       if (seek) return seek;
       if (path.some(node => node.matches?.('[data-type="seek"], .dm-info-time, input, textarea, [contenteditable="true"]'))) return null;
-      const anchor = path.find(node => node.matches?.('a[href]'));
-      if (!anchor || anchor.hasAttribute('download') || avatarNavigation.isLink(anchor)) return null;
-      const url = urlOf(anchor.getAttribute('href'))?.href;
-      if (!url || anchor.getAttribute('href').trim().startsWith('#')) return null;
+      const link = mediaLink(path);
+      if (!link) return null;
+      const {anchor, url} = link;
       const resolved = shortLinks.get(url)?.url || url;
       const playbackOnly = path.some(node => node.matches?.(clickScope) || node.matches?.(playbackScope));
       const kind = isPlayitemUrl(resolved) || isShortUrl(resolved) ? 'media' : !playbackOnly && isPageUrl(resolved) ? 'page' : 'native';
@@ -742,6 +764,7 @@
       if (!pageType() || !event.isTrusted || ![0, 1].includes(event.button)) return;
       if (event.button === 1 && (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.defaultPrevented)) return;
       const path = event.composedPath();
+      if (path.some(node => node.matches?.('#bilibili-vod-media-menu, #bilibili-vod-external-dialog'))) return;
       const time = path.some(node => node.matches?.('#danmukuBox .dm-info-time'));
       const row = path.some(node => node.matches?.('#danmukuBox .dm-info-row'));
       if (event.type === 'dblclick' && !row) return;
@@ -771,20 +794,22 @@
       }
       // 事件路径可读取开放 Shadow DOM 内的链接，不局限于 retarget 后的 target。
       const anchor = path.find(node => node.matches?.('a[href]'));
-      const inScope = path.some(node => node.matches?.(clickScope));
-      if (!inScope && !path.some(node => node.matches?.(playbackScope))) return;
+      const link = mediaLink(path);
+      const inScope = path.some(node => node.matches?.(clickScope) || node.matches?.(playbackScope));
+      // 整页媒体交给宿主，未适配页面统一确认；已适配页面保留原有导航。
+      if (!inScope && link && isPageUrl(link.url)) return;
       if (anchor?.hasAttribute('download') || avatarNavigation.isLink(anchor)) return;
-      const href = anchor?.getAttribute('href');
+      const href = link?.url || anchor?.getAttribute('href');
       if (href?.trim().startsWith('#')) return;
-      const state = {sent:new Set(), pending:new Set(), middle:event.button === 1, route:location.href};
+      const state = {sent:new Set(), pending:new Set(), middle:event.button === 1, route:location.href, playbackOnly:inScope};
       if (urlOf(href)) {
         event.preventDefault();
         event.stopImmediatePropagation();
         handle(href, state);
         return;
       }
-      // 无 href 时保留官方处理器，由其 window.open 提供实际目标地址。
-      if (inScope || anchor) {
+      // 非网页协议及页内链接保留原行为；无 href 的卡片由原生 window.open 提供地址。
+      if (!href?.trim() || /^\s*javascript:/i.test(href)) {
         click = state;
         timer = setTimeout(() => { click = null; }, 0);
       }
@@ -795,14 +820,21 @@
       // 返回标准的“未创建窗口”结果，保留稍后再看等组件自己的处理器和反馈。
       if (pageType() && (args[0] == null || !String(args[0]).trim()
         || /^about:blank(?:[?#].*)?$/i.test(String(args[0]).trim()))) return null;
-      if (click && pageType() && handle(args[0], click)) return null;
+      if (click && pageType()) {
+        // 全页原生控件也可能打开已适配页面；不改变这些页面的导航方式。
+        if (!click.playbackOnly && isPageUrl(args[0])) return Reflect.apply(originalOpen, this, args);
+        if (handle(args[0], click)) return null;
+      }
       return Reflect.apply(originalOpen, this, args);
     }
 
     window.open = open;
     listen('mousedown', event => {
-      if (!pageType() || !event.isTrusted || event.button !== 1 || !seekTarget(event.composedPath())) return;
-      // 官方时间节点没有 href；可滚动页面上的中键默认会启动自动滚屏，吞掉 auxclick。
+      if (!pageType() || !event.isTrusted || event.button !== 1
+        || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      const path = event.composedPath(), link = mediaLink(path);
+      if (!seekTarget(path) && !(link && !link.anchor.matches?.('a[href]') && isPlayitemUrl(link.url))) return;
+      // 官方时间、合集条目没有 href；中键默认会启动自动滚屏，吞掉 auxclick。
       // 先取消该默认动作，再由 auxclick 统一执行一次新进程精准空降。
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -1039,9 +1071,11 @@
     ${scope} [${recommendAttr}="closed"] ~ .rec-footer { display: none !important; }
     ${scope} [${recommendAttr}] {
       width: 100% !important; min-width: 0 !important; max-width: 100% !important;
-      margin-top: 0 !important; box-sizing: border-box !important;
+      margin-top: 12px !important; box-sizing: border-box !important;
     }
     ${scope} [${recommendAttr}] > [class*="recommend_title"] { display: none !important; }
+    /* PGC 原标题自带分隔线和顶部留白，替换为折叠标题后移除，避免首项叠加间距。 */
+    ${pgc} [${recommendAttr}] { padding-top: 0 !important; border-top: 0 !important; }
 
     /* 共用播放器：初始化已暂停一次，此处只压缩不可见画面。 */
     ${scope} :is(#playerWrap, #bilibili-player-wrap, #bilibili-player,
@@ -1523,10 +1557,13 @@
   }
   function dismissSidebar(event) {
     if (event.type === 'keydown' && event.key !== 'Escape') return;
-    const path = event.type === 'click' ? event.composedPath() : [];
+    const path = event.composedPath();
+    // 确认框和媒体菜单挂在 body 下，不是侧栏 DOM 的子节点。
+    // 它们的按钮与 Escape 只处理当前浮层，不能同时触发侧栏的点击外部收起。
+    if (path.some(node => node.matches?.('#bilibili-vod-media-menu, #bilibili-vod-external-dialog'))) return;
     for (const [side, state] of sidebarPanels) {
-      if (side.getAttribute(sidebarAttr) !== 'open' || path.includes(side)
-        || path.some(node => node.matches?.('.bpx-player-dm-setting'))) continue;
+      if (side.getAttribute(sidebarAttr) !== 'open' || event.type === 'click' && (path.includes(side)
+        || path.some(node => node.matches?.('.bpx-player-dm-setting')))) continue;
       setLayoutOpen(side, state, false);
     }
   }
