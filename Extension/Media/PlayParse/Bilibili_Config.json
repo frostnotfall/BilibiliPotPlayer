@@ -44,6 +44,7 @@
             // 重墨模糊半径。
             "blurRadius": 5.0
         },
+
         // 是否屏蔽顶部固定弹幕。默认：false。
         "blockTop": false,
         // 是否屏蔽底部固定弹幕。默认：false。

@@ -584,8 +584,6 @@ Config ReadConfigFile(string file) {
 		}
 	}
 
-	HostSaveString("BilibiliPotPlayer.BiliJct()", root["bili_jct"].isString() ? root["bili_jct"].asString() : "");
-
 	if (root["debug"].isBool()) {
 		config.debug = root["debug"].asBool();
 	}

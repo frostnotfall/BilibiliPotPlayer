@@ -35,8 +35,9 @@ def metadata_script(repo):
         assert f'return BangumiEpisodes(parse{prefix}Id(path), "{kind}_id", path);' in playlist
     assert 'HostGetCookie' not in function(stats, "void OnInitialize()")
     assert stats.count('HostGetCookie()') == 1
-    assert 'HostLoadString("BilibiliPotPlayer.BiliJct()")' in function(stats, "string GetBiliJct()")
-    assert 'HostSaveString("BilibiliPotPlayer.BiliJct()", root["bili_jct"].isString() ? root["bili_jct"].asString() : "");' in parse
+    for source in (parse, stats):
+        assert 'BilibiliPotPlayer.BiliJct()' not in source
+        assert 'GetBiliJct()' not in source
     assert 'post(url, postData, headers, false)' in function(stats, "void liveHeartBeatThread(")
     assert 'BilibiliPotPlayer.HeartBeat()' in function(stats, "void PlaybackStart(")
     for source in (parse, stats):
@@ -51,7 +52,6 @@ def metadata_script(repo):
         'string makeWebUrl(',
         'string ReadWebScript(')]
     pieces.append(function(stats, 'string GetCookieValue('))
-    pieces.append(function(stats, 'string GetBiliJct()'))
     pieces.extend(function(stats, signature) for signature in (
         'void liveHeartBeatThread(', 'void liveHeartBeat()', 'void PlaybackStart(',
         'void PlaybackTime(', 'void PlaybackPause(', 'void PlaybackResume('))
@@ -138,14 +138,18 @@ void CheckHeartbeat() {
     responseCode = 0; fallbackJct = "manual"; fallbackReads = 0;
     cookieFixture = "bili_jct=native";
     PlaybackStart("/live-bvc/fixture", 0);
-    Assert(fallbackReads == 0 && requestUrl.find("csrf=native") >= 0, "native CSRF takes priority over configured fallback");
+    Assert(fallbackReads == 0 && requestUrl.find("csrf=native") >= 0, "native CSRF is used without reading legacy config");
     cookieFixture = "other=ignored";
     int before = requests;
     PlaybackStart("/live-bvc/fixture", 0);
-    Assert(fallbackReads == 1 && requests == before + 1 && requestUrl.find("csrf=manual") >= 0 && !requestDebug, "missing cookie field uses legacy config without logging credential");
-    fallbackJct = ""; before = requests;
+    Assert(fallbackReads == 0 && requests == before, "missing cookie field skips heartbeat even with a legacy token");
+    cookieFixture = "bili_jct=";
     PlaybackStart("/live-bvc/fixture", 0);
-    Assert(fallbackReads == 2 && requests == before, "empty fallback skips heartbeat");
+    Assert(fallbackReads == 0 && requests == before, "empty native CSRF skips heartbeat without legacy fallback");
+    cookieFixture = "bili_jct=renewed";
+    PlaybackStart("/live-bvc/fixture", 0);
+    Assert(fallbackReads == 0 && requests == before + 1 && requestUrl.find("csrf=renewed") >= 0 && !requestDebug,
+        "renewed native cookie resumes heartbeat without logging credentials");
     heartbeat.Stop();
 }
 void CheckVodProgress() {

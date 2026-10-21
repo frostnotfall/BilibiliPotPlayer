@@ -2,6 +2,8 @@
 
 适用于 PotPlayer 的 Bilibili 插件，可直接解析并播放 Bilibili 视频、番剧、影视、直播等内容。既可直接打开链接，也可通过 `直播/VOD` 窗口浏览窄布局网页并点击播放。
 
+> **使用提示：请搭配最新 PotPlayer 64 位测试版 26.10.19 使用。** [点击下载测试版](https://t1.kakaocdn.net/potplayer/beta/PotPlayerSetup64.exe)。
+
 配合 [BilibiliPotPlayer-改](https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-%E6%94%B9) 油猴脚本，可直接从 Bilibili 网页调用 PotPlayer 播放，并支持精准空降等功能。
 
 > 本项目基于 [chen310/BilibiliPotPlayer](https://github.com/chen310/BilibiliPotPlayer) 及其上游版本 [juening2000/BilibiliPotPlayer](https://github.com/juening2000/BilibiliPotPlayer) 进行维护，并针对个人使用需求持续进行功能改进、Bug 修复和测试。
@@ -27,7 +29,7 @@
 
 **_注意：由于登录机制的改变，从上游项目迁移过来的同学， 旧的 Cookie、Header、Referer 一定要删除。参考 [wiki](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/常见问题与故障排查#1-播放视频时一直转圈右下角画质选项不断跳动)。_**
 
-**_提示：3.7.39 请搭配 [PotPlayer 64 位测试版 26.10.19 或更新版本](https://t1.kakaocdn.net/potplayer/beta/PotPlayerSetup64.exe) 使用，支持 Cookie 自动同步与保存。登录失效时可在网页登录窗口重新登录。_**
+**_提示：搭配上述 PotPlayer 测试版使用，支持 Cookie 自动同步与保存。登录失效时可在网页登录窗口重新登录。_**
 
 ### 侧边栏网页浏览
 

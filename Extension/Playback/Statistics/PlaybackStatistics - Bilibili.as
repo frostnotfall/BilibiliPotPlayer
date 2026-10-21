@@ -108,10 +108,6 @@ string GetIds() {
 	return HostLoadString("BilibiliPotPlayer.Ids()");
 }
 
-string GetBiliJct() {
-	return HostLoadString("BilibiliPotPlayer.BiliJct()");
-}
-
 string GetCookieValue(const string &in cookies, const string &in name) {
 	array<string> fields = cookies.split(";");
 	for (uint i = 0; i < fields.length(); i++) {
@@ -311,7 +307,6 @@ void liveHeartBeatThread(any@ param) {
 
 	int id = root["id"].asInt();
 	string biliJct = GetCookieValue(HostGetCookie(), "bili_jct");
-	if (biliJct.empty()) biliJct = GetBiliJct();
 	if (biliJct.empty()) return;
 
 	string url = "https://api.live.bilibili.com/xlive/web-room/v1/index/roomEntryAction?csrf=" + HostUrlEncode(biliJct);
