@@ -7,10 +7,11 @@ $installation = & $vswhere -latest -products '*' -requires Microsoft.VisualStudi
 if (!$installation) { throw 'Visual Studio C++ x64 build tools were not found.' }
 $vcvars = Join-Path $installation 'VC\Auxiliary\Build\vcvarsall.bat'
 $objectDir = Join-Path $nativeRoot 'build\x64'
-$testDir = Join-Path $nativeRoot 'build\tests'
+$testDir = Join-Path $objectDir 'tests'
 $outputDir = Join-Path $repoRoot 'Extension\Media\PlayParse'
 New-Item -ItemType Directory -Force -Path $objectDir, $testDir | Out-Null
-$exe = if ($OutputExe) { [IO.Path]::GetFullPath($OutputExe) } else { Join-Path $outputDir 'Bilibili_Config_Editor.exe' }
+$exe = Join-Path $objectDir 'Bilibili_Config_Editor.exe'
+$destinationExe = if ($OutputExe) { [IO.Path]::GetFullPath($OutputExe) } else { Join-Path $outputDir 'Bilibili_Config_Editor.exe' }
 $common = '/nologo /std:c++17 /O2 /MT /EHsc /W4 /utf-8 /DUNICODE /D_UNICODE /D_CRT_SECURE_NO_WARNINGS'
 $link = '/INCREMENTAL:NO /OPT:REF /OPT:ICF /DYNAMICBASE /NXCOMPAT'
 $buildScript = @"
@@ -39,4 +40,7 @@ try {
     if ($uiProcess.ExitCode -ne 0) { throw "Native UI smoke tests failed ($($uiProcess.ExitCode))." }
     Write-Host 'PASS: native UI fields, font selection, slider/combo wheel routing, exclusive chat modes, typed rules, comment-preserving initialization, missing-file creation, effect/filter previews and DPI layout.'
 } finally { Pop-Location }
-Get-Item -LiteralPath $exe | Select-Object FullName, Length
+if ($destinationExe -ne $exe) {
+    Copy-Item -LiteralPath $exe -Destination $destinationExe -Force
+}
+Get-Item -LiteralPath $destinationExe | Select-Object FullName, Length

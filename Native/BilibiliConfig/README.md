@@ -45,9 +45,11 @@ PotPlayer 的 `Extension\Media\PlayParse` 目录，双击即可读取同目录�
 ```
 
 脚本使用 `/O2 /MT /W4` 构建发布 EXE，同时运行配置测试和隐藏的原生 UI 测试。
-如需先构建到其他位置，可加 `-OutputExe C:\path\Bilibili_Config_Editor.exe`；运行中的正式 EXE 需先关闭才能替换。
+本地 EXE、测试程序、对象文件和生成的构建命令统一位于 `build/x64/`，测试配置与截图位于 `build/x64/tests/`。
+全部测试通过后，将本地 EXE 复制到 `Extension/Media/PlayParse/Bilibili_Config_Editor.exe`。
+如需将成品复制到其他位置，可加 `-OutputExe C:\path\Bilibili_Config_Editor.exe`；运行中的目标 EXE 需先关闭才能替换。
 当前成品约 360 KiB，最终大小以本地构建结果为准。
-构建和测试中间文件均放在本目录的 `build/`，不会修改真实配置文件。
+构建与测试不会修改真实配置文件。
 
 验证范围：
 

@@ -1,4 +1,4 @@
-// 版本：1.1.26
+// 版本：1.1.29
 
 (() => {
   'use strict';
@@ -18,6 +18,8 @@
   function mount() {
   if (location.hostname !== 'live.bilibili.com' || !/^\/(?:blanc\/)?\d+\/?$/.test(location.pathname)) return;
   window.bilibiliLiveChat?.destroy();
+  // 宽窗口保留原站布局；窄窗口才接管聊天区、侧栏及浮层。
+  const narrowLayout = matchMedia('(width < 1000px)');
 
   // AVATAR_NAVIGATION_START
   // 页面导航由页面脚本负责；BroadcastListScript 只接收通用 ignoreUrl 规则。
@@ -90,6 +92,414 @@
   const avatarNavigation = createAvatarNavigation();
   // AVATAR_NAVIGATION_END
 
+  // MEDIA_MENU_START
+  const scopes = [{"id":"HomePage","host":"www.bilibili.com","paths":["/","/index.html","/c/douga","/c/game","/c/kichiku","/c/music","/c/dance","/c/cinephile","/c/ent","/c/knowledge","/c/tech","/c/information","/c/food","/c/shortplay","/c/car","/c/fashion","/c/sports","/c/animal","/c/vlog","/c/painting","/c/ai","/c/home","/c/outdoors","/c/gym","/c/handmake","/c/travel","/c/rural","/c/parenting","/c/health","/c/emotion","/c/life_joy","/c/life_experience"]},{"id":"LiveHome","host":"live.bilibili.com","paths":["/","/all"],"protocols":["https:"]},{"id":"LiveArea","host":"live.bilibili.com","paths":["/p/eden/area-tags"]},{"id":"Feed","host":"t.bilibili.com","pathPattern":"^/.*$"},{"id":"History","host":"www.bilibili.com","paths":["/history"]},{"id":"Watchlater","host":"www.bilibili.com","paths":["/watchlater/list"]},{"id":"Follow","host":"link.bilibili.com","paths":["/p/center/index"],"hashPattern":"^#/user-center/follow/1/?(?:\\?.*)?$"},{"id":"Space","host":"space.bilibili.com","pathPattern":"^/\\d+(?:/(?:dynamic|upload(?:/(?:video|opus))?|lists|bangumi)|/(?:favlist|fav)(?:/.*)?)?/?$"},{"id":"Search","host":"search.bilibili.com","paths":["/all","/video","/bangumi","/pgc","/live","/article","/upuser"]},{"id":"Popular","host":"www.bilibili.com","paths":["/v/popular/all","/v/popular/weekly","/v/popular/history","/v/popular/rank/all","/v/popular/rank/anime","/v/popular/rank/bangumi","/v/popular/rank/guochuang","/v/popular/rank/documentary","/v/popular/rank/movie","/v/popular/rank/tv","/v/popular/rank/variety","/v/popular/rank/douga","/v/popular/rank/game","/v/popular/rank/kichiku","/v/popular/rank/music","/v/popular/rank/dance","/v/popular/rank/cinephile","/v/popular/rank/ent","/v/popular/rank/knowledge","/v/popular/rank/tech","/v/popular/rank/food","/v/popular/rank/car","/v/popular/rank/fashion","/v/popular/rank/sports","/v/popular/rank/animal","/v/popular/music"]},{"id":"Anime","host":"www.bilibili.com","paths":["/anime","/guochuang","/anime/timeline","/anime/index","/guochuang/timeline","/guochuang/index"]},{"id":"PGC","host":"www.bilibili.com","paths":["/movie","/tv","/variety","/documentary"]},{"id":"Charity","host":"love.bilibili.com","paths":["/"]},{"id":"UHD","host":"www.bilibili.com","paths":["/blackboard/era/Vp41b8bsU9Wkog3X.html","/blackboard/era/LqwJ5qsaKiEE0yj8.html"]},{"id":"Podcast","host":"www.bilibili.com","paths":["/blackboard/era/jpyPhRRrMn3fmZ2B.html","/blackboard/era/V9NZUSEYujbTPmT0.html"]},{"id":"Music","host":"music.bilibili.com","paths":["/pc/music-center","/pc/music-detail","/pc/rank","/h5/rank"]},{"id":"Article","host":"www.bilibili.com","paths":["/read/home","/opus"],"pathPattern":"^/(?:opus/\\d+|read/cv\\d+)/?$"}];
+  function urlOf(value, base = location.href) {
+    if (typeof value !== 'string' || !value.trim()) return null;
+    try {
+      const url = new URL(value, base);
+      return ['http:', 'https:'].includes(url.protocol) ? url : null;
+    } catch { return null; }
+  }
+
+  // 与 BroadcastListScript 的适配页面列表保持一致，决定页面菜单的类型。
+  function pageId(value) {
+    const url = value instanceof URL ? value : urlOf(value);
+    if (!url || !['http:', 'https:'].includes(url.protocol)) return null;
+    const path = url.pathname.replace(/\/$/, '') || '/';
+    for (const scope of scopes) {
+      if (url.hostname !== scope.host) continue;
+      if (scope.protocols && !scope.protocols.includes(url.protocol)) continue;
+      if (scope.hashPattern && !new RegExp(scope.hashPattern).test(url.hash)) continue;
+      if (scope.paths?.includes(path) || scope.pathPattern && new RegExp(scope.pathPattern).test(url.pathname)) return scope.id;
+    }
+    return null;
+  }
+  const isPageUrl = value => Boolean(pageId(value));
+  // PlayitemParse support only; playlist-only URLs must not get the video menu.
+  function isPlayitemUrl(value) {
+    const url = value instanceof URL ? value : urlOf(value);
+    if (!url || !['http:', 'https:'].includes(url.protocol)) return false;
+    const path = url.pathname;
+    if (url.hostname === 'live.bilibili.com') return /^\/\d+\/?$/.test(path);
+    if (url.hostname !== 'www.bilibili.com') return false;
+    return /^\/video\/(?:BV[a-z\d]+|av\d+)\/?$/i.test(path)
+      || /^\/bangumi\/(?:media\/md|play\/(?:ep|ss))\d+\/?$/i.test(path)
+      || /^\/audio\/au\d+\/?$/i.test(path);
+  }
+  const isShortUrl = value => urlOf(value)?.hostname === 'b23.tv';
+  // Playback/playlist support is independent of the pages this script can lay out.
+  // Mirrors the supplied BilibiliPotPlayer parser branches, excluding gettid().
+  // Match real hosts and path boundaries rather than substrings in another URL.
+  function isPlaylistUrl(value) {
+    const url = value instanceof URL ? value : urlOf(value);
+    if (!url || !['http:', 'https:'].includes(url.protocol)) return false;
+    const path = url.pathname;
+    if (['t.bilibili.com','search.bilibili.com','live.bilibili.com'].includes(url.hostname)) return true;
+    if (url.hostname === 'space.bilibili.com') return /^\/\d+(?:\/|$)/.test(path);
+    if (url.hostname === 'link.bilibili.com') return /\/user-center\/follow(?:\/|$)/.test(path + url.hash);
+    if (url.hostname !== 'www.bilibili.com') return false;
+    return path === '/'
+      || /^\/v\/popular\/(?:all|weekly|history|rank)(?:\/|$)/.test(path)
+      || /^\/list\//.test(path)
+      || /^\/(?:watchlater|history)(?:\/|$)/.test(path)
+      || /^\/medialist\/detail\/ml\d+\/?$/i.test(path)
+      || /^\/audio\/am\d+\/?$/i.test(path)
+      || /^\/bangumi\/(?:media\/md|play\/(?:ep|ss))\d+\/?$/i.test(path)
+      || /^\/video\/(?:BV[a-z\d]+|av\d+)\/?$/i.test(path);
+  }
+  const isPlayerUrl = value => isPlayitemUrl(value) || isPlaylistUrl(value);
+  // PotPlayer internally splits the URI's trailing CLI switches even when the
+  // Windows protocol registration passes the whole URI as one quoted argument.
+  function playerCommandUri(value, command, seconds) {
+    const url = urlOf(value);
+    if (!url || !isPlayerUrl(url) || !['current', 'new', 'insert', 'add'].includes(command)) return '';
+    let uri = 'potplayer://' + url.href + (command === 'new' ? ' /new' : ' /current');
+    if (['insert', 'add'].includes(command)) uri += ' /' + command;
+    if (seconds !== undefined) {
+      const ms = Math.round(seconds * 1000);
+      if (!Number.isSafeInteger(ms) || ms < 0) return '';
+      const pad = value => String(value).padStart(2, '0');
+      uri += ` /seek=${pad(Math.floor(ms / 3600000))}:${pad(Math.floor(ms / 60000) % 60)}:${pad(Math.floor(ms / 1000) % 60)}.${String(ms % 1000).padStart(3, '0')}`;
+    }
+    return uri;
+  }
+
+  const mediaMenuCSS = `
+    :host {
+      all: initial; position: fixed; z-index: 2147483647;
+      --menu-bg: #fff; --menu-text: #18191c; --menu-muted: #74787d;
+      --menu-border: #e3e5e7; --menu-hover: #f1f3f5; --menu-shadow: #0002;
+      color-scheme: light;
+    }
+    :host([data-theme="dark"]) {
+      --menu-bg: #242628; --menu-text: #f1f2f3; --menu-muted: #a1a6ac;
+      --menu-border: #45484c; --menu-hover: #363a3e; --menu-shadow: #0007;
+      color-scheme: dark;
+    }
+    [role="menu"] {
+      box-sizing: border-box; display: flex; flex-direction: column;
+      width: max-content; max-width: calc(100vw - 12px);
+      max-height: calc(100vh - 12px); overflow: auto; padding: 4px;
+      border: 1px solid var(--menu-border); border-radius: 7px;
+      background: var(--menu-bg); color: var(--menu-text);
+      box-shadow: 0 4px 16px var(--menu-shadow); font: 12px/1.5 system-ui, sans-serif;
+    }
+    button {
+      all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 8px;
+      min-height: 27px; padding: 4px 7px; border-radius: 4px; cursor: default;
+    }
+    button:hover, button:focus-visible { background: var(--menu-hover); }
+    button:focus-visible { outline: 1px solid #00aeec; outline-offset: -1px; }
+    .icon { display: flex; flex: 0 0 16px; width: 16px; height: 16px; }
+    svg, img { display: block; width: 16px; height: 16px; }
+    .label { min-width: 0; overflow-wrap: anywhere; }
+    .hint { color: var(--menu-muted); font-size: 11px; }
+    [role="separator"] { height: 1px; flex-shrink: 0; margin: 4px 5px; background: var(--menu-border); }
+    .copy-status { padding: 0 7px; color: var(--menu-muted); font-size: 11px; }
+    .copy-status:empty { display: none; }
+    dialog {
+      box-sizing: border-box; width: max-content; max-width: calc(100vw - 24px);
+      max-height: calc(100vh - 24px); overflow: auto; padding: 10px 16px;
+      border: 2px solid var(--menu-border); border-radius: 8px;
+      background: var(--menu-bg); color: var(--menu-text);
+      box-shadow: 0 4px 24px var(--menu-shadow); font: 14px/1.6 system-ui, sans-serif;
+    }
+    dialog::backdrop { background: #0006; }
+    dialog p { margin: 0 0 10px; overflow-wrap: anywhere; }
+    .dialog-actions { display: flex; justify-content: center; gap: 30px; }
+    .dialog-actions button {
+      justify-content: center; width: 90px; min-width: 0; min-height: 28px;
+      border: 2px solid var(--menu-border); cursor: pointer;
+    }
+    @media (pointer: coarse) {
+      .dialog-actions button { min-height: 44px; }
+    }
+  `;
+  // 菜单样式、图标和交互移植自 BroadcastListScript/src/common/media-menu。
+  const icons = {
+    bilibili:`<img src="data:image/x-icon;base64,AAABAAEAICAAAAEAIACoEAAAFgAAACgAAAAgAAAAQAAAAAEAIAAAAAAAABAAABMLAAATCwAAAAAAAAAAAAD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A1qEAANahAADWoQAG1qEAb9ahAMvWoQD01qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD01qEAy9ahAG/WoQAG1qEAANahAADWoQAA1qEAG9ahAM/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahANDWoQAb1qEAANahAAfWoQDQ1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahANHWoQAH1qEAbtahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAG7WoQDH1qEA/9ahAP/WoQD/1qEAtdahABjWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahABvWoQC11qEA/9ahAP/WoQD/1qEAx9ahAPnWoQD/1qEA/9ahAP/WoQAZ1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahABjWoQD/1qEA/9ahAP/WoQDz1qEA/9ahAP/WoQD/1qEA/9ahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEAANahAADWoQAA1qEAANahAErWoQDn1qEA5NahAErWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAErWoQDn1qEA5NahAErWoQAA1qEAANahAADWoQAA1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQAA1qEAANahAADWoQAA1qEA5tahAP/WoQD/1qEA59ahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEA5tahAP/WoQD/1qEA59ahAADWoQAA1qEAANahAADWoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAADWoQAA1qEAANahAADWoQD/1qEA/9ahAP/WoQD/1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQD/1qEA/9ahAP/WoQD/1qEAANahAADWoQAA1qEAANahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEAANahAADWoQAA1qEAANahAP/WoQD/1qEA/9ahAP/WoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAP/WoQD/1qEA/9ahAP/WoQAA1qEAANahAADWoQAA1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQAA1qEAANahAADWoQAA1qEA5tahAP/WoQD/1qEA5tahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEA5tahAP/WoQD/1qEA5tahAADWoQAA1qEAANahAADWoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAADWoQAA1qEAANahAADWoQBJ1qEA5tahAObWoQBJ1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQBJ1qEA5tahAObWoQBJ1qEAANahAADWoQAA1qEAANahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQD/1qEA/9ahAP/WoQD/1qEA+dahAP/WoQD/1qEA/9ahABnWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAGdahAP/WoQD/1qEA/9ahAPjWoQDH1qEA/9ahAP/WoQD/1qEAttahABnWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahABnWoQC21qEA/9ahAP/WoQD/1qEAx9ahAG3WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQBt1qEABtahAM/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA0NahAAfWoQAA1qEAG9ahAM/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAM/WoQAb1qEAANahAADWoQAA1qEABtahAG7WoQDH1qEA89ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA/9ahAP/WoQD/1qEA89ahAMfWoQBu1qEABtahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEADtahAMXWoQD/1qEA/9ahAP/WoQD/1qEAxdahAA/WoQAA1qEAANahAADWoQAA1qEADtahAMXWoQD/1qEA/9ahAP/WoQD/1qEAxdahAA/WoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAAbWoQDF1qEA/9ahAP/WoQD/1qEA/9ahAMXWoQAP1qEAANahAADWoQAA1qEAANahAADWoQAA1qEADtahAMXWoQD/1qEA/9ahAP/WoQD/1qEAxdahAAbWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAYtahAP/WoQD/1qEA/9ahAP/WoQDF1qEADtahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEADtahAMXWoQD/1qEA/9ahAP/WoQD/1qEAY9ahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQBf1qEA/9ahAP/WoQD/1qEAxdahAA7WoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEADtahAMXWoQD/1qEA/9ahAP/WoQBf1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAATWoQCg1qEA6tahAKjWoQAO1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEAANahAADWoQAA1qEADtahAKjWoQDr1qEAoNahAATWoQAA1qEAANahAADWoQAA1qEAAP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A////AP///wD///8A///////////AAAADgAAAAQAAAAAAAAAAA///wAf//+AP///wD///8A////AP///wDw/w8A8P8PAPD/DwDw/w8A8P8PAPD/DwD///8A////AH///gA///wAAAAAAAAAAAgAAAAcAAAAP8A8A/+AfgH/gP8B/4H/gf+D/8H/////8=" width="16" height="16" alt="" />`,
+    player:`<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAGxSURBVDhPjZO7L0RREMZXoxCN/a4gUeiERKJSqxSi4e/RKYWIiIpCJRqliLBIPMcj+7Ae13sJGW+7yy6LYXb3rnNvCF8yOTe5M785c2bGxwSfKSbUMqGbCVtMSDHhlQkHTBhkQpPLOR/gnMVM6GVC5jFkyVPUkvROzp6jlsTDljDhgwmjTChzAfLBUw9BFIJ+M/VhQogJ5SagzwxORiy53UT29AIMyIQDqNNrmw6XK365Ph6QvZkKuVlHtgQvRBMwoVUBPVqz+fMgUCaq5/i+2Evtcrrgl4eQJantbx+9HRMmFRD1ZtibzgEcXcfGZXeuXi5X/ZLc+vZjQloBae/1vADVWyYpsUinnC3XFDp0tQZRwMt/AKpU4lDO15slEXYD7L9KeMs8yUmkS+xApdxuoPAWOmQK6I97HtE2AFr/zmxDrn6jrfoWTAgooJEJ7yYgtuCX5P2G2IttP3ZA7S7Xxg5nkIbNQboPWtmM6uQNVNO2M2GeCUUOoIQJS/8Z5XzwEROqvctUyoQRXRhdHDOzfify4607w4Qq1zKZ0pVlwhATLrRNTFm7YsIYE1pczl/6BGPfkAuxnOXwAAAAAElFTkSuQmCC" width="16" height="16" alt="" />`,
+    playlist:`<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAEHSURBVDhPlZIxL0NhFIZr9CP4CUfSxGCwiNitGkTjN5isFsxmjTdMJCxaI0lnFrU0MYgY25hIex85tJ97P3pz75N823mf8+bkq5iom7g0sWViqlIWE28mGL2miZl4JhcPzgmWL4Kkb2K7cBsPrV3DMIGTDsyflWzjw5stAs99WG+WaBMLHG9z/Jhp0zIxG2e/+U8wptuDWtQmzucKnEECRw9BkphYLCVwrrpB4G+1sKD3ATt3ITg0sf/noJMEty+wdB7CTyYWMsExseD9E3bbma2HJqbjXMAHN0aC9ius/P7IyVvT+HD1FOo3P1/axMDEQe7WNCbuUxfuFNqaxgMmGib2Cm9N8QXQeLETIuHdxQAAAABJRU5ErkJggg==" width="16" height="16" alt="" />`,
+    browser:'<svg viewBox="0 0 20 20" fill="none" stroke="#3199dc" stroke-width="1.4"><circle cx="10" cy="10" r="8"/><ellipse cx="10" cy="10" rx="3.7" ry="8"/><path d="M2 10h16M3.5 5.5h13M3.5 14.5h13"/></svg>',
+  };
+
+  function pageTheme(media) {
+    const navigation = document.getElementById('broadcast-navigation');
+    if (['dark','light'].includes(navigation?.dataset.theme)) return navigation.dataset.theme;
+    const html = document.documentElement;
+    const sheet = document.querySelector('link#__css-map__')?.getAttribute('href') || '';
+    const marker = (html.getAttribute('data-theme') || html.getAttribute('lab-style') || '').toLowerCase();
+    if (sheet.includes('/dark.css')) return 'dark';
+    if (sheet.includes('/light.css')) return 'light';
+    if (html.classList.contains('bili_dark') || marker.includes('dark')) return 'dark';
+    if (marker.includes('light')) return 'light';
+    const scheme = getComputedStyle(html).colorScheme;
+    return ['dark','light'].includes(scheme) ? scheme : media.matches ? 'dark' : 'light';
+  }
+
+  async function copyLink(value) {
+    try {
+      if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(value); return; }
+    } catch { /* Older/permission-limited WebViews can still allow native copy. */ }
+    let focused = document.activeElement;
+    while (focused?.shadowRoot?.activeElement) focused = focused.shadowRoot.activeElement;
+    const selection = getSelection();
+    const ranges = selection ? Array.from({length:selection.rangeCount}, (_, i) => selection.getRangeAt(i).cloneRange()) : [];
+    const input = document.createElement('textarea'); input.value = value; input.readOnly = true;
+    input.style.cssText = 'position:fixed;left:-10000px;top:0;'; document.body.append(input);
+    try { input.select(); if (!document.execCommand('copy')) throw new Error('Copy denied'); }
+    finally {
+      input.remove(); if (focused?.isConnected) focused.focus({preventScroll:true});
+      if (selection) { selection.removeAllRanges(); for (const range of ranges) selection.addRange(range); }
+    }
+  }
+
+  // One delegated listener covers dynamic cards and open shadow roots. The owner
+  // supplies the same link eligibility and playback rules as its normal clicks.
+  function createMediaMenu({getTarget, openPage, play, openNew, openExternal, addNext, addLast, idPrefix = 'bilibili-vod'}) {
+    const events = new AbortController();
+    const media = matchMedia('(prefers-color-scheme: dark)');
+    let host = null, previousFocus = null, menuEvents = null, themeObserver = null, stopped = false;
+    const scrollPositions = new Map();
+    let dialogHost = null, dialogEvents = null, dialogFocus = null;
+    function syncTheme() {
+      if (!host && !dialogHost) return;
+      const theme = pageTheme(media);
+      for (const element of [host, dialogHost]) if (element && element.dataset.theme !== theme) element.dataset.theme = theme;
+    }
+    function watchTheme() {
+      themeObserver?.disconnect();
+      themeObserver = new MutationObserver(syncTheme);
+      themeObserver.observe(document.documentElement, {attributes:true, attributeFilter:['class','style','data-theme','lab-style']});
+      if (document.head) themeObserver.observe(document.head, {childList:true, subtree:true, attributes:true, attributeFilter:['href']});
+      const navigation = document.getElementById('broadcast-navigation');
+      if (navigation) themeObserver.observe(navigation, {attributes:true, attributeFilter:['data-theme']});
+      syncTheme();
+    }
+    function releaseTheme() {
+      if (host || dialogHost) return;
+      themeObserver?.disconnect(); themeObserver = null;
+    }
+    function close(restoreFocus = false) {
+      const focused = host?.shadowRoot?.activeElement;
+      menuEvents?.abort(); menuEvents = null;
+      host?.remove(); host = null;
+      scrollPositions.clear();
+      releaseTheme();
+      if (restoreFocus && focused && previousFocus?.isConnected) previousFocus.focus({preventScroll:true});
+      previousFocus = null;
+    }
+    function closeDialog(restoreFocus = false) {
+      dialogEvents?.abort(); dialogEvents = null;
+      dialogHost?.shadowRoot.querySelector('dialog')?.close();
+      dialogHost?.remove(); dialogHost = null;
+      releaseTheme();
+      if (restoreFocus && dialogFocus?.isConnected) dialogFocus.focus({preventScroll:true});
+      dialogFocus = null;
+    }
+    function confirmExternal(url) {
+      if (stopped || !document.body) return false;
+      // A single modal consumes duplicate site handlers for the same click.
+      if (dialogHost) return true;
+      close(true);
+      dialogFocus = document.activeElement;
+      dialogHost = document.createElement('div'); dialogHost.id = idPrefix + '-external-dialog';
+      const root = dialogHost.attachShadow({mode:'open'});
+      const style = document.createElement('style'); style.textContent = mediaMenuCSS;
+      const dialog = document.createElement('dialog'); dialog.setAttribute('aria-labelledby','external-question');
+      const message = document.createElement('p'); message.id = 'external-question';
+      message.textContent = '不支持此页面，是否从外置浏览器打开？';
+      const actions = document.createElement('div'); actions.className = 'dialog-actions';
+      dialogEvents = new AbortController();
+      for (const [label, accepted] of [['是',true],['否',false]]) {
+        const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
+        button.addEventListener('click', event => {
+          if (!event.isTrusted || event.button !== 0) return;
+          event.preventDefault(); event.stopPropagation(); closeDialog(true);
+          if (accepted) openExternal({url});
+        }, {signal:dialogEvents.signal});
+        actions.append(button);
+      }
+      dialog.addEventListener('cancel', event => {event.preventDefault(); closeDialog(true);}, {signal:dialogEvents.signal});
+      // Prevent page click handlers (including the window.open wrapper) from
+      // interpreting dialog buttons as another navigation request.
+      root.addEventListener('click', event => event.stopPropagation(), {signal:dialogEvents.signal});
+      dialog.append(message,actions); root.append(style,dialog); document.body.append(dialogHost); watchTheme();
+      try { dialog.showModal(); return true; }
+      catch { closeDialog(true); return false; }
+    }
+    function itemsFor(target) {
+      if (target.kind === 'seek') return [
+        {label:'使用当前进程播放(精准空降)', hint:'(鼠标左键)', icon:'player', action:play},
+        {label:'新开一个进程播放', icon:'player', action:openNew},
+        {label:'新开一个进程播放(精准空降)', hint:'(鼠标中键)', icon:'player', action:value => openNew({...value, precise:true})}, null,
+        {label:'从外部浏览器打开', icon:'browser', action:openExternal},
+        {label:'从外部浏览器打开(精准空降)', icon:'browser', action:value => openExternal({...value, url:value.preciseUrl})}, null,
+        {label:'复制链接地址', copy:true},
+        {label:'复制链接地址(精准空降)', copy:true, precise:true},
+      ];
+      if (target.kind === 'native') return [
+        {label:'不支持当前页面，从外置浏览器打开', action:openExternal},
+      ];
+      const external = {label:'从外部浏览器打开', icon:'browser', action:openExternal};
+      const copy = {label:'复制链接地址', copy:true};
+      if (target.kind === 'page') {
+        const items = [
+          {label:'在当前标签页打开该页面', hint:'(鼠标左键)', icon:'bilibili', action:openPage}, external,
+        ];
+        if (target.playlist) items.push(
+          {label:'播放该页面内视频', icon:'player', action:play},
+          {label:'新开一个进程播放该页面内视频', hint:'(鼠标中键)', icon:'player', action:openNew}, null,
+          {label:'将该页面内视频添加到默认播放列表（下一个）', icon:'playlist', action:addNext},
+          {label:'将该页面内视频添加到默认播放列表（末尾）', icon:'playlist', action:addLast},
+        );
+        return [...items, null, copy];
+      }
+      return [
+        {label:'使用当前进程播放', hint:'(鼠标左键)', icon:'player', action:play},
+        {label:'新开一个进程播放', hint:'(鼠标中键)', icon:'player', action:openNew}, external, null,
+        {label:'添加到默认播放列表（下一个）', icon:'playlist', action:addNext},
+        {label:'添加到默认播放列表（末尾）', icon:'playlist', action:addLast}, null, copy,
+      ];
+    }
+    function onContextMenu(event) {
+      if (stopped || !event.isTrusted || event.defaultPrevented || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      close();
+      const target = getTarget(event);
+      if (!target || !document.body || dialogHost) return;
+      event.preventDefault(); event.stopImmediatePropagation();
+      // Only scrolling an ancestor moves the menu's target. Native live banners
+      // also scroll their own overflow-hidden contents during animation; those
+      // unrelated events must not dismiss another card's menu. Snapshot offsets
+      // to ignore scroll-into-view events already queued before contextmenu.
+      const path = event.composedPath();
+      // composedPath also includes ancestors outside an open shadow root.
+      for (const node of new Set([...path.slice(path.indexOf(target.anchor) + 1), document.scrollingElement])) {
+        if (node instanceof Element && node !== target.anchor) scrollPositions.set(node, [node.scrollLeft, node.scrollTop]);
+      }
+      previousFocus = document.activeElement;
+      menuEvents = new AbortController();
+      host = document.createElement('div'); host.id = idPrefix + '-media-menu';
+      const root = host.attachShadow({mode:'open'});
+      const style = document.createElement('style'); style.textContent = mediaMenuCSS;
+      const menu = document.createElement('div'); menu.setAttribute('role','menu'); menu.setAttribute('aria-label','媒体打开方式');
+      const status = document.createElement('div'); status.className = 'copy-status'; status.setAttribute('role','status');
+      function place() {
+        const bounds = host.getBoundingClientRect(), anchorBounds = target.anchor.getBoundingClientRect();
+        const x = event.clientX || anchorBounds.left, y = event.clientY || anchorBounds.bottom;
+        host.style.left = Math.max(6, Math.min(x, innerWidth - bounds.width - 6)) + 'px';
+        host.style.top = Math.max(6, Math.min(y, innerHeight - bounds.height - 6)) + 'px';
+      }
+      const buttons = [];
+      for (const item of itemsFor(target)) {
+        if (!item) { const separator = document.createElement('div'); separator.setAttribute('role','separator'); menu.append(separator); continue; }
+        const button = document.createElement('button'); button.type = 'button'; button.setAttribute('role','menuitem');
+        button.setAttribute('aria-label', item.label + (item.hint || ''));
+        const image = document.createElement('span'); image.className = 'icon'; image.setAttribute('aria-hidden','true'); image.innerHTML = icons[item.icon] || '';
+        const label = document.createElement('span'); label.className = 'label'; label.textContent = item.label;
+        if (item.hint) { const hint = document.createElement('span'); hint.className = 'hint'; hint.textContent = item.hint; label.append(hint); }
+        button.append(image,label);
+        button.addEventListener('click', async event => {
+          if (!event.isTrusted || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+          event.preventDefault(); event.stopPropagation();
+          if (item.copy) {
+            const current = host;
+            try { await copyLink(item.precise ? target.preciseUrl : target.url); if (host === current) close(true); }
+            catch { if (host === current) { status.textContent = '复制失败，请重试'; place(); } }
+          } else { close(true); item.action(target); }
+        }, {signal:menuEvents.signal});
+        menu.append(button); buttons.push(button);
+      }
+      menu.append(status); root.append(style,menu); document.body.append(host); watchTheme();
+      place();
+      root.addEventListener('keydown', event => {
+        if (event.key === 'Escape') {event.preventDefault(); close(true);}
+        else if (event.key === 'Tab') close();
+        else if (['ArrowDown','ArrowUp','Home','End'].includes(event.key)) {
+          event.preventDefault();
+          const index = buttons.indexOf(root.activeElement);
+          buttons[event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length].focus();
+        }
+      }, {signal:menuEvents.signal});
+      buttons[0].focus({preventScroll:true});
+    }
+    window.addEventListener('contextmenu', onContextMenu, {capture:true, signal:events.signal});
+    document.addEventListener('pointerdown', event => {if (host && !event.composedPath().includes(host)) close();}, {capture:true, signal:events.signal});
+    document.addEventListener('scroll', event => {
+      if (!host || event.composedPath().includes(host)) return;
+      const node = event.target === document ? document.scrollingElement : event.target;
+      const position = scrollPositions.get(node);
+      if (!position || node.scrollLeft === position[0] && node.scrollTop === position[1]) return;
+      close();
+    }, {capture:true, signal:events.signal});
+    window.addEventListener('resize', () => close(), {signal:events.signal});
+    window.addEventListener('blur', () => close(), {signal:events.signal});
+    media.addEventListener('change', syncTheme, {signal:events.signal});
+    return {confirmExternal, close() {close(); closeDialog();}, destroy() {if (stopped) return; stopped = true; events.abort(); close(); closeDialog();}};
+  }
+  // MEDIA_MENU_END
+
+  function createAnchorNavigation() {
+    const events = new AbortController();
+    const webview = window.chrome?.webview;
+    const originalOpen = window.open;
+    const modified = event => event.ctrlKey || event.metaKey || event.shiftKey || event.altKey;
+    function target(event) {
+      const button = event.target instanceof Element ? event.target.closest('.anchor-info-card .anchor-btn') : null;
+      if (!button?.closest('#interactive-play-vm')) return null;
+      const label = button.textContent.replace(/\s/g, '').toLowerCase();
+      if (!['去ta直播间', '去ta空间'].includes(label)) return null;
+      const card = button.closest('.anchor-info-card');
+      // 官方按钮没有 href；读取当前卡片的 props，避免模拟点击或请求关注接口。
+      const info = card.__vue__?.anchorCardInfo || card.__vue__?.$props?.anchorCardInfo
+        || card.__vueParentComponent?.props?.anchorCardInfo;
+      const room = label === '去ta直播间';
+      const id = String((room ? info?.room_id : info?.uid) ?? '');
+      let url = /^\d+$/.test(id) && /[1-9]/.test(id)
+        ? `https://${room ? 'live' : 'space'}.bilibili.com/${id}${room ? '' : '/'}` : null;
+      if (!url) {
+        const link = button.matches('a[href]') ? button : button.querySelector('a[href]');
+        const parsed = urlOf(link?.href);
+        if (parsed?.hostname === `${room ? 'live' : 'space'}.bilibili.com` && /^\/\d+\/?$/.test(parsed.pathname)) url = parsed.href;
+      }
+      return url ? {anchor:button, url, kind:room ? 'media' : 'page', playlist:!room} : null;
+    }
+    function command({url}, action) {
+      const uri = playerCommandUri(url, action);
+      if (uri) Reflect.apply(originalOpen, window, [uri, '_blank']);
+    }
+    function play(value) {
+      if (typeof webview?.postMessage === 'function') webview.postMessage({type:'potPlayer.video-click', url:value.url});
+      else command(value, 'current');
+    }
+    const menu = createMediaMenu({
+      getTarget:target, idPrefix:'bilibili-live', play,
+      openPage:({url}) => location.assign(url),
+      openNew:value => command(value, 'new'),
+      addNext:value => command(value, 'insert'), addLast:value => command(value, 'add'),
+      openExternal:({url}) => Reflect.apply(originalOpen, window, [url, '_blank', 'noopener']),
+    });
+    window.addEventListener('mousedown', event => {
+      if (event.isTrusted && event.button === 1 && !modified(event) && target(event)) {
+        event.preventDefault(); event.stopImmediatePropagation();
+      }
+    }, {capture:true, passive:false, signal:events.signal});
+    function click(event) {
+      if (!event.isTrusted || event.defaultPrevented || modified(event)
+        || !(event.type === 'click' && event.button === 0 || event.type === 'auxclick' && event.button === 1)) return;
+      const value = target(event);
+      if (!value) return;
+      event.preventDefault(); event.stopImmediatePropagation(); menu.close();
+      if (event.button === 1) command(value, 'new');
+      else if (value.kind === 'media') play(value);
+      else location.assign(value.url);
+    }
+    for (const type of ['click', 'auxclick']) window.addEventListener(type, click, {capture:true, passive:false, signal:events.signal});
+    return {destroy() { events.abort(); menu.destroy(); }};
+  }
+  const anchorNavigation = createAnchorNavigation();
+
   function createPkPlayback() {
     // 判断组件是否挂载，不看可被用户收起的彩色条；惩罚阶段也保持播放。
     const pkModules = [
@@ -97,7 +507,7 @@
       '#universal-pk-vm .universal-pk-relay-pk', '#universal-pk-vm .universal-pk-chat-room-six-vs-six-pk',
       '#awesome-pk-vm.awesome-pk-box-show', '#pk-vm .pk-progress-bar',
     ].join(',');
-    const attempts = new WeakMap();
+    const attempts = new WeakMap(), mutedVideos = new Map();
     let state = 'idle', settlingAt = 0, stopped = false;
 
     function documents(doc = document, result = []) {
@@ -115,6 +525,11 @@
     }
     function update() {
       if (stopped) return;
+      if (!narrowLayout.matches) {
+        for (const [video, muted] of mutedVideos) video.muted = muted;
+        mutedVideos.clear(); state = 'idle';
+        return;
+      }
       const docs = documents(), now = Date.now();
       const cards = docs.flatMap(doc => [...doc.querySelectorAll('.anchor-overlay-card')]);
       const active = docs.some(doc => doc.querySelector(pkModules)) ||
@@ -147,6 +562,7 @@
           if (state === 'idle') {
             pause(video, player);
           } else {
+            if (!mutedVideos.has(video)) mutedVideos.set(video, video.muted);
             video.muted = true;
             const attempt = attempts.get(video);
             if (!video.paused || attempt?.pending || (attempt && now - attempt.at < 2000)) continue;
@@ -154,7 +570,7 @@
             attempts.set(video, next);
             try { Promise.resolve(player?.play()).catch(() => {}); } catch {}
             video.play().then(() => {
-              if (!stopped && state === 'idle') pause(video, player);
+              if (!stopped && narrowLayout.matches && state === 'idle') pause(video, player);
             }).catch(() => {}).finally(() => { next.pending = false; });
           }
         }
@@ -164,20 +580,26 @@
     update();
     return {
       get state() { return state; },
+      refresh: update,
       destroy() {
         stopped = true; clearInterval(timer);
+        for (const [video, muted] of mutedVideos) video.muted = muted;
+        mutedVideos.clear();
       },
     };
   }
   const playback = createPkPlayback();
 
+  // 原生 PK 贡献榜直接挂在播放器下，不在业务注入层中。
+  const pkRankFrame = '#live-player > iframe[src*="app_name=ranks_pro"]';
   // 页面升级时，只需在这里补充新的弹出层根选择器。
   const popups = [
+    pkRankFrame,
     '.common-popup-wrap', '.gift-sender-panel', '.gift-panel-box',
     '.danmaku-menu', '.fansmedal-popover-wrap', '.blive-tooltip', '.anchor-info-card',
     '#head-info-vm .more-panel', '#head-info-vm .room-manage-panel',
     '#head-info-vm .head-share-qr-popover', '#game-id',
-    '.side-bar-cntr:has(> .side-bar-toggle)', '#sidebar-vm .side-bar-popup-cntr',
+    '#sidebar-vm .side-bar-popup-cntr',
     '.recharge-store-box > .cntr',
     '[role="dialog"]', '[role="tooltip"]',
   ].join(',');
@@ -186,6 +608,7 @@
   const style = document.createElement('style');
   style.id = 'bilibili-live-chat-style';
   style.textContent = `
+    @media (width < 1000px) {
     html[data-bilibili-live-chat] {
       min-width: 0 !important; height: 100% !important; overflow: hidden !important;
       & body {
@@ -208,26 +631,28 @@
         pointer-events: none !important; overflow: visible !important; z-index: 1000 !important;
       }
       & #sidebar-vm .side-bar-popup-cntr { pointer-events: auto; }
-      & .side-bar-cntr:has(> .side-bar-toggle) {
-        display: block !important; position: fixed !important;
-        top: 50dvh !important;
-        left: auto !important; right: 8px !important; bottom: auto !important;
-        box-sizing: content-box !important;
-        transform: translateY(-50%) !important;
-        /* 原生背景、边框、圆角、阴影和高度过渡继续由官方样式控制。 */
+      & .side-bar-cntr[data-blc-sidebar-panel] {
+        display: block !important; position: fixed !important; top: 50dvh !important;
+        left: auto !important; right: 0 !important; bottom: auto !important;
+        box-sizing: content-box !important; transform: translateY(-50%) !important;
+        clip-path: inset(-100vmax 0 -100vmax -100vmax);
+        /* 关闭原生高度过渡；仅在点击时临时播放横向揭示动画。 */
+        transition: none !important;
         pointer-events: auto !important;
-        & > .side-bar-toggle {
-          position: absolute; right: 100%; top: 50%; transform: translateY(-50%);
-          width: 16px; height: 40px; padding: 0; box-sizing: border-box;
-          border: 1px solid var(--Ga2); border-right: 0; border-radius: 6px 0 0 6px;
-          background: var(--bg1_float); color: var(--text2); font: bold 20px/38px sans-serif;
-          box-shadow: 0 1px 4px #0006; cursor: pointer; user-select: none;
-        }
         &.collapsed {
           width: 0 !important; height: 40px !important; padding: 0 !important;
-          border: 0 !important; background: transparent !important;
-          & > :not(.side-bar-toggle) { display: none !important; }
+          border: 0 !important; background: transparent !important; box-shadow: none !important;
+          & > * { display: none !important; }
         }
+      }
+      & .blc-sidebar-toggle {
+        position: fixed; right: 0; top: 50dvh; transform: translateY(-50%);
+        clip-path: inset(-100vmax 0 -100vmax -100vmax);
+        width: 16px; height: 40px; padding: 0; box-sizing: border-box; margin: 0;
+        border: 1px solid var(--Ga2); border-right: 0; border-radius: 6px 0 0 6px;
+        background: var(--bg1_float); color: var(--text2); font: bold 20px/38px sans-serif;
+        box-shadow: 0 1px 4px #0006; cursor: pointer; user-select: none;
+        pointer-events: auto; z-index: 1001;
       }
 
       & .player-and-aside-area {
@@ -329,8 +754,13 @@
         display: flex !important; flex-direction: column !important;
         width: 100% !important; height: auto !important;
         min-width: 0 !important; min-height: 0 !important;
-        margin: 0 !important; overflow: visible !important; z-index: 10 !important;
+        margin: 0 !important; overflow: visible !important; z-index: auto !important;
       }
+      /* 释放特效的父层限制；其他聊天模块仍在播放器业务层（20）下方。 */
+      & #aside-area-vm > :not(#gift-screen-animation-vm) { z-index: 10 !important; }
+      & #aside-area-vm > .chat-history-panel { z-index: 9 !important; }
+      & #aside-area-vm > #chat-control-panel-vm { z-index: 11 !important; }
+      & #aside-area-vm > #rank-list-vm { z-index: 12 !important; }
       & #rank-list-vm, & #chat-control-panel-vm { flex-shrink: 0 !important; }
       /* 只调整名字最大宽度；保留原生条目排列、头像位置与对齐方式。 */
       & #rank-list-vm .top3-name {
@@ -348,15 +778,23 @@
       }
       & #chat-history-list { overflow: auto !important; overscroll-behavior: contain; }
       & #chat-items { overflow-wrap: anywhere; }
-      & #gift-screen-animation-vm { overflow: visible !important; pointer-events: none; }
-      /* 只让打开的操作区弹窗进入顶层，保留其 DOM、事件及其他区域层级。 */
-      & #chat-control-panel-vm [data-blc-top-popup] {
+      & #gift-screen-animation-vm {
+        overflow: visible !important; pointer-events: none !important; z-index: 25 !important;
+      }
+      /* 只让打开的操作区弹窗和 PK 榜进入顶层，保留原生 DOM 与事件。 */
+      & [data-blc-top-popup] {
         position: fixed !important; margin: 0 !important;
         inset: var(--blc-popup-top) auto auto var(--blc-popup-left) !important;
         width: var(--blc-popup-width) !important; color: inherit;
       }
       & #chat-control-panel-vm .like-btn[data-blc-top-popup] { border: 0; padding: 0; background-color: transparent; }
       & [data-blc-top-popup]::backdrop { background: transparent; pointer-events: none; }
+      & ${pkRankFrame} {
+        pointer-events: auto !important;
+        position: fixed !important; inset: 50% auto auto 50% !important; margin: 0 !important;
+        width: min(400px, calc(100vw - 16px)) !important;
+        height: min(375px, calc(100dvh - 16px)) !important;
+      }
 
       /* 视频画面与业务层是兄弟节点：保留业务注入层和官方动画遮罩。 */
       & .player-section {
@@ -366,7 +804,7 @@
         background: transparent !important; overflow: visible !important;
         pointer-events: none !important; z-index: 20 !important;
       }
-      & #live-player > :not(.web-player-inject-wrap):not(#animation-mask-wrapper) { display: none !important; }
+      & #live-player > :not(.web-player-inject-wrap):not(#animation-mask-wrapper):not(iframe[src*="app_name=ranks_pro"]) { display: none !important; }
       & #live-player, & #live-player-ctnr, & .web-player-inject-wrap,
       & #businessContainerElement, & #player-effect-vm {
         width: 100% !important; height: 100% !important;
@@ -383,6 +821,15 @@
         transform: translate(-50%, -50%) scale(var(--blc-pk-scale, 1)) !important;
       }
       /* 原生资料卡事件绑在整个连麦画面；仅名字区域接收并冒泡原点击。 */
+      & #interactive-play-vm {
+        top: var(--blc-grid-area-top, 0px) !important;
+        height: var(--blc-grid-area-height, 100%) !important;
+        bottom: auto !important;
+      }
+      & #interactive-play-vm > .grid-template[data-blc-grid] { top: 0 !important; height: 100% !important; }
+      & #interactive-play-vm [data-blc-grid-cell] {
+        top: var(--blc-grid-top) !important; height: var(--blc-grid-height) !important;
+      }
       & #interactive-play-vm :is(.grid-template, .grid-item, .grid-item-cell) { pointer-events: none !important; }
       & #interactive-play-vm :is(.anchor-nickname, .anchor-voice, .pk-number, .anchor-info-card, .relay-capsulev2) {
         pointer-events: auto !important;
@@ -516,42 +963,108 @@
         }
       }
     }
+    }
   `;
   document.head.append(style);
-  document.documentElement.setAttribute('data-bilibili-live-chat', '');
 
   const root = document.documentElement;
-  const dimensions = ['--blc-head-height', '--blc-gift-height', '--blc-pk-scale'];
+  const dimensions = ['--blc-head-height', '--blc-gift-height', '--blc-pk-scale', '--blc-grid-area-top', '--blc-grid-area-height'];
   const oldDimensions = dimensions.map(name => [root.style.getPropertyValue(name), root.style.getPropertyPriority(name)]);
+  let narrow = false;
   let measured = [];
   const MEASURE = 1, SIDEBARS = 2, POPUPS = 4, DISCOVER = 8, ALL = 15;
   let dirty = ALL, stopped = false;
   let popupCandidates = new Set();
   const sizes = new ResizeObserver(() => schedule(MEASURE | POPUPS));
+  const gridSelector = '#interactive-play-vm > .grid-template';
+  const gridCells = new Map(), grids = new Set();
+  function restoreGridCell(el, saved) {
+    ['--blc-grid-top', '--blc-grid-height'].forEach((name, i) => {
+      if (saved[i][0]) el.style.setProperty(name, ...saved[i]);
+      else el.style.removeProperty(name);
+    });
+    el.removeAttribute('data-blc-grid-cell');
+  }
+  function syncInteractiveGrid() {
+    const active = new Set(), activeGrids = new Set();
+    for (const grid of document.querySelectorAll(gridSelector)) {
+      const nativeHeight = /^\d*\.?\d+px$/.test(grid.style.height) ? parseFloat(grid.style.height) : 0;
+      if (!nativeHeight) continue;
+      activeGrids.add(grid); grids.add(grid);
+      if (!grid.hasAttribute('data-blc-grid')) grid.setAttribute('data-blc-grid', '');
+      for (const el of grid.children) {
+        if (!el.matches('.grid-item') || !/^\d*\.?\d+px$/.test(el.style.height) || !/^-?\d*\.?\d+px$/.test(el.style.top)) continue;
+        active.add(el);
+        const names = ['--blc-grid-top', '--blc-grid-height'];
+        if (!gridCells.has(el)) gridCells.set(el, names.map(name => [el.style.getPropertyValue(name), el.style.getPropertyPriority(name)]));
+        [el.style.top, el.style.height].forEach((value, i) => {
+          const percent = `${parseFloat(value) / nativeHeight * 100}%`;
+          if (el.style.getPropertyValue(names[i]) !== percent) el.style.setProperty(names[i], percent);
+        });
+        if (!el.hasAttribute('data-blc-grid-cell')) el.setAttribute('data-blc-grid-cell', '');
+      }
+    }
+    for (const grid of grids) if (!activeGrids.has(grid)) { grid.removeAttribute('data-blc-grid'); grids.delete(grid); }
+    for (const [el, saved] of gridCells) if (!active.has(el)) { restoreGridCell(el, saved); gridCells.delete(el); }
+  }
   const sidebars = new Map();
   function syncSidebars() {
     for (const [el, state] of sidebars) {
       if (!el.isConnected || !el.matches('.side-bar-cntr')) {
         state.destroy(); sidebars.delete(el);
-      } else if (state.handle.parentElement !== el) el.append(state.handle);
+      } else if (state.handle.previousElementSibling !== el) el.after(state.handle);
     }
     for (const el of document.querySelectorAll('.side-bar-cntr')) {
       if (sidebars.has(el)) continue;
       const collapsed = el.classList.contains('collapsed');
+      const oldRight = [el.style.getPropertyValue('right'), el.style.getPropertyPriority('right')];
       const handle = document.createElement('button');
-      handle.type = 'button'; handle.className = 'side-bar-toggle';
+      handle.type = 'button'; handle.className = 'side-bar-toggle blc-sidebar-toggle';
       handle.title = '点击展开或收起';
-      function toggle() {
-        const open = !el.classList.toggle('collapsed');
+      el.after(handle); el.setAttribute('data-blc-sidebar-panel', '');
+      let open = false, animations = [];
+      function layout() {
+        const list = document.getElementById('chat-history-list');
+        // clientWidth 已排除滚动条；直接贴齐实际内容区，不再叠加最小宽度或留白。
+        const contentRight = list?.getClientRects().length
+          ? list.getBoundingClientRect().left + list.clientLeft + list.clientWidth : root.clientWidth;
+        const inset = Math.max(0, root.clientWidth - contentRight);
+        const right = `${inset}px`, handleRight = `${inset + (open ? el.getBoundingClientRect().width : 0)}px`;
+        if (el.style.right !== right) el.style.setProperty('right', right, 'important');
+        if (handle.style.right !== handleRight) handle.style.right = handleRight;
+      }
+      function label() {
         handle.textContent = open ? '<' : '>';
         handle.setAttribute('aria-label', open ? '收起侧栏' : '展开侧栏');
-        schedule();
+        handle.setAttribute('aria-expanded', String(open));
+      }
+      function toggle() {
+        const closedClip = 'inset(-8px 0 -8px 100%)', openClip = 'inset(-8px 0 -8px -8px)';
+        const fromPanel = el.classList.contains('collapsed') ? closedClip : getComputedStyle(el).clipPath;
+        const fromHandle = getComputedStyle(handle).right;
+        animations.forEach(animation => animation.cancel()); animations = [];
+        open = !open; el.classList.remove('collapsed');
+        layout(); label();
+        if (!el.animate || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          el.classList.toggle('collapsed', !open); return;
+        }
+        const options = {duration: 180, easing: 'ease-out'};
+        const panelAnimation = el.animate([{clipPath: fromPanel === 'none' ? openClip : fromPanel},
+          {clipPath: open ? openClip : closedClip}], options);
+        const handleAnimation = handle.animate([{right: fromHandle}, {right: handle.style.right}], options);
+        animations = [panelAnimation, handleAnimation];
+        panelAnimation.onfinish = () => { el.classList.toggle('collapsed', !open); animations = []; };
       }
       handle.onclick = toggle;
-      sidebars.set(el, { handle, destroy() {
-        handle.remove(); el.classList.toggle('collapsed', collapsed);
+      sidebars.set(el, { handle, layout, destroy() {
+        animations.forEach(animation => animation.cancel());
+        sizes.unobserve(el);
+        handle.remove();
+        if (oldRight[0]) el.style.setProperty('right', ...oldRight);
+        else el.style.removeProperty('right');
+        el.removeAttribute('data-blc-sidebar-panel'); el.classList.toggle('collapsed', collapsed);
       } });
-      el.classList.remove('collapsed'); el.append(handle); toggle();
+      el.classList.add('collapsed'); sizes.observe(el); layout(); label();
     }
   }
   function measure() {
@@ -573,7 +1086,24 @@
     });
     const scale = String(Math.max(0, Math.min(1, root.clientWidth / 700, availableHeight / 410)));
     if (root.style.getPropertyValue(dimensions[2]) !== scale) updates.push([dimensions[2], scale]);
+    const history = document.querySelector('#aside-area-vm .chat-history-panel');
+    const player = document.getElementById('businessContainerElement');
+    [history, player, document.getElementById('chat-history-list')].forEach((el, i) => {
+      if (measured[i + 2] !== el) {
+        if (measured[i + 2]) sizes.unobserve(measured[i + 2]);
+        if (el) sizes.observe(el);
+        measured[i + 2] = el;
+      }
+    });
+    const chatBox = history?.getBoundingClientRect(), playerBox = player?.getBoundingClientRect();
+    const area = chatBox && playerBox && chatBox.height > 0
+      ? [`${chatBox.top - playerBox.top}px`, `${chatBox.height}px`] : ['', ''];
+    area.forEach((value, i) => {
+      if (root.style.getPropertyValue(dimensions[i + 3]) !== value) updates.push([dimensions[i + 3], value]);
+    });
     for (const [name, value] of updates) root.style.setProperty(name, value);
+    syncInteractiveGrid();
+    for (const state of sidebars.values()) state.layout();
   }
   const translateParts = value => value === 'none' ? ['0px', '0px'] : value.match(/calc\([^)]*\)|\S+/g);
   function pixels(value = '0px', size) {
@@ -588,7 +1118,7 @@
   // 只修正越界距离，保留原生 transform（定位、过渡、动画）。
   const shifted = new Map();
   const raised = new Map();
-  const controlPopups = '#chat-control-panel-vm :is(.common-popup-wrap.emoticons,.common-popup-wrap.superChat,.like-btn .common-popup-wrap,.like-btn.not-clicked:hover)';
+  const topPopups = `${pkRankFrame},#chat-control-panel-vm :is(.common-popup-wrap.emoticons,.common-popup-wrap.superChat,.like-btn .common-popup-wrap,.like-btn.not-clicked:hover)`;
   function lowerPopup(el, saved) {
     try { el.hidePopover(); } catch {}
     el.removeAttribute('popover'); el.removeAttribute('data-blc-top-popup');
@@ -599,8 +1129,8 @@
     saved.placeholder?.remove();
     raised.delete(el);
   }
-  function syncControlPopups() {
-    const visible = new Set([...document.querySelectorAll(controlPopups)].filter(el =>
+  function syncTopPopups() {
+    const visible = new Set([...document.querySelectorAll(topPopups)].filter(el =>
       el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden'));
     for (const [el, saved] of raised) if (!visible.has(el)) lowerPopup(el, saved);
     for (const el of visible) {
@@ -649,12 +1179,19 @@
   function fitPopups() {
     frame = 0;
     if (stopped) return;
+    if (narrow !== narrowLayout.matches) {
+      narrow = narrowLayout.matches;
+      playback.refresh();
+      if (narrow) { root.setAttribute('data-bilibili-live-chat', ''); dirty = ALL; }
+      else { root.removeAttribute('data-bilibili-live-chat'); clearLayout(); }
+    }
+    if (!narrow) { dirty = 0; return; }
     const work = dirty; dirty = 0;
     if (work & SIDEBARS) syncSidebars();
     if (work & MEASURE) measure();
     if (!(work & POPUPS)) return;
     if (work & DISCOVER) popupCandidates = new Set(document.querySelectorAll(popups));
-    syncControlPopups();
+    syncTopPopups();
     const updates = [];
     for (const [el, saved] of shifted) {
       if (!el.isConnected || !el.matches(popups)) {
@@ -665,12 +1202,7 @@
     for (const el of popupCandidates) {
       if (!el.isConnected || !el.matches(popups)) { popupCandidates.delete(el); continue; }
       if (el.parentElement?.closest(popups)) continue;
-      const box = el.getBoundingClientRect(), handle = sidebars.get(el)?.handle.getBoundingClientRect();
-      // 侧栏把手在主体左侧；收起后宽度为零，仍按可见把手修正边界。
-      const rect = handle ? {
-        left: handle.left, top: Math.min(box.top, handle.top),
-        width: Math.max(box.right, handle.right) - handle.left, height: Math.max(box.height, handle.height),
-      } : box;
+      const box = el.getBoundingClientRect(), rect = box;
       if (!rect.width || !rect.height || getComputedStyle(el).visibility === 'hidden') continue;
       const saved = shifted.get(el) || {
         value: el.style.getPropertyValue('translate'),
@@ -701,13 +1233,32 @@
     if (saved.value) el.style.setProperty('translate', saved.value, saved.priority);
     else el.style.removeProperty('translate');
   }
+  function clearLayout() {
+    sizes.disconnect(); measured = [];
+    for (const grid of grids) grid.removeAttribute('data-blc-grid');
+    for (const [el, saved] of gridCells) restoreGridCell(el, saved);
+    grids.clear(); gridCells.clear();
+    for (const [el, saved] of raised) lowerPopup(el, saved);
+    for (const [el, saved] of shifted) restoreTranslate(el, saved);
+    for (const state of sidebars.values()) state.destroy();
+    sidebars.clear(); popupCandidates.clear(); shifted.clear(); raised.clear();
+    dimensions.forEach((name, i) => {
+      if (oldDimensions[i][0]) root.style.setProperty(name, ...oldDimensions[i]);
+      else root.style.removeProperty(name);
+    });
+  }
   const animationLayers = '#businessContainerElement .pk-animation-box,#player-effect-vm,#gift-screen-animation-vm,#animation-mask-wrapper';
-  const layoutRoots = '#head-info-vm,#gift-control-vm,.side-bar-cntr';
+  const layoutRoots = `#head-info-vm,#gift-control-vm,.side-bar-cntr,#aside-area-vm,.chat-history-panel,#chat-history-list,#businessContainerElement,#interactive-play-vm,${gridSelector}`;
   const relevantNodes = `${layoutRoots},${popups}`;
   const observer = new MutationObserver(records => {
+    if (!narrowLayout.matches) return;
     let work = 0;
     for (const {type, target, addedNodes, removedNodes} of records) {
       if (target.closest?.('#head-info-vm,#gift-control-vm')) work |= MEASURE | POPUPS;
+      if (target.matches?.(`${gridSelector},${gridSelector} > .grid-item`)
+        || type === 'childList' && target.matches?.('#aside-area-vm,#interactive-play-vm')) work |= MEASURE | POPUPS;
+      // 贡献榜移除后不再匹配带父级的选择器，仍需释放顶层状态。
+      if (type === 'childList' && target.matches?.('#live-player')) work |= DISCOVER | POPUPS;
       if (target.closest?.('.side-bar-cntr')) work |= SIDEBARS | POPUPS;
       if (target.closest?.(popups) || target.closest?.('#chat-control-panel-vm')) work |= POPUPS;
       if (target.matches?.(popups) && !popupCandidates.has(target)) work |= DISCOVER | POPUPS;
@@ -724,9 +1275,10 @@
   });
   observer.observe(document.body, {
     childList: true, subtree: true, attributes: true,
-    attributeFilter: ['style', 'class', 'hidden'],
+    attributeFilter: ['style', 'class', 'hidden', 'src'],
   });
   window.addEventListener('resize', schedule);
+  narrowLayout.addEventListener('change', schedule);
   const schedulePopups = () => schedule(POPUPS);
   const onPopupPointer = event => {
     if (event.target.closest?.(`${popups},#chat-control-panel-vm,#head-info-vm,#gift-control-vm`)) schedule(POPUPS);
@@ -735,33 +1287,24 @@
   document.addEventListener('pointerover', onPopupPointer, true);
   document.addEventListener('pointerout', onPopupPointer, true);
   document.addEventListener('focusin', onPopupPointer, true);
-  syncSidebars();
-  measure();
-  schedule();
+  fitPopups();
   window.bilibiliLiveChat = {
     get videoState() { return playback.state; },
     destroy() {
       if (stopped) return;
       stopped = true;
       avatarNavigation.destroy();
+      anchorNavigation.destroy();
       playback.destroy();
       observer.disconnect();
-      sizes.disconnect();
+      clearLayout();
       cancelAnimationFrame(frame);
       window.removeEventListener('resize', schedule);
+      narrowLayout.removeEventListener('change', schedule);
       window.removeEventListener('scroll', schedulePopups, true);
       document.removeEventListener('pointerover', onPopupPointer, true);
       document.removeEventListener('pointerout', onPopupPointer, true);
       document.removeEventListener('focusin', onPopupPointer, true);
-      for (const [el, saved] of raised) lowerPopup(el, saved);
-      for (const [el, saved] of shifted) restoreTranslate(el, saved);
-      for (const state of sidebars.values()) state.destroy();
-      sidebars.clear();
-      popupCandidates.clear(); shifted.clear(); raised.clear();
-      dimensions.forEach((name, i) => {
-        if (oldDimensions[i][0]) root.style.setProperty(name, ...oldDimensions[i]);
-        else root.style.removeProperty(name);
-      });
       style.remove();
       document.documentElement.removeAttribute('data-bilibili-live-chat');
       delete window.bilibiliLiveChat;

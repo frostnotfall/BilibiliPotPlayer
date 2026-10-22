@@ -2,16 +2,14 @@
 
 适用于 PotPlayer 的 Bilibili 插件，可直接解析并播放 Bilibili 视频、番剧、影视、直播等内容。既可直接打开链接，也可通过 `直播/VOD` 窗口浏览窄布局网页并点击播放。
 
-> **使用提示：请搭配最新 PotPlayer 64 位测试版 26.10.19 使用。** [点击下载测试版](https://t1.kakaocdn.net/potplayer/beta/PotPlayerSetup64.exe)。
-
-配合 [BilibiliPotPlayer-改](https://greasyfork.org/zh-CN/scripts/593353-bilibilipotplayer-%E6%94%B9) 油猴脚本，可直接从 Bilibili 网页调用 PotPlayer 播放，并支持精准空降等功能。
-
 > 本项目基于 [chen310/BilibiliPotPlayer](https://github.com/chen310/BilibiliPotPlayer) 及其上游版本 [juening2000/BilibiliPotPlayer](https://github.com/juening2000/BilibiliPotPlayer) 进行维护，并针对个人使用需求持续进行功能改进、Bug 修复和测试。
 >
 > 如果上游项目恢复持续更新，本项目将优先向上游提交相关改进，并根据上游项目的维护情况决定是否继续维护本项目。
 >
 > 本项目是个人用于搭配 [vs-mlrt](https://github.com/AmusementClub/vs-mlrt) 的学习与测试维护的项目，但与 [vs-mlrt](https://github.com/AmusementClub/vs-mlrt) 无关。
 
+## PotPlayer 版本需求
+请搭配最新 PotPlayer(26.10.21 64位)使用。
 
 ## ✨ 主要改进
 
@@ -29,27 +27,21 @@
 
 **_注意：由于登录机制的改变，从上游项目迁移过来的同学， 旧的 Cookie、Header、Referer 一定要删除。参考 [wiki](https://github.com/frostnotfall/BilibiliPotPlayer/wiki/常见问题与故障排查#1-播放视频时一直转圈右下角画质选项不断跳动)。_**
 
-**_提示：搭配上述 PotPlayer 测试版使用，支持 Cookie 自动同步与保存。登录失效时可在网页登录窗口重新登录。_**
-
 ### 侧边栏网页浏览
 
 适配 Potplayer BroadcastListScript，支持通过 `直播/VOD` 窗口浏览 Bilibili 网页。
 - 支持常用页面(增加窄布局效果)浏览。
 - 点击直播或点播内容使用 Potplayer 打开。
+- 右键菜单支持。
+- 顶部导航栏。
 
 > 通过子项目 [BilibiliBroadcastListScript](https://github.com/frostnotfall/BilibiliBroadcastListScript) 生成 Potplayer 所需的 BroadcastListScript。
 
-## 其它改进
-
 ### 可视化配置工具
 
-双击 `Extension/Media/PlayParse/Bilibili_Config_Editor.exe`，即可用中文界面编辑同目录的
-`Bilibili_Config.json`，支持弹幕样式预览和本地屏蔽规则管理。
+双击 `Extension/Media/PlayParse/Bilibili_Config_Editor.exe`，即可用中文界面编辑同目录的`Bilibili_Config.json`。
 
-工具为 Windows 10/11 x64 原生单文件程序，约 360 KiB，无需安装额外运行库。
-支持系统字体与字号下拉选择、三类屏蔽规则多行编辑、全部或分页初始化配置。
-点击“应用”或“确定”保存后，重新加载插件或重启 PotPlayer 使设置生效。
-构建方式和详细说明见 [配置工具说明](Native/BilibiliConfig/README.md)。
+## 其它改进
 
 ### 🔧 整体优化
 

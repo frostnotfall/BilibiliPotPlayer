@@ -1,4 +1,4 @@
-// @version      1.0.53
+// @version      1.0.55
 
 (() => {
   'use strict';
@@ -26,6 +26,9 @@
   };
   if (!pageType()) return;
   let previousShortcuts = window.bilibiliVideoComments?.destroy() || {};
+  // 与直播使用同一分界；原站布局是默认值，窄窗口才安装评论布局。
+  const narrowLayout = matchMedia('(width < 1000px)');
+  const layoutType = () => narrowLayout.matches ? pageType() : '';
 
   // AVATAR_NAVIGATION_START
   // 页面导航由页面脚本负责；BroadcastListScript 只接收通用 ignoreUrl 规则。
@@ -111,56 +114,71 @@
     return style;
   }
 
-  function waitForInitialPlayer() {
-    const events = new AbortController(), docs = new Set();
-    let videoDone = false, switchDone = false, ended = false, pending = 0;
-    const changes = new MutationObserver(scheduleInitial);
-    const route = location.href;
-    const timeout = setTimeout(stop, 10000);
-    function stop() {
-      ended = true; clearTimeout(timeout); cancelAnimationFrame(pending);
-      changes.disconnect(); events.abort(); docs.clear();
+  function preventWebPlayback() {
+    const docs = new Map(), switches = new WeakSet();
+    const autoSwitch = 'input.bui-switch-input[aria-label*="自动开播"]';
+    const selector = 'video, audio, iframe, ' + autoSwitch;
+    let ended = false;
+    // 评论 WebView 只负责页面交互；媒体播放由 PotPlayer 承担。
+    // 直接在捕获阶段暂停，不依赖后台 WebView 可能挂起的 requestAnimationFrame。
+    function pause(media) {
+      if (!ended && layoutType() && media?.matches?.('video, audio') && !media.paused) media.pause();
     }
-    function scheduleInitial() {
-      if (!ended && !pending) pending = requestAnimationFrame(check);
+    function release(doc) {
+      const entry = docs.get(doc);
+      entry.observer.disconnect(); entry.events.abort(); docs.delete(doc);
     }
-    function checkDocument(doc) {
-      if (!docs.has(doc)) {
-        docs.add(doc); changes.observe(doc, {childList:true, subtree:true});
-        for (const type of ['load', 'play', 'loadeddata'])
-          doc.addEventListener(type, scheduleInitial, {capture:true, signal:events.signal});
-      }
-      if (!switchDone) {
-        const input = doc.querySelector('input.bui-switch-input[aria-label*="自动开播"]');
-        if (input) { switchDone = true; if (input.checked) input.click(); }
-      }
-      if (!videoDone) {
-        const video = [...doc.querySelectorAll('video')].find(node => !node.ended && (!node.paused || node.readyState >= 2));
-        if (video) { videoDone = true; if (!video.paused) video.pause(); }
-      }
-      for (const iframe of doc.querySelectorAll('iframe')) {
-        try { if (iframe.contentDocument) checkDocument(iframe.contentDocument); } catch {}
+    function prune() {
+      for (const [doc, {frame}] of docs) {
+        if (!frame) continue;
+        let current = false;
+        try { current = frame.isConnected && docs.has(frame.ownerDocument) && frame.contentDocument === doc; } catch {}
+        if (!current) release(doc);
       }
     }
-    function check() {
-      pending = 0;
-      if (ended) return;
-      if (route !== location.href) { stop(); return; }
-      checkDocument(document);
-      if (videoDone && switchDone) stop();
+    function inspect(node) {
+      pause(node);
+      if (node.matches?.(autoSwitch) && layoutType() && !switches.has(node)) {
+        switches.add(node);
+        if (node.checked) node.click();
+      }
+      if (node.matches?.('iframe')) {
+        try { if (node.contentDocument) watch(node.contentDocument, node); } catch {}
+      }
     }
-    // 用户开始交互即结束初始化等待，避免把后续手动播放当作自动播放。
-    const onUserInput = event => { if (event.isTrusted) stop(); };
-    for (const type of ['pointerdown', 'keydown'])
-      window.addEventListener(type, onUserInput, {capture:true, signal:events.signal});
-    check();
-    return stop;
+    function scan(root) {
+      inspect(root);
+      for (const node of root.querySelectorAll?.(selector) || []) inspect(node);
+    }
+    function watch(doc, frame = null) {
+      if (ended || docs.has(doc)) return;
+      const events = new AbortController();
+      const observer = new MutationObserver(records => {
+        if (records.some(record => record.removedNodes.length)) prune();
+        for (const record of records)
+          for (const node of record.addedNodes) if (node.isConnected) scan(node);
+      });
+      docs.set(doc, {frame, events, observer});
+      for (const type of ['play', 'playing', 'loadeddata'])
+        doc.addEventListener(type, event => pause(event.target), {capture:true, signal:events.signal});
+      doc.addEventListener('load', event => {
+        if (event.target.matches?.('iframe')) { prune(); inspect(event.target); }
+      }, {capture:true, signal:events.signal});
+      observer.observe(doc, {childList:true, subtree:true});
+      scan(doc);
+    }
+    watch(document);
+    return {
+      refresh() { prune(); for (const doc of docs.keys()) scan(doc); },
+      destroy() { ended = true; for (const doc of docs.keys()) release(doc); },
+    };
   }
-  disposers.push(waitForInitialPlayer());
+  const playbackGuard = preventWebPlayback();
+  disposers.push(() => playbackGuard.destroy());
 
   // WebView 内的时间跳转交给宿主；普通浏览器仍屏蔽官方播放器跳转。
   listen('click auxclick dblclick', event => {
-    if (!pageType()) return;
+    if (!layoutType()) return;
     const path = event.composedPath();
     const seek = path.find(node => node.matches?.('[data-type="seek"]'));
     const time = path.find(node => node.matches?.('.dm-info-time'));
@@ -338,7 +356,7 @@
 
   // One delegated listener covers dynamic cards and open shadow roots. The owner
   // supplies the same link eligibility and playback rules as its normal clicks.
-  function createMediaMenu({getTarget, openPage, play, openNew, openExternal, addNext, addLast}) {
+  function createMediaMenu({getTarget, openPage, play, openNew, openExternal, addNext, addLast, idPrefix = 'bilibili-vod'}) {
     const events = new AbortController();
     const media = matchMedia('(prefers-color-scheme: dark)');
     let host = null, previousFocus = null, menuEvents = null, themeObserver = null, stopped = false;
@@ -385,7 +403,7 @@
       if (dialogHost) return true;
       close(true);
       dialogFocus = document.activeElement;
-      dialogHost = document.createElement('div'); dialogHost.id = 'bilibili-vod-external-dialog';
+      dialogHost = document.createElement('div'); dialogHost.id = idPrefix + '-external-dialog';
       const root = dialogHost.attachShadow({mode:'open'});
       const style = document.createElement('style'); style.textContent = mediaMenuCSS;
       const dialog = document.createElement('dialog'); dialog.setAttribute('aria-labelledby','external-question');
@@ -461,7 +479,7 @@
       }
       previousFocus = document.activeElement;
       menuEvents = new AbortController();
-      host = document.createElement('div'); host.id = 'bilibili-vod-media-menu';
+      host = document.createElement('div'); host.id = idPrefix + '-media-menu';
       const root = host.attachShadow({mode:'open'});
       const style = document.createElement('style'); style.textContent = mediaMenuCSS;
       const menu = document.createElement('div'); menu.setAttribute('role','menu'); menu.setAttribute('aria-label','媒体打开方式');
@@ -887,6 +905,7 @@
     overflow: auto !important; scrollbar-width: thin;
   `;
   const css = `
+    @media (width < 1000px) {
     ${scope} {
       min-width: 0 !important;
       scrollbar-width: thin !important;
@@ -1182,6 +1201,7 @@
         font-size: 13px !important; height: auto !important; min-height: 18px;
       }
     }
+    }
   `;
 
   // 举报表单在同源 iframe 中；用实际列宽重排选项，不缩放文字或控件。
@@ -1434,7 +1454,7 @@
     let officialShortcut = previousShortcuts.player === player ? previousShortcuts.shortcut : false;
     function guardedToggle(features) {
       if (features && Object.prototype.hasOwnProperty.call(features, 'shortcut')) officialShortcut = features.shortcut;
-      return toggle.call(this, pageType() ? { ...features, shortcut: true } : features);
+      return toggle.call(this, layoutType() ? { ...features, shortcut: true } : features);
     }
     // 官方总开关：覆盖所有播放器快捷键；保留官方对其他功能的设置。
     player.toggleFeature = guardedToggle;
@@ -1455,7 +1475,7 @@
     function guardedSet(action, handler) {
       if (!actions.includes(action)) return set.call(this, action, handler);
       handlers.set(action, handler);
-      return set.call(this, action, details => { if (!pageType()) handler?.(details); });
+      return set.call(this, action, details => { if (!layoutType()) handler?.(details); });
     }
     // 媒体键可能绕过 DOM 键盘事件，需同时屏蔽浏览器媒体控制通道。
     for (const action of actions) {
@@ -1473,12 +1493,12 @@
   }
   let restoreMediaShortcuts = null;
   function onMediaKey(event) {
-    if (!pageType() || !/^(?:Media|AudioVolume)/.test(event.key)) return;
+    if (!layoutType() || !/^(?:Media|AudioVolume)/.test(event.key)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
   }
   function onDanmakuPanelClick(event) {
-    if (!pageType() || (typeof event.button === 'number' && event.button !== 0)) return;
+    if (!layoutType() || (typeof event.button === 'number' && event.button !== 0)) return;
     if (!event.composedPath().some(node => node.matches?.('.bpx-player-dm-setting-left-block-add'))) return;
     const panel = document.querySelector('#danmukuBox');
     const side = panel?.closest(`[${sidebarAttr}]`), state = sidebarPanels.get(side);
@@ -1648,8 +1668,13 @@
   function sync() {
     frame = 0;
     if (stopped) return;
-    const type = pageType();
-    if (scannedRoute !== location.href) { scannedRoute = location.href; scanAll = true; pruneRoots = true; }
+    const type = layoutType();
+    const route = location.href + '|' + type;
+    if (scannedRoute !== route) {
+      scannedRoute = route; scanAll = true; pruneRoots = true;
+      playbackGuard.refresh();
+      notifyOfficialResize();
+    }
     if (!type) potPlayerClick.close();
     syncPlayerShortcuts(type);
     if (type && !restoreMediaShortcuts) restoreMediaShortcuts = disableMediaShortcuts();
@@ -1696,6 +1721,8 @@
     syncBottomBar(type);
   }
   observe(html);
+  narrowLayout.addEventListener('change', schedule);
+  disposers.push(() => narrowLayout.removeEventListener('change', schedule));
   listen('popstate', () => { scanAll = true; pruneRoots = true; schedule(); });
   listen('resize', () => {
     for (const root of roots.keys()) if (root.host.localName === 'bili-user-profile') dirtyProfiles.add(root.host);
