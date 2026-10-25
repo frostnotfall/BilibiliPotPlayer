@@ -70,7 +70,7 @@ struct App {
         preview = nullptr, status = nullptr, ok = nullptr, cancel = nullptr, apply = nullptr,
         resetAll = nullptr, resetPage = nullptr, sections = nullptr, chatOff = nullptr;
     HFONT font = nullptr;
-    int dpi = 96, page = 0, section = 0, contentHeight = 0, scroll[PageCount + 2] = {};
+    int dpi = 96, page = SubtitlesPage, section = 0, contentHeight = 0, scroll[PageCount + 2] = {};
     bool building = false, initializingAll = false;
     std::wstring path;
     std::unique_ptr<Document> document;
@@ -78,7 +78,7 @@ struct App {
     std::vector<Binding> bindings;
     std::vector<bool> initialized;
     std::vector<std::wstring> fonts;
-    int scrollIndex() const { return page == 1 ? PageCount - 1 + section : (page > 1 ? page - 1 : page); }
+    int scrollIndex() const { return page == SubtitlesPage ? PageCount - 1 + section : page - 1; }
     int px(int n) const { return MulDiv(n, dpi, 96); }
     size_t fieldIndex(const char* name) const {for(size_t i=0;i<settings().size();++i)if(std::string(settings()[i].path)==name)return i;throw Error("配置项不存在。");}
     int chatMode() const {return value("live.liveChatUrl.useBilibiliDanmuji")==L"true"?2:value("live.liveChatUrl.useWebPage")==L"true"?1:0;}
@@ -128,7 +128,7 @@ struct App {
         for (int i = 0; i < PageCount; ++i) { TCITEMW item{}; item.mask = TCIF_TEXT; item.pszText = const_cast<wchar_t*>(PageNames[i]); TabCtrl_InsertItem(tab, i, &item); }
         sections = add(hwnd,WC_TABCONTROLW,L"",WS_TABSTOP|WS_CLIPSIBLINGS,0,0,0,0,SectionId);
         int position = 0;
-        for (auto title : {L"字幕与样式",L"字体效果",L"弹幕过滤"}) { TCITEMW item{};item.mask=TCIF_TEXT;item.pszText=const_cast<wchar_t*>(title);TabCtrl_InsertItem(sections,position++,&item); }
+        for (auto title : {L"字幕与样式",L"弹幕字体效果",L"弹幕过滤"}) { TCITEMW item{};item.mask=TCIF_TEXT;item.pszText=const_cast<wchar_t*>(title);TabCtrl_InsertItem(sections,position++,&item); }
         pane = add(hwnd, PaneClass, L"", WS_VSCROLL | WS_CLIPSIBLINGS, 0,0,0,0,0,WS_EX_CONTROLPARENT);
         SetWindowLongPtrW(pane, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
         preview = add(hwnd, PreviewClass, L"", WS_CLIPSIBLINGS,0,0,0,0);
@@ -177,11 +177,11 @@ struct App {
         MoveWindow(tab,px(16),px(54),std::max(px(200),w-px(32)),std::max(px(100),h-px(136)),TRUE);
         RECT panel{}; GetClientRect(tab, &panel); TabCtrl_AdjustRect(tab, FALSE, &panel);
         MapWindowPoints(tab,window,reinterpret_cast<POINT*>(&panel),2);
-        int previewWidth = page == 1 && document ? px(285) : 0;
+        int previewWidth = page == SubtitlesPage && document ? px(285) : 0;
         int innerWidth = std::max(px(200), static_cast<int>(panel.right-panel.left)-px(4));
-        int formWidth = innerWidth-(previewWidth?previewWidth+px(12):0), sectionHeight = page==1?px(31):0;
-        ShowWindow(sections,page==1&&document?SW_SHOW:SW_HIDE);
-        if(page==1) SetWindowPos(sections,HWND_TOP,panel.left+px(10),panel.top+px(5),formWidth-px(16),px(27),SWP_NOACTIVATE);
+        int formWidth = innerWidth-(previewWidth?previewWidth+px(12):0), sectionHeight = page==SubtitlesPage?px(31):0;
+        ShowWindow(sections,page==SubtitlesPage&&document?SW_SHOW:SW_HIDE);
+        if(page==SubtitlesPage) SetWindowPos(sections,HWND_TOP,panel.left+px(10),panel.top+px(5),formWidth-px(16),px(27),SWP_NOACTIVATE);
         // Page surfaces are siblings of the tab; keep them above its themed background.
         SetWindowPos(pane,HWND_TOP,panel.left+px(2),panel.top+px(2)+sectionHeight,formWidth,std::max(px(80),static_cast<int>(panel.bottom-panel.top)-px(4)-sectionHeight),SWP_NOACTIVATE);
         ShowWindow(preview,previewWidth?SW_SHOW:SW_HIDE);
@@ -193,6 +193,9 @@ struct App {
         MoveWindow(resetAll,px(18),h-px(40),px(122),px(27),TRUE);
         MoveWindow(resetPage,px(152),h-px(40),px(100),px(27),TRUE);
         building = false; buildPage();
+        // Resizing can preserve pixels from the old child positions. Repaint the
+        // entire hierarchy after layout, including the footer outside the pane.
+        RedrawWindow(window,nullptr,nullptr,RDW_INVALIDATE|RDW_ERASE|RDW_ALLCHILDREN|RDW_UPDATENOW);
     }
     void setScroll(int next) {
         RECT client{}; GetClientRect(pane,&client);
@@ -217,7 +220,7 @@ struct App {
         auto finishGroup=[&](){if(group){MoveWindow(group,px(10),groupY-origin,width-px(20),y-groupY+px(10),TRUE);y+=px(22);}};
         if (!document) make(L"STATIC",L"打开配置文件后，可在这里调整设置。",0,px(22),y,width-px(44),px(40));
         for(size_t i=0;document && i<settings().size();++i){
-            const auto& f=settings()[i];if(f.page!=page||(page==1&&sectionFor(f)!=section))continue;
+            const auto& f=settings()[i];if(f.page!=page||(page==SubtitlesPage&&sectionFor(f)!=section))continue;
             if(f.widget==Widget::ChatModePeer)continue;
             if(groupName!=f.group){finishGroup();groupName=f.group;groupY=y;group=make(WC_BUTTONW,f.group,BS_GROUPBOX,px(10),y,width-px(20),px(100));y+=px(26);}
             auto& b=bindings[i];b.y=y;int id=FieldBase+static_cast<int>(i)*4;
@@ -415,6 +418,7 @@ LRESULT CALLBACK PreviewProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){
     style.enabled=app->value("danmaku.enable")==L"true";style.subtitle=app->value("subtitle.enable")==L"true";style.bold=app->value("danmaku.bold")==L"true";
     style.blockTop=app->value("danmaku.blockTop")==L"true";style.blockBottom=app->value("danmaku.blockBottom")==L"true";style.blockColor=app->value("danmaku.blockColor")==L"true";
     style.merge=app->value("danmaku.mergeSameDanmaku")==L"true";style.repeated=app->value("danmaku.blockRepeatedUserDanmaku")==L"true";
+    style.enlarge=app->value("danmaku.enlargeMergedDanmaku")==L"true";style.shrink=app->value("danmaku.autoShrinkDanmaku")==L"true";
     auto rules=app->value("danmaku.blockRules");style.rules=rules.empty()?"[]":utf8(rules);
     paintPreview(target,r,app->font,app->dpi,style);
     if(msg==WM_PAINT)EndPaint(hwnd,&paint);return 0;
@@ -426,7 +430,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){
     if(!app)return DefWindowProcW(hwnd,msg,wp,lp);
     try{
         if(msg==WM_CREATE){app->create(hwnd);return 0;}
-        if(msg==WM_SIZE){app->layout();return 0;}
+        if(msg==WM_SIZE){if(wp!=SIZE_MINIMIZED)app->layout();return 0;}
         if(msg==WM_GETMINMAXINFO){auto* info=reinterpret_cast<MINMAXINFO*>(lp);info->ptMinTrackSize={app->px(880),app->px(620)};return 0;}
         if(msg==WM_COMMAND){app->command(wp,lp);return 0;}
         if(msg==WM_NOTIFY&&reinterpret_cast<NMHDR*>(lp)->idFrom==TabId&&reinterpret_cast<NMHDR*>(lp)->code==TCN_SELCHANGE){app->page=TabCtrl_GetCurSel(app->tab);app->layout();return 0;}
@@ -462,19 +466,22 @@ int smokeTest(App& app,const std::wstring& filename){
     require(effects.size()==5,"five effects must render differently");
     probe.effect=2;auto unfiltered=previewFingerprint(probe,app.font);probe.blockTop=true;require(previewFingerprint(probe,app.font)!=unfiltered,"top filter preview");probe.blockTop=false;
     probe.blockColor=true;require(previewFingerprint(probe,app.font)!=unfiltered,"color filter preview");probe.blockColor=false;
+    probe.shrink=true;require(previewFingerprint(probe,app.font)!=unfiltered,"standalone auto shrink preview");probe.shrink=false;
+    probe.merge=true;auto merged=previewFingerprint(probe,app.font);probe.enlarge=true;require(previewFingerprint(probe,app.font)!=merged,"merged enlargement preview");probe.enlarge=false;probe.merge=false;
     probe.rules="[{\"type\":0,\"filter\":\"这一段\"}]";auto keyword=previewFingerprint(probe,app.font);require(keyword!=unfiltered,"keyword preview");
     probe.rules="[{\"type\":2,\"filter\":\"10086\"}]";require(previewFingerprint(probe,app.font)==keyword,"UID preview");
     probe.rules="[{\"type\":1,\"filter\":\".*这一段.*\"}]";require(previewFingerprint(probe,app.font)==keyword,"JavaScript regex preview");
     app.load(filename);require(!app.fonts.empty(),"system font enumeration");
     for(int page=0;page<PageCount;++page){
         app.page=page;TabCtrl_SetCurSel(app.tab,page);
-        for(int section=0;section<(page==1?3:1);++section){
+        for(int section=0;section<(page==SubtitlesPage?3:1);++section){
             app.section=section;TabCtrl_SetCurSel(app.sections,section);app.layout();
-            if(page==1){RECT item{};TabCtrl_GetItemRect(app.sections,0,&item);POINT point{item.left+4,item.top+4};MapWindowPoints(app.sections,app.window,&point,1);require(ChildWindowFromPointEx(app.window,point,CWP_SKIPINVISIBLE|CWP_SKIPDISABLED)==app.sections,"section tabs must be above main tab surface");}
-            for(size_t i=0;i<settings().size();++i)if(settings()[i].page==page&&(page!=1||sectionFor(settings()[i])==section))require(IsWindow(app.bindings[i].control)!=FALSE,"UI field missing");
+            require(((GetWindowLongPtrW(app.preview,GWL_STYLE)&WS_VISIBLE)!=0)==(page==SubtitlesPage),"preview appears only on subtitles page");
+            if(page==SubtitlesPage){RECT item{};TabCtrl_GetItemRect(app.sections,0,&item);POINT point{item.left+4,item.top+4};MapWindowPoints(app.sections,app.window,&point,1);require(ChildWindowFromPointEx(app.window,point,CWP_SKIPINVISIBLE|CWP_SKIPDISABLED)==app.sections,"section tabs must be above main tab surface");}
+            for(size_t i=0;i<settings().size();++i)if(settings()[i].page==page&&(page!=SubtitlesPage||sectionFor(settings()[i])==section))require(IsWindow(app.bindings[i].control)!=FALSE,"UI field missing");
             for(size_t i=0;i<settings().size();++i){
                 auto widget=settings()[i].widget;
-                if(settings()[i].page!=page||(page==1&&sectionFor(settings()[i])!=section)||(widget!=Widget::Choice&&widget!=Widget::Font&&widget!=Widget::FontSize))continue;
+                if(settings()[i].page!=page||(page==SubtitlesPage&&sectionFor(settings()[i])!=section)||(widget!=Widget::Choice&&widget!=Widget::Font&&widget!=Widget::FontSize))continue;
                 HWND combo=app.bindings[i].control;auto before=app.draft;
                 LRESULT selected=SendMessageW(combo,CB_GETCURSEL,0,0);
                 RECT client{};GetClientRect(app.pane,&client);int maxScroll=std::max(0,app.contentHeight-static_cast<int>(client.bottom));
@@ -495,7 +502,7 @@ int smokeTest(App& app,const std::wstring& filename){
             app.setScroll(100000);app.setScroll(0);
         }
     }
-    app.page=3;TabCtrl_SetCurSel(app.tab,3);app.layout();
+    app.page=LivePage;TabCtrl_SetCurSel(app.tab,LivePage);app.layout();
     auto beforeChat=app.draft;size_t web=indexOf("live.liveChatUrl.useWebPage"),custom=indexOf("live.liveChatUrl.useBilibiliDanmuji"),server=indexOf("live.liveChatUrl.bilibiliDanmujiServer");
     for(int mode:{1,2,0}){
         HWND button=mode==0?app.chatOff:app.bindings[mode==1?web:custom].control;
@@ -508,7 +515,7 @@ int smokeTest(App& app,const std::wstring& filename){
     app.draft[web]=app.draft[custom]=L"true";app.buildPage();
     require(Button_GetCheck(app.bindings[custom].control)==BST_CHECKED&&Button_GetCheck(app.bindings[web].control)==BST_UNCHECKED,"legacy dual-enabled chat resolves to custom service");
     app.draft=beforeChat;app.syncChat();app.updateDirty();
-    app.page=1;app.section=0;TabCtrl_SetCurSel(app.tab,1);TabCtrl_SetCurSel(app.sections,0);app.layout();
+    app.page=SubtitlesPage;app.section=0;TabCtrl_SetCurSel(app.tab,SubtitlesPage);TabCtrl_SetCurSel(app.sections,0);app.layout();
     for(const char* path:{"danmaku.opacity","danmaku.displayArea"}){
         size_t field=indexOf(path);HWND slider=app.bindings[field].control;
         auto before=app.draft;int position=static_cast<int>(SendMessageW(slider,TBM_GETPOS,0,0));
@@ -537,6 +544,13 @@ int smokeTest(App& app,const std::wstring& filename){
     require(app.draft[size]==L"36"&&app.dirty(),"size selection binding");require(app.save()&&!app.dirty(),"UI save failed");
     require(Document(readFile(filename)).find("danmaku.fontSize")->text=="36","UI roundtrip failed");
     app.draft[rules]=L"[{\"type\":0,\"filter\":\"关键词\",\"future\":true}]";app.section=2;TabCtrl_SetCurSel(app.sections,2);app.layout();
+    size_t autoSelect=indexOf("danmaku.autoSelectDanmaku");
+    require(SendMessageW(app.bindings[autoSelect].control,BM_GETCHECK,0,0)==BST_CHECKED,"automatic selection starts checked");
+    SendMessageW(app.bindings[autoSelect].control,BM_CLICK,0,0);
+    require(app.draft[autoSelect]==L"false"&&app.dirty(),"automatic selection checkbox binding");
+    require(app.save()&&Document(readFile(filename)).find("danmaku.autoSelectDanmaku")->text=="false","automatic selection disabled roundtrip");
+    app.load(filename);app.layout();
+    require(SendMessageW(app.bindings[autoSelect].control,BM_GETCHECK,0,0)==BST_UNCHECKED,"automatic selection stays unchecked after reload");
     SetWindowTextW(app.bindings[rules].ruleEditors[0],L"关键词\r\n另一个");
     SendMessageW(app.pane,WM_COMMAND,MAKEWPARAM(FieldBase+static_cast<int>(rules)*4,EN_CHANGE),reinterpret_cast<LPARAM>(app.bindings[rules].ruleEditors[0]));
     SetWindowTextW(app.bindings[rules].ruleEditors[1],L".*示例.*");
@@ -551,6 +565,7 @@ int smokeTest(App& app,const std::wstring& filename){
     commented="// 保留文件头\n"+commented+"\n// 保留文件尾\n";
     app.document=std::make_unique<Document>(commented);
     app.draft[heart]=L"true";app.initialize(false);
+    require(app.draft[autoSelect]==L"true","page initialization restores automatic selection");
     require(app.draft[size]==L"32"&&app.draft[rules]==L"[]"&&app.draft[heart]==L"true","page initialization scope");
     require(app.initialized[rules]&&!app.initialized[heart],"page initialization write scope");
     require(app.save(),"page initialization save");
@@ -560,10 +575,10 @@ int smokeTest(App& app,const std::wstring& filename){
     Document reset(readFile(filename));require(reset.find("bili_jct")&&reset.find("customUnknown"),"global initialization preserves unmanaged fields");
     for(const char* comment:{"// 初始化保留规则示例","// {\"type\":0,\"filter\":\"关键词\"}","/* 保留列表内注释 */","// 保留文件头","// 保留文件尾"})require(reset.source().find(comment)!=std::string::npos,"global initialization retains all comment locations");
     for(const auto& f:settings())require(reset.find(f.path)!=nullptr,"global initialization complete");
-    saveFile(filename,"{\"unknown\":true}");app.load(filename);app.page=3;TabCtrl_SetCurSel(app.tab,3);app.initialize(false);require(app.save(),"sparse page initialization");
+    saveFile(filename,"{\"unknown\":true}");app.load(filename);app.page=LivePage;TabCtrl_SetCurSel(app.tab,LivePage);app.initialize(false);require(app.save(),"sparse page initialization");
     Document sparse(readFile(filename));require(sparse.find("unknown")&&!sparse.find("subtitle"),"page initialization preserves other pages");require(sparse.find("live.parseM3u8RealUrl.m3u8RedirectDomains")->children.size()==2,"live page initialization domains");
     app.document.reset();app.path=filename+L".new."+std::to_wstring(GetCurrentProcessId())+L".json";app.initialize(true);require(app.save(),"initialize missing configuration");require(Document(readFile(app.path)).find("danmaku.fontSize")!=nullptr,"new file initialized");
-    app.page=1;app.section=1;TabCtrl_SetCurSel(app.tab,1);TabCtrl_SetCurSel(app.sections,1);app.layout();
+    app.page=SubtitlesPage;app.section=1;TabCtrl_SetCurSel(app.tab,SubtitlesPage);TabCtrl_SetCurSel(app.sections,1);app.layout();
     for(int type=0;type<5;++type){app.draft[effect]=std::to_wstring(type);InvalidateRect(app.preview,nullptr,FALSE);capture(app.window,filename+L".effect."+std::to_wstring(type)+L".bmp");}
     app.draft=app.initial;
     for(int dpi:{96,144,192}){RECT next{0,0,MulDiv(1020,dpi,96),MulDiv(740,dpi,96)};SendMessageW(app.window,WM_DPICHANGED,MAKELPARAM(dpi,dpi),reinterpret_cast<LPARAM>(&next));app.setScroll(100000);app.setScroll(0);capture(app.window,filename+L"."+std::to_wstring(dpi)+L".bmp");}

@@ -2,11 +2,16 @@
   "abi": 1,
   "engine": "QuickJS-NG v0.17.0 libregexp",
   "source_commit": "6d46d07d04041b40f4f49eaa7fdebe44c314c699",
+  "danmaku": {
+    "upstream_commit": "2cb6f52aba70d6b685aaff9a1c03aabec7f299b2",
+    "engine": "pakku-compatible similarity and font scaling; capacity selection with merge priority",
+    "license": "GPL-3.0-only"
+  },
   "verification": {
     "cases": 17116,
     "actual_log_cases": 0,
-    "node": "v24.19.0",
-    "v8": "13.6.233.17-node.51",
+    "node": "v24.22.1",
+    "v8": "13.6.233.17-node.58",
     "upstream": "6d46d07d04041b40f4f49eaa7fdebe44c314c699",
     "result": "PASS"
   },
@@ -14,8 +19,8 @@
     {
       "path": "Extension/Lib/BilibiliRegex.dll",
       "architecture": "x64",
-      "bytes": 256512,
-      "sha256": "b00aa76c51375321e9637ddcb7ad9291b9cbd6690f1eee332dbaadc5cd625597"
+      "bytes": 579072,
+      "sha256": "0642f9a800a0dbbb81f43333345e277633f5e48dd661f1295df8a5abc2085235"
     }
   ]
 }

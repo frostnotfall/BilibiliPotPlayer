@@ -1,5 +1,18 @@
 LIBRARY BilibiliRegex
 EXPORTS
+    BiliDanmakuCreate
+    BiliDanmakuFeed
+    BiliDanmakuText
+    BiliDanmakuFree
+    BiliDanmakuWeight
+    BiliDanmakuSelect
+    BiliDanmakuPrepare
+    BiliDanmakuCommit
+    BiliDanmakuLayoutInit
+    BiliDanmakuPlace
+    BiliDanmakuRefineTop
+    BiliDanmakuFont
+    BiliDanmakuMeasure
     BiliRegexCreateSet
     BiliRegexSetRule
     BiliRegexTestSet

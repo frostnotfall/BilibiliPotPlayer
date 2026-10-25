@@ -13,13 +13,17 @@ $buildScript = @"
 @echo off
 call "$vcvars" x64 >nul
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /std:c11 /O2 /MT /W3 /utf-8 /D_CRT_SECURE_NO_WARNINGS /LD /I "$nativeRoot\vendor\quickjs-ng" "$nativeRoot\BilibiliRegex.c" "$nativeRoot\vendor\quickjs-ng\libregexp.c" "$nativeRoot\vendor\quickjs-ng\libunicode.c" /link /DEF:"$nativeRoot\BilibiliRegex.def" /OUT:"$dll" /IMPLIB:"$objectDir\BilibiliRegex.lib" /INCREMENTAL:NO /OPT:REF /OPT:ICF /DYNAMICBASE /NXCOMPAT
+cl /nologo /std:c++17 /EHsc /O2 /MT /W4 /utf-8 /c "$nativeRoot\Danmaku.cpp" /Fo:"$objectDir\Danmaku.obj"
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /std:c11 /O2 /MT /W3 /utf-8 /D_CRT_SECURE_NO_WARNINGS /LD /I "$nativeRoot\vendor\quickjs-ng" "$nativeRoot\BilibiliRegex.c" "$nativeRoot\vendor\quickjs-ng\libregexp.c" "$nativeRoot\vendor\quickjs-ng\libunicode.c" "$objectDir\Danmaku.obj" /link /DEF:"$nativeRoot\BilibiliRegex.def" /OUT:"$dll" /IMPLIB:"$objectDir\BilibiliRegex.lib" /INCREMENTAL:NO /OPT:REF /OPT:ICF /DYNAMICBASE /NXCOMPAT gdi32.lib
 if errorlevel 1 exit /b %errorlevel%
 dumpbin /nologo /exports "$dll"
 if errorlevel 1 exit /b %errorlevel%
 dumpbin /nologo /dependents "$dll"
 if errorlevel 1 exit /b %errorlevel%
 cl /nologo /std:c11 /O2 /MT /W4 /utf-8 /D_CRT_SECURE_NO_WARNINGS "$nativeRoot\tests\native_test.c" /Fe:"$objectDir\verify.exe" /link /INCREMENTAL:NO
+if errorlevel 1 exit /b %errorlevel%
+cl /nologo /std:c++17 /EHsc /O2 /MT /W3 /utf-8 /LD "$nativeRoot\tests\pakku_oracle.cpp" /link /OUT:"$objectDir\pakku_oracle.dll" /INCREMENTAL:NO
 exit /b %errorlevel%
 "@
 $scriptPath = Join-Path $objectDir 'build.cmd'
@@ -32,13 +36,16 @@ try {
 $notice = "BilibiliRegex.dll`n`nWrapper, build scripts and tests:`n`n" +
     [IO.File]::ReadAllText((Join-Path $nativeRoot 'LICENSE')) +
     "`n`nQuickJS-NG v0.17.0 (regexp/Unicode modules):`n`n" +
-    [IO.File]::ReadAllText((Join-Path $nativeRoot 'vendor\quickjs-ng\LICENSE'))
+    [IO.File]::ReadAllText((Join-Path $nativeRoot 'vendor\quickjs-ng\LICENSE')) +
+    "`n`nDanmaku.cpp and pakku pinyin data: GPL-3.0-only. The linked DLL is distributed under GPLv3; wrapper sources retain their MIT license.`nSource: https://github.com/frostnotfall/BilibiliPotPlayer/tree/3.7.42/Native/BilibiliRegex`nUpstream: https://github.com/xmcp/pakku.js (2cb6f52aba70d6b685aaff9a1c03aabec7f299b2)`n`n" +
+    [IO.File]::ReadAllText((Join-Path $nativeRoot 'vendor\pakku\LICENSE'))
 [IO.File]::WriteAllText((Join-Path $outputDir 'BilibiliRegex.LICENSE.txt'), $notice, [Text.UTF8Encoding]::new($false))
 $upstream = Get-Content -LiteralPath (Join-Path $nativeRoot 'vendor\quickjs-ng\UPSTREAM.json') -Raw | ConvertFrom-Json
 $manifest = [ordered]@{
     abi = 1
     engine = 'QuickJS-NG v0.17.0 libregexp'
     source_commit = $upstream.commit
+    danmaku = @{ engine = 'pakku-compatible similarity and font scaling; capacity selection with merge priority'; upstream_commit = '2cb6f52aba70d6b685aaff9a1c03aabec7f299b2'; license = 'GPL-3.0-only' }
     verification = @{ result = 'NOT_RUN'; command = 'python Native/BilibiliRegex/tests/verify.py' }
     artifacts = @(@{
         architecture = 'x64'; path = 'Extension/Lib/BilibiliRegex.dll'

@@ -29,14 +29,21 @@ int wmain(int argc,wchar_t** argv){
         require(added.find(f.path)!=nullptr,"insert nested setting");
     }
     leafCoverage(shipped.root(),"",paths);
-    require(settings().size()==52,"all 52 active settings covered");
+    require(settings().size()==55,"all 55 active settings covered");
     require(paths.count("bili_jct")==0,"legacy CSRF setting removed");
     require(field("danmaku.font").widget==Widget::Font&&field("danmaku.fontSize").widget==Widget::FontSize,"font and size selection widgets");
     require(field("danmaku.blockRules").page==field("subtitle.enable").page,"subtitle and filters share page");
     require(sectionFor(field("danmaku.blockRules"))==2&&sectionFor(field("danmaku.fontEffect.type"))==1,"danmaku section mapping");
+    require(sectionFor(field("danmaku.enlargeMergedDanmaku"))==2&&sectionFor(field("danmaku.autoShrinkDanmaku"))==2,"pakku size options in filter section");
+    require(sectionFor(field("danmaku.autoSelectDanmaku"))==2&&field("danmaku.autoSelectDanmaku").widget==Widget::Check,"automatic selection checkbox in filter section");
+    require(settingText(field("danmaku.autoSelectDanmaku"),Document("{}"))==L"true","missing automatic selection setting preserves enabled behavior");
     require(field("live.parseM3u8RealUrl.fastMode").page==field("live.parseM3u8RealUrl.m3u8RedirectDomains").page,"fast mode and domains share page");
     require(std::wstring(field("live.parseM3u8RealUrl.fastMode").group)==field("live.parseM3u8RealUrl.m3u8RedirectDomains").group,"fast mode and domains share group");
     Document defaults=defaultConfiguration();
+    require(defaults.find("live.liveChatUrl.useWebPage")->text=="true","web live chat initially enabled");
+    require(settingText(field("live.liveChatUrl.useWebPage"),Document("{}"))==L"true","missing web live chat setting defaults enabled");
+    require(settingText(field("live.liveChatUrl.useWebPage"),Document("{\"live\":{\"liveChatUrl\":{\"useWebPage\":false}}}"))==L"false","explicitly disabled web live chat stays disabled");
+    require(defaults.find("danmaku.autoSelectDanmaku")->text=="true","automatic selection initially enabled");
     require(!defaults.find("bili_jct"),"initialized defaults omit legacy token");
     for(const auto& f:settings()){require(defaults.find(f.path)!=nullptr,"initialized defaults complete");validateSetting(f,settingJson(f,settingText(f,defaults)));}
     require(defaults.find("danmaku.fontSize")->text=="32","initial font size");

@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import subprocess
 from verify_metadata import metadata_script, verify_chat_scripts
+from verify_danmaku import layout_script, verify_ass, verify_native
 
 ROOT = Path(__file__).resolve().parents[1]
 REPO = ROOT.parents[1]
@@ -20,13 +21,16 @@ class TestConfig {
     bool debug = true;
     bool queryPlayPosition = false;
     bool danmakuBlockRepeatedUser = false; bool danmakuMergeSame = false;
+    bool danmakuEnlarge = false, danmakuAutoShrink = false;
+    bool danmakuAutoSelect = true;
     int danmakuFontEffect = 0;
     bool danmakuBlockTop = true, danmakuBlockBottom = false, danmakuBlockColor = false;
-    string danmakuShadowDepth = "1", danmakuOutlineWidth = "1", danmakuBlurRadius = "1";
+    float danmakuShadowDepth = 1, danmakuOutlineWidth = 1, danmakuBlurRadius = 1;
 }
 TestConfig ConfigData;
 funcdef void ThreadFunction(any@);
 int failAfter = -1, launches = 0;
+bool delayFirstSegment = false, timedWaitOnly = false;
 int HostCreateThread(ThreadFunction@ callback, dictionary@ task) {
     if (failAfter >= 0 && launches >= failAfter) return -1;
     launches++;
@@ -34,9 +38,14 @@ int HostCreateThread(ThreadFunction@ callback, dictionary@ task) {
     callback(args);
     return launches;
 }
-bool HostWaitThread(int id, int ms) { return true; }
+bool HostWaitThread(int id, int ms) { return (!timedWaitOnly || ms > 0) && (!delayFirstSegment || id != 1 || launches > 5); }
 string segmentPayload;
-string apiPost(const string &in path, bool auth, bool cache) { return segmentPayload; }
+array<string> segmentPayloads;
+string apiPost(const string &in path, bool auth, bool cache) {
+    for (uint i = 0; i < segmentPayloads.length(); i++)
+        if (path.findFirst("segment_index=" + formatUInt(i + 1) + "&") >= 0) return segmentPayloads[i];
+    return segmentPayload;
+}
 string encWbi(const string &in param) { return param; }
 '''
 
@@ -119,6 +128,29 @@ void Run() {
         Assert(ActiveLibraries() == 0 && ActiveHandles() == 0, "real timeout resources released");
     }
     SetHostFault(0);
+    {
+        array<string> text = {"foo", "foo", "bar", "bar", "foo"};
+        array<string> hashes = {"ok", "banned", "ok", "ok", "ok"};
+        array<int> types = {1, 2}; array<string> rules = {"^bar$", "banned"};
+        array<uint8> flags = Filter(text, hashes, types, rules);
+        Assert(flags.length() == 5 && flags[0] == 0 && flags[1] == 1 && flags[2] == 1 && flags[3] == 1 && flags[4] == 0,
+               "cached matching remains independent of sender hashes");
+        Assert(TestCallCount() == 2, "repeated positive and negative matches call native once per text");
+    }
+    SetHostFault(0);
+    {
+        array<string> text(4100), hashes(4100, "ok"), rules = {"^never$"}; array<int> types = {1};
+        failAfter = 0; launches = 0;
+        for (uint i = 0; i < 4097; i++) text[i] = "text-" + i;
+        text[4097] = "text-0";
+        string longText; for (uint i = 0; i < 385; i++) longText += "x";
+        text[4098] = longText; text[4099] = longText;
+        array<uint8> flags = Filter(text, hashes, types, rules);
+        Assert(flags.length() == text.length() && TestCallCount() == 4100, "bounded fallback cache evicts and bypasses long text");
+        for (uint i = 0; i < flags.length(); i++) Assert(flags[i] == 0, "cache eviction preserves nonmatches");
+        failAfter = -1;
+    }
+    SetHostFault(0);
     CheckActualLogCases();
     CheckRender();
     CheckSort();
@@ -172,15 +204,21 @@ def main():
 string Render() {
     string aid = "TEST_AID", cid = "TEST_CID", hex = "0123456789ABCDEF";
     uint totalStart = HostGetTickCount(), heartbeat = totalStart;
+    uint fetchMs = 0, cloudMs = 0, sortMs = 0, filterStart = totalStart;
     bool processExtra = true, processRepeatedUser = false, processMerge = true;
     uint lanes = 3, laneHeight = 28; int fontSize = 24;
     double stay = 15;
+    double area = 0.8;
     string font = "TestFont", boldEffect = "", alphaHex = "00", ass = "[Events]\r\n";
     array<uint> times = {1000, 1100, 1200, 1300}, modes = {1, 1, 5, 4}, colors(4, 0xFFFFFF);
     array<uint64> order = {0, 1, 2, 3};
     array<string> contents = {"hello", "hello", "top", "bottom"}, midHashes(4, "ok");
     array<uint8> blockedFlags(4, 0);
-    array<uint> renderIndices, mergeCounts;
+    array<uint> renderIndices, mergeCounts, mergeWeights, mergeModes;
+    array<string> mergeTexts;
+    array<uint> weights(4, 1);
+    string regexContext = "test";
+    DanmakuRegexDll regexDll;
     dictionary seenUser, mergeGroup;
     array<uint> scrollStart(lanes, 0), reverseStart(lanes, 0), topReady(lanes, 0), bottomReady(lanes, 0);
     array<double> scrollEntryDelay(lanes, 0), reverseEntryDelay(lanes, 0);
@@ -193,7 +231,8 @@ void CheckRender() {
     Assert(ass.findFirst("hello(2)") >= 0 && ass.findFirst("top") >= 0 && ass.findFirst("bottom") >= 0,
            "actual merge and render pipeline");
     Assert(LogCount() == 1 && LogContains("[Danmaku]") && LogContains("rendered=3") &&
-           LogContains("total_ms=") && LogContains("render_ms="),
+           LogContains("total_ms=") && LogContains("render_ms=") && LogContains("prepare_ms=") &&
+            LogContains("merge_ms=") && LogContains("layout_ms=") && LogContains("ass_ms="),
            "one summary line through the actual log helper");
 }
 '''
@@ -259,18 +298,32 @@ void BenchmarkSort() {
     payload = message(3000, 4, "bottom") + message(1000, 1, "hello😀") + message(2000, 5, "blocked top")
     pipeline = source[source.index("    uint totalSegments = (duration - 1)"):source.index("    if (cloudThread >= 0) {")]
     pipeline = pipeline.replace('return "";', '{ Assert(false, "segment pipeline aborted"); return; }')
-    sorting = source[source.index("    if (order.length() > 10000) HostIncTimeOut(10000);"):source.index('    string regexContext = "aid="')]
+    sorting = source[source.index("    uint sortStart = HostGetTickCount();"):source.index('    string regexContext = "aid="')]
     pipeline_check = r'''
-void CheckSegmentPipeline() {
+void CheckSegmentPipelineCase(bool delayed, bool timed = false) {
+    timedWaitOnly = timed; delayFirstSegment = delayed; segmentPayloads.resize(0);
     SetHostFault(0); failAfter = -1; launches = 0;
     string aid = "TEST_AID", cid = "TEST_CID";
-    uint totalStart = HostGetTickCount(), duration = 1800000;
-    array<uint> times, modes, colors;
+    uint totalStart = HostGetTickCount(), duration = delayed ? 2160000 : 1800000;
+    array<uint> times, modes, colors, weights;
     array<string> contents, midHashes;
     array<uint64> order;
 '''
     pipeline_check += '    segmentPayload = "' + ''.join(f'\\x{b:02x}' for b in payload) + '";\n'
+    pipeline_check += '    if (delayed) { segmentPayloads.resize(6);\n'
+    for segment in range(1, 7):
+        staggered = message(1000, 1, f"segment-{segment}")
+        pipeline_check += '        segmentPayloads[' + str(segment - 1) + '] = "' + ''.join(f'\\x{b:02x}' for b in staggered) + '";\n'
+    pipeline_check += '    }\n'
     pipeline_check += pipeline + sorting + r'''
+    if (delayed) {
+        Assert(order.length() == 6 && launches == 6, "slow first segment does not block sixth launch");
+        for (uint i = 0; i < 6; i++) {
+            Assert(contents[i] == "segment-" + formatUInt(i + 1), "out-of-order completion preserves segment order");
+            Assert(uint(order[i]) == i, "same-time keys retain original segment order");
+        }
+        delayFirstSegment = false; segmentPayloads.resize(0); return;
+    }
     Assert(times.length() == 10 && order.length() == 10, "all five decoded segments collected");
     for (uint i = 0; i < order.length(); i++) {
         uint index = uint(order[i] & 0xFFFFFFFF);
@@ -278,74 +331,43 @@ void CheckSegmentPipeline() {
         Assert(contents[index] == (i < 5 ? "hello😀" : "bottom"), "UTF-8 text preserved through collection");
         Assert(modes[index] == (i < 5 ? 1 : 4) && colors[index] == 0xFFFFFF && midHashes[index] == "ok",
                "parallel arrays remain aligned through collection");
+        Assert(weights[index] == 10, "protobuf weight survives segment collection for automatic preference");
         if (i > 0) Assert(order[i - 1] < order[i], "full time/index key order");
     }
     Assert(LogCount() == 0, "segment loop emits no temporary diagnostic logs");
+    timedWaitOnly = false;
 }
 '''
+    pipeline_check += "\nvoid CheckSegmentPipeline() { CheckSegmentPipelineCase(false); CheckSegmentPipelineCase(true); CheckSegmentPipelineCase(false, true); }\n"
     script = (PREFIX + logger + engine_class + FILTER_SIGNATURE + stage + TESTS + "\n".join(actual) +
-              render_fixture + render + render_checks + sort_checks + pipeline_check)
+              render_fixture + render + render_checks + sort_checks + pipeline_check + layout_script(source, render))
+    script = script.replace('    CheckRender();', '    CheckRender();\n    CheckLayout();', 1)
     if args.render_baseline:
         original = args.render_baseline.read_text(encoding="utf-8-sig")
-        render_case = r'''
-string RenderCaseLABEL(uint count, uint scenario, int effect, bool measure) {
-    ConfigData.danmakuFontEffect = effect;
-    bool processExtra = (scenario & 1) == 0, processMerge = (scenario & 2) == 0;
-    uint lanes = scenario == 3 ? 1 : (scenario == 4 ? 216 : (scenario == 1 ? 10 : 30));
-    uint laneHeight = scenario == 4 ? 5 : (scenario == 1 ? 79 : 28);
-    int fontSize = scenario == 4 ? 1 : (scenario == 1 ? 75 : 24);
-    double stay = scenario == 5 ? 0.001 : 15.0;
-    string hex = "0123456789ABCDEF", font = "微软雅黑 Light", boldEffect = "\\b1", alphaHex = "1A";
-    string ass = "[Events]\r\n";
-    array<uint> times(count), modes(count), colors(count), renderIndices(count), mergeCounts(count, 1);
-    array<uint64> order(count);
-    array<string> contents(count);
-    array<string> samples = {"这段剧情接下来会怎样呢", "中文 English 😀", "abc{def}\\ghi\r\njkl", "", "hello", "\x00text"};
-    string longText, cacheBoundary;
-    for (uint i = 0; i < 300; i++) longText += "中";
-    for (uint i = 0; i < 128; i++) cacheBoundary += "中";
-    for (uint i = 0; i < count; i++) {
-        times[i] = 1000 + (i / 3) * 53 + i % 3;
-        if (scenario == 2 && i % 7 == 0) times[i] = 0xFFFFFFFA + i % 6;
-        modes[i] = i % 31 == 0 ? 6 : (i % 37 == 0 ? 5 : (i % 41 == 0 ? 4 : 1));
-        colors[i] = i % 5 == 0 ? (i * 7919) & 0xFFFFFF : 0xFFFFFF;
-        contents[i] = samples[i % samples.length()];
-        if (scenario == 0 && contents[i].empty()) contents[i] = "弹幕内容";
-        if (scenario > 0 && i % 17 == 0) contents[i] = longText;
-        if (scenario > 0 && i % 19 == 0) contents[i] = cacheBoundary;
-        if (scenario > 0 && i % 23 == 0) contents[i] = cacheBoundary + "中";
-        if (i % 13 == 0) mergeCounts[i] = i % 999 + 2;
-        renderIndices[i] = scenario == 2 ? count - i - 1 : i;
-        order[i] = (uint64(times[i]) << 32) | uint64(i);
-    }
-    array<uint> scrollStart(lanes, 0), reverseStart(lanes, 0), topReady(lanes, 0), bottomReady(lanes, 0);
-    array<double> scrollEntryDelay(lanes, 0), reverseEntryDelay(lanes, 0);
-    array<bool> scrollUsed(lanes, false), reverseUsed(lanes, false);
-    uint heartbeat = HostGetTickCount(), started = heartbeat;
-'''
-        for label, text in [('Old', original), ('New', source)]:
-            start = text.index('    uint renderLength = processExtra ?')
-            end = text.index('    ass += chunk;', start) + len('    ass += chunk;')
-            block = text[start:end] + '\n'
-            script += render_case.replace('LABEL', label) + block
-            script += '    if (measure) HostPrintUTF8("[benchmark] render=' + label + ' comments=" + count + " render_ms=" + (HostGetTickCount() - started) + " ass_bytes=" + ass.length());\n'
-            script += '    return ass;\n}\n'
-        script += r'''
+        if "BiliDanmakuPlace" not in original:
+            parser.error("ASS selection intentionally differs; use geometric regression, or supply a capacity-layout baseline")
+        previous_render = original[original.index("    uint mergeWindowMs ="):original.index("string getFixedURL(")]
+        previous_sort = original[original.index("void SortDanmakuOrder("):original.index("string BuildDanmakuAss(")]
+        previous_sort = previous_sort.replace("SortDanmakuOrder(", "SortDanmakuOrderBaseline(")
+        previous = previous_sort + layout_script(original, previous_render).replace("SortDanmakuOrder(", "SortDanmakuOrderBaseline(")
+        previous = previous.replace("LayoutCase(", "LayoutCaseBaseline(").replace("CheckLayout()", "CheckLayoutBaseline()").replace("BenchmarkLayout()", "BenchmarkLayoutBaseline()")
+        script += previous + r'''
 void CheckRenderBaseline() {
-    ConfigData.debug = false;
-    for (uint scenario = 0; scenario < 6; scenario++) {
-        for (int effect = 0; effect <= 4; effect++) {
-            uint count = scenario == 0 ? 0 : 513;
-            Assert(RenderCaseOld(count, scenario, effect, false) == RenderCaseNew(count, scenario, effect, false),
-                   "ASS bytes equal: all modes/effects, density, UTF-8, escapes, NUL, long/empty text, merge suffix, time wrap");
-        }
+    for(uint scenario=0;scenario<=14;scenario++) {
+        if(scenario==8)continue;
+        uint count=scenario>=10?5:(scenario==9?3:(scenario==0?12:(scenario==3?9:(scenario==4||scenario==5?200:(scenario==6?3:2)))));
+        SetHostFault(0);string expected=LayoutCaseBaseline(count,scenario);
+        SetHostFault(0);string actual=LayoutCase(count,scenario);
+        Assert(actual==expected,"post-pakku ASS bytes match saved baseline");
     }
-    Assert(RenderCaseOld(1, 0, 2, false) == RenderCaseNew(1, 0, 2, false), "single comment ASS bytes equal");
-    string expected = RenderCaseOld(63286, 0, 2, true);
-    string actual = RenderCaseNew(63286, 0, 2, true);
-    Assert(actual == expected, "63286 comments ASS output is byte-identical");
-    HostPrintUTF8("[benchmark] ASS byte comparison PASS");
-    ConfigData.danmakuFontEffect = 0; ConfigData.debug = true;
+    for(uint scenario=16;scenario<=26;scenario++) {
+        if(scenario==17)continue;
+        uint count=scenario==16?201:(scenario==18||scenario==23?200:(scenario==22?9:(scenario==24?24:(scenario==25?46:(scenario==26?52:3)))));
+        SetHostFault(0);string expected=LayoutCaseBaseline(count,scenario);
+        SetHostFault(0);string actual=LayoutCase(count,scenario);
+        Assert(actual==expected,"overflow, priority and shrink ASS bytes match saved baseline");
+    }
+    ConfigData.danmakuFontEffect=0;ConfigData.danmakuAutoShrink=false;ConfigData.danmakuEnlarge=false;SetHostFault(0);
 }
 '''
         script = script.replace('    CheckRender();', '    CheckRender();\n    CheckRenderBaseline();')
@@ -370,8 +392,8 @@ void CheckRenderBaseline() {
             script += '    SetHostFault(0); failAfter = -1; launches = 0;\n'
             script += '    segmentPayload = ReadTestFile(' + json.dumps(str(fixture), ensure_ascii=False) + ');\n'
             script += '''    string aid="TEST_AID", cid="TEST_CID"; uint duration=1800000;
-    array<uint> times, modes, colors; array<string> contents, midHashes; array<uint64> order;
-    uint started = HostGetTickCount();
+    array<uint> times, modes, colors, weights; array<string> contents, midHashes; array<uint64> order;
+    uint started = HostGetTickCount(), totalStart = started;
 '''
             script += loop
             script += '    uint elapsed = HostGetTickCount() - started;\n'
@@ -384,7 +406,9 @@ void CheckRenderBaseline() {
     if args.benchmark:
         script = script.replace("void Run() {", "void RunRegression() {") + r'''
 void Run() {
+    RunRegression();
     BenchmarkSort();
+    BenchmarkLayout();
     SetHostFault(0); failAfter = -1; launches = 0;
     const uint count = 73250;
     array<string> text(count, "这段剧情接下来会怎样呢"), hashes(count, "ok");
@@ -404,7 +428,17 @@ void Run() {
         if args.baseline_script:
             script = script.replace('    BenchmarkSort();', '    BenchmarkPipelineOld();\n    BenchmarkPipelineNew();\n    BenchmarkSort();')
         if args.render_baseline:
-            script = script.replace('    BenchmarkSort();', '    CheckRenderBaseline();\n    BenchmarkSort();')
+            script += r'''
+void BenchmarkRenderComparison() {
+    for(uint trial=0;trial<3;trial++) {
+        SetHostFault(0);uint start=HostGetTickCount();string expected=LayoutCaseBaseline(73250,8);uint middle=HostGetTickCount();
+        SetHostFault(0);string actual=LayoutCase(73250,8);uint finished=HostGetTickCount();
+        Assert(actual==expected,"large ASS bytes match saved baseline");
+        HostPrintUTF8("[benchmark] render_trial="+trial+" comments=73250 old_ms="+(middle-start)+" new_ms="+(finished-middle)+" bytes="+actual.length());
+    }
+}
+'''
+            script = script.replace('    BenchmarkSort();', '    BenchmarkRenderComparison();\n    BenchmarkSort();')
     output = ROOT / "build/integration"
     output.mkdir(parents=True, exist_ok=True)
     script += metadata_script(REPO)
@@ -440,6 +474,8 @@ void Run() {
         raise SystemExit(tested.returncode)
     print(f"Actual log cases: {len(entries)}; PotPlayer Host* implementations still need manual verification.")
     verify_chat_scripts(REPO)
+    verify_native()
+    verify_ass()
 
 
 if __name__ == "__main__":

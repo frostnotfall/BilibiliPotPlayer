@@ -1,4 +1,4 @@
-/*
+﻿/*
 	Bilibili media parse
 	author: frostnotfall
 	link: https://github.com/frostnotfall/BilibiliPotPlayer
@@ -95,7 +95,7 @@ string GetTitle() {
 }
 
 string GetVersion() {
-	return "3.7.41";
+	return "3.7.42";
 }
 
 string GetDesc() {
@@ -300,6 +300,9 @@ class Config {
     bool danmakuBlockBottom = false;
     bool danmakuBlockColor = false;
     bool danmakuMergeSame = false;
+    bool danmakuEnlarge = false;
+    bool danmakuAutoShrink = false;
+    bool danmakuAutoSelect = true;
     bool danmakuBlockRepeatedUser = false;
     bool danmakuEnableCloudBlockList = false;
     array<int> danmakuBlockRuleTypes;
@@ -330,7 +333,7 @@ class Config {
 	bool parseM3u8RealUrl = true;
 	bool parseM3u8RealUrlFastMode = true;
 	array<string> m3u8RedirectDomains;
-	bool liveChatUrlUseWebPage = false;
+	bool liveChatUrlUseWebPage = true;
 	bool useBilibiliDanmuji = false;
 	string bilibiliDanmujiServer;
 	bool useKeyframe = false;
@@ -436,6 +439,15 @@ Config ReadConfigFile(string file) {
         if (danmaku["mergeSameDanmaku"].isBool()) {
             config.danmakuMergeSame = danmaku["mergeSameDanmaku"].asBool();
         }
+        if (danmaku["enlargeMergedDanmaku"].isBool()) {
+			config.danmakuEnlarge = danmaku["enlargeMergedDanmaku"].asBool();
+		}
+        if (danmaku["autoShrinkDanmaku"].isBool()) {
+			config.danmakuAutoShrink = danmaku["autoShrinkDanmaku"].asBool();
+		}
+        if (danmaku["autoSelectDanmaku"].isBool()) {
+			config.danmakuAutoSelect = danmaku["autoSelectDanmaku"].asBool();
+		}
         if (danmaku["blockRepeatedUserDanmaku"].isBool()) {
             config.danmakuBlockRepeatedUser = danmaku["blockRepeatedUserDanmaku"].asBool();
         }
@@ -1278,38 +1290,51 @@ bool isP2PCDN(const string&in url) {
 	return subdomain.find("302") >= 0;
 }
 
-array<dictionary> generateChapter(JsonValue&in skip, const string&in bvid, const float duration) {
+array<dictionary> generateChapter(JsonValue&in chapterData, const string&in bvid, const float duration, bool isPGC) {
 	array<dictionary> chapter;
-	if (skip.isObject()) {
+	if (isPGC && chapterData.isObject()) {
 		dictionary item;
-		if (skip["op"].isObject() && skip["op"]["end"].asInt() != 0) {
+		if (chapterData["op"].isObject() && chapterData["op"]["end"].asInt() != 0) {
 			item["title"] = "开场动画";
-			item["time"] = formatFloat(skip["op"]["start"].asFloat() * 1000, "", 32, 0);
+			item["time"] = formatFloat(chapterData["op"]["start"].asFloat() * 1000, "", 32, 0);
 			chapter.insertLast(item);
 
 			item["title"] = "正片";
-			item["time"] = formatFloat(skip["op"]["end"].asFloat() * 1000, "", 32, 0);
+			item["time"] = formatFloat(chapterData["op"]["end"].asFloat() * 1000, "", 32, 0);
 			chapter.insertLast(item);
 		}
-		if (skip["ed"].isObject() && skip["ed"]["start"].asInt() != 0 && skip["ed"]["end"].asInt() != 0) {
+		if (chapterData["ed"].isObject() && chapterData["ed"]["start"].asInt() != 0 && chapterData["ed"]["end"].asInt() != 0) {
 			item["title"] = "片尾";
-			item["time"] = formatFloat(skip["ed"]["start"].asFloat() * 1000, "", 32, 0);
+			item["time"] = formatFloat(chapterData["ed"]["start"].asFloat() * 1000, "", 32, 0);
 			chapter.insertLast(item);
 
-			if (skip["ed"]["end"].asFloat() * 1000 < duration) {
+			if (chapterData["ed"]["end"].asFloat() * 1000 < duration) {
 				item["title"] = "正片";
-				item["time"] = formatFloat(skip["ed"]["end"].asFloat() * 1000, "", 32, 0);
+				item["time"] = formatFloat(chapterData["ed"]["end"].asFloat() * 1000, "", 32, 0);
 				chapter.insertLast(item);
 			}
 		}
+	} else if (!isPGC && chapterData.isArray()) {
+		for (int i = 0; i < chapterData.size(); i++) {
+			JsonValue point = chapterData[i];
+			if (!point.isObject() || point["type"].asInt() != 2 || !point["from"].isNumeric() || !point["content"].isString()) continue;
+			float time = point["from"].asFloat() * 1000;
+			string title = point["content"].asString();
+			if (time < 0 || (duration > 0 && time >= duration) || title.empty()) continue;
+
+			dictionary item;
+			item["title"] = title;
+			item["time"] = formatFloat(time, "", 32, 0);
+			chapter.insertLast(item);
+		}
 	}
 
-	if (ConfigData.enableSponsorBlock) chapter = generateSponsorBlockChapter(bvid, chapter, duration);
+	if (ConfigData.enableSponsorBlock) chapter = generateSponsorBlockChapter(bvid, chapter, duration, isPGC);
 
 	return chapter;
 }
 
-array<dictionary> generateSponsorBlockChapter(const string&in bvid, const array<dictionary>&in chapter, const float duration) {
+array<dictionary> generateSponsorBlockChapter(const string&in bvid, const array<dictionary>&in chapter, const float duration, bool isPGC) {
 	status = 6;
 	array<dictionary> result;
 
@@ -1662,7 +1687,8 @@ array<dictionary> generateSponsorBlockChapter(const string&in bvid, const array<
 			}
 		}
 
-		if (selectedChapter >= 0) {
+		// PGC 原生章节优先；UGC 在空降区间内优先显示空降分类。
+		if (isPGC && selectedChapter >= 0) {
 			string chapterTitle = chapterTitles[selectedChapter];
 			if (chapterTitle != "正片") currentTitle = chapterTitle;
 		}
@@ -1779,7 +1805,7 @@ array<dictionary> generateSubtitle(const string&in aid, const string&in cid, con
 			status = 9;
 			string danmuAss = BuildDanmakuAss(aid, cid, duration);
 			if (danmuAss.isEmpty()) {
-				HostMessageBox('弹幕生成失败，请将配置文件中的"debug"设为true后查看日志。\n使用内置正则屏蔽时，并将BilibiliRegex.dll放入Extension\\Lib目录。\n也可在配置文件的"danmaku" - "server"中指定可用的弹幕源。', "BilibiliPotPlayer", 0, 0);
+				HostMessageBox('弹幕生成失败，请将配置文件中的"debug"设为true后查看日志。\n请同步更新Extension\\Lib目录下的BilibiliRegex.dll。\n也可在配置文件的"danmaku" - "server"中指定可用的弹幕源。', "BilibiliPotPlayer", 0, 0);
 			}
 			dic["fileContent"] = danmuAss;
 		}
@@ -1991,6 +2017,9 @@ class DanmakuRegexDll {
     private uintptr errorProc = 0, errorCodeProc = 0;
     private uintptr createSetProc = 0, setRuleProc = 0, freeSetProc = 0, errorRuleProc = 0;
     private uintptr ruleSet = 0;
+    private uintptr merger = 0, mergeFeedProc = 0, mergeTextProc = 0, mergeFreeProc = 0;
+    private uintptr prepareProc = 0, densityProc = 0, layoutInitProc = 0, placeProc = 0, refineTopProc = 0;
+    private uintptr measureProc = 0;
     private array<uint64> handles;
     private array<string> patterns;
 
@@ -2000,6 +2029,8 @@ class DanmakuRegexDll {
     }
 
     void Close() {
+        if (merger != 0) HostCallProcInt(mergeFreeProc, "P", merger);
+        merger = 0;
         if (ruleSet != 0) HostCallProcInt(freeSetProc, "P", ruleSet);
         ruleSet = 0;
         for (uint i = 0; i < handles.length(); i++) {
@@ -2008,6 +2039,59 @@ class DanmakuRegexDll {
         handles.resize(0);
         if (library != 0) HostFreeLibrary(library);
         library = 0;
+    }
+
+    bool InitializeMerge(uint windowMs, const string &in font, bool bold) {
+        library = HostLoadLibrary(HostGetExtensionFolder() + "Lib\\BilibiliRegex.dll");
+        if (library == 0) return false;
+        uintptr create = HostGetProcAddress(library, "BiliDanmakuCreate");
+        mergeFeedProc = HostGetProcAddress(library, "BiliDanmakuFeed");
+        mergeTextProc = HostGetProcAddress(library, "BiliDanmakuText");
+        mergeFreeProc = HostGetProcAddress(library, "BiliDanmakuFree");
+        prepareProc = HostGetProcAddress(library, "BiliDanmakuPrepare");
+        densityProc = HostGetProcAddress(library, "BiliDanmakuCommit");
+        layoutInitProc = HostGetProcAddress(library, "BiliDanmakuLayoutInit");
+        placeProc = HostGetProcAddress(library, "BiliDanmakuPlace");
+        refineTopProc = HostGetProcAddress(library, "BiliDanmakuRefineTop");
+        uintptr fontProc = HostGetProcAddress(library, "BiliDanmakuFont");
+        measureProc = HostGetProcAddress(library, "BiliDanmakuMeasure");
+        if (create == 0 || mergeFeedProc == 0 || mergeTextProc == 0 || mergeFreeProc == 0 || prepareProc == 0 || densityProc == 0 || layoutInitProc == 0 || placeProc == 0 || refineTopProc == 0 || fontProc == 0 || measureProc == 0) return false;
+        merger = HostCallProcUIntPtr(create, "I", windowMs);
+        return merger != 0 && HostCallProcInt(fontProc, "PPII", merger, HostString2UIntPtr(font), font.length(), bold ? 1 : 0) == 0;
+    }
+
+    int Merge(const string &in text, uint progress) {
+        return HostCallProcInt(mergeFeedProc, "PPII", merger, HostString2UIntPtr(text), text.length(), progress);
+    }
+
+    string MergedText(uint group) {
+        uintptr text = HostCallProcUIntPtr(mergeTextProc, "PI", merger, group);
+        return text == 0 ? "" : HostUIntPtr2String(text);
+    }
+
+    int Prepare(const string &in text, uint progress, uint packed, uint peers) {
+        return HostCallProcInt(prepareProc, "PPIIII", merger, HostString2UIntPtr(text), text.length(), progress, packed, peers);
+    }
+
+    int CommitSize() {
+        return HostCallProcInt(densityProc, "P", merger);
+    }
+
+    bool InitLayout(uint area, uint pitch, uint durationMs) {
+        return HostCallProcInt(layoutInitProc, "PIII", merger, area, pitch, durationMs) == 0;
+    }
+
+    uint64 Place(uint progress, uint mode, uint width, uint height) {
+        return uint64(HostCallProcUIntPtr(placeProc, "PIIII", merger, progress, mode, width, height));
+    }
+
+    uint64 RefineTop(uint progress, uint64 placement) {
+        uint64 code = placement - 1;
+        return uint64(HostCallProcUIntPtr(refineTopProc, "PIII", merger, progress, uint(code >> 32), uint(code & 0xFFFFFFFF)));
+    }
+
+    int Measure(const string &in text, uint size) {
+        return HostCallProcInt(measureProc, "PPII", merger, HostString2UIntPtr(text), text.length(), size);
     }
 
     string LastError() const {
@@ -2086,6 +2170,20 @@ class DanmakuRegexDll {
         return result;
     }
 
+    int TestCached(const string &in content, dictionary &inout results) const {
+        if (ruleSet == 0) return 0;
+        int result = 0;
+        bool cacheable = content.length() <= 384;
+        if (cacheable && results.get(content, result)) return result;
+        result = Test(content);
+        // 只缓存成功的匹配/不匹配；每个工作线程独立持有，错误仍立即终止。
+        if (cacheable && result >= 0) {
+            if (results.getSize() >= 4096) results.deleteAll();
+            results.set(content, result);
+        }
+        return result;
+    }
+
     void ReportMatchError(int code, const string &in context, uint progress, uint bytes) const {
         int index = code == -1000 ? -1 : HostCallProcInt(errorRuleProc, "");
         string error = code == -1000 ? "PotPlayer HostCallProcInt调用异常" : LastError();
@@ -2098,12 +2196,22 @@ class DanmakuRegexDll {
 void SortDanmakuOrder(array<uint64> &inout order) {
     uint count = order.length();
     if (count < 2) return;
+    // 普通候选优先级经常已经有序，避免分配归并缓冲区和重复排序。
+    uint heartbeat = HostGetTickCount();
+    bool sorted = true;
+    for (uint i = 1; i < count; i++) {
+        if (order[i - 1] > order[i]) { sorted = false; break; }
+        if ((i & 4095) == 0) {
+            uint now = HostGetTickCount();
+            if (now != heartbeat) { HostIncTimeOut(int(now - heartbeat)); heartbeat = now; }
+        }
+    }
+    if (sorted) return;
     // 官方SDK的基础类型sortAsc使用插入排序；显式归并保证最坏O(n log n)。
     // 保留完整的“毫秒时间<<32 | 原始索引”比较，时间相同的条目顺序不变。
     array<uint64> buffer(count);
     array<uint64>@ source = @order;
     array<uint64>@ target = @buffer;
-    uint heartbeat = HostGetTickCount();
     for (uint width = 1; width < count;) {
         uint left = 0;
         while (left < count) {
@@ -2138,6 +2246,7 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
     string font = ConfigData.danmakuFont.empty() ? "微软雅黑 Light" : ConfigData.danmakuFont;
     int fontSize = int(ConfigData.danmakuFontSize);
     if (fontSize <= 0) fontSize = 24;
+    if (fontSize > 200) fontSize = 200;
 
     double opacity = ConfigData.danmakuOpacity, area = ConfigData.danmakuDisplayArea, stay = ConfigData.danmakuStayTime;
     if (opacity < 0) opacity = 0; else if (opacity > 1) opacity = 1;
@@ -2146,7 +2255,8 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
 
     uint alpha = uint((1 - opacity) * 255 + 0.5);
     string alphaHex = hex.substr(alpha >> 4, 1) + hex.substr(alpha & 15, 1);
-    uint laneHeight = uint(fontSize) + 4;
+    // 按像素搜索空位；实际占用高度仍按最终字号加原有 4 像素行距计算。
+    uint laneHeight = 1;
     uint lanes = uint(1080 * area) / laneHeight;
     if (lanes == 0) lanes = 1;
 
@@ -2191,10 +2301,7 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
         if (cloudThread < 0) return "";
     }
 
-    array<double> scrollEntryDelay(lanes, 0), reverseEntryDelay(lanes, 0);
-    array<uint> scrollStart(lanes, 0), reverseStart(lanes, 0), topReady(lanes, 0), bottomReady(lanes, 0);
-    array<bool> scrollUsed(lanes, false), reverseUsed(lanes, false);
-    array<uint> times, modes, colors;
+    array<uint> times, modes, colors, weights;
     array<string> contents, midHashes;
     array<uint64> order;
 
@@ -2214,47 +2321,33 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
         (ConfigData.danmakuBlockBottom ? 2 : 0) | (ConfigData.danmakuBlockColor ? 4 : 0);
     uint heartbeat = HostGetTickCount();
 
+    uint collectedCapacity = 0;
+    array<dictionary@> downloaded(totalSegments);
     for (uint segment = 1; segment <= totalSegments + concurrent; segment++) {
+        uint slot = segment - 1;
         if (segment > concurrent) {
-            uint completed = segment - concurrent;
-            uint slot = (completed - 1) % concurrent;
-            while (!HostWaitThread(threads[slot], 10)) HostIncTimeOut(10);
-
-            bool ok = false;
-            array<uint>@ segTimes;
-            array<uint>@ segModes;
-            array<uint>@ segColors;
-            array<string>@ segContents;
-            array<string>@ segHashes;
-            if (!tasks[slot].get("ok", ok) || !ok ||
-                !tasks[slot].get("times", @segTimes) || !tasks[slot].get("modes", @segModes) ||
-                !tasks[slot].get("colors", @segColors) || !tasks[slot].get("contents", @segContents) ||
-                !tasks[slot].get("hashes", @segHashes) || segTimes is null || segModes is null ||
-                segColors is null || segContents is null || segHashes is null) return "";
-
-            uint firstIndex = contents.length(), partCount = segTimes.length();
-            if (segModes.length() != partCount || segColors.length() != partCount ||
-                segContents.length() != partCount || segHashes.length() != partCount) return "";
-            // 每段一次扩容，避免每条弹幕重复执行追加和容量检查。
-            uint nextSize = firstIndex + partCount;
-            times.resize(nextSize); modes.resize(nextSize); colors.resize(nextSize);
-            contents.resize(nextSize); midHashes.resize(nextSize); order.resize(nextSize);
-            for (uint j = 0; j < partCount; j++) {
-                uint index = firstIndex + j, progress = segTimes[j];
-                times[index] = progress; modes[index] = segModes[j]; colors[index] = segColors[j];
-                contents[index] = segContents[j]; midHashes[index] = segHashes[j];
-                order[index] = (uint64(progress) << 32) | uint64(index);
-                if ((j & 1023) == 0) {
-                    uint now = HostGetTickCount();
-                    if (now != heartbeat) { HostIncTimeOut(int(now - heartbeat)); heartbeat = now; }
+            // 任一任务完成就复用槽位；不让慢分段阻止后续下载。
+            slot = concurrent;
+            while (slot == concurrent) {
+                for (uint w = 0; w < concurrent; w++) {
+                    if (threads[w] >= 0 && HostWaitThread(threads[w], 0)) { slot = w; break; }
+                }
+                if (slot != concurrent) break;
+                for (uint w = 0; w < concurrent; w++) {
+                    if (threads[w] < 0) continue;
+                    if (HostWaitThread(threads[w], 10)) slot = w;
+                    else HostIncTimeOut(10);
+                    break;
                 }
             }
+            int64 completed = 0;
+            if (!tasks[slot].get("segment", completed) || completed < 1 || completed > int64(totalSegments)) return "";
+            @downloaded[uint(completed) - 1] = tasks[slot];
             @tasks[slot] = null;
             threads[slot] = -1;
         }
 
         if (segment > totalSegments) continue;
-        uint slot = (segment - 1) % concurrent;
         @tasks[slot] = dictionary();
         tasks[slot].set("aid", aid);
         tasks[slot].set("cid", cid);
@@ -2263,11 +2356,13 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
         array<uint>@ segTimes = array<uint>();
         array<uint>@ segModes = array<uint>();
         array<uint>@ segColors = array<uint>();
+        array<uint>@ segWeights = array<uint>();
         array<string>@ segContents = array<string>();
         array<string>@ segHashes = array<string>();
         tasks[slot].set("times", @segTimes);
         tasks[slot].set("modes", @segModes);
         tasks[slot].set("colors", @segColors);
+        tasks[slot].set("weights", @segWeights);
         tasks[slot].set("contents", @segContents);
         tasks[slot].set("hashes", @segHashes);
 
@@ -2277,14 +2372,14 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
 
             string taskAid, taskCid;
             int64 segmentIndex = 0, mask = 0;
-            array<uint>@ partTimes, partModes, partColors;
+            array<uint>@ partTimes, partModes, partColors, partWeights;
             array<string>@ partContents, partHashes;
             if (!task.get("aid", taskAid) || !task.get("cid", taskCid) ||
                 !task.get("segment", segmentIndex) || !task.get("mask", mask) ||
                 !task.get("times", @partTimes) || !task.get("modes", @partModes) ||
-                !task.get("colors", @partColors) || !task.get("contents", @partContents) ||
+                !task.get("colors", @partColors) || !task.get("weights", @partWeights) || !task.get("contents", @partContents) ||
                 !task.get("hashes", @partHashes) || partTimes is null || partModes is null ||
-                partColors is null || partContents is null || partHashes is null) return;
+                partColors is null || partWeights is null || partContents is null || partHashes is null) return;
 
             string param = "type=1&oid=" + taskCid + "&pid=" + taskAid + "&segment_index=" + formatInt(segmentIndex) + "&web_location=1315873";
             string data = apiPost("/x/v2/dm/wbi/web/seg.so?" + encWbi(param), true, true);
@@ -2292,6 +2387,7 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
 
             uint pos = 0, dataSize = data.length(), workerHeartbeat = HostGetTickCount(), scanned = 0;
             uint flags = uint(mask);
+            uint partCapacity = 0;
             while (pos < dataSize) {
                 if ((++scanned & 1023) == 0) {
                     uint now = HostGetTickCount();
@@ -2333,7 +2429,7 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
                 uint end = pos + uint(length);
                 if (field != 1) { pos = end; continue; }
 
-                uint progress = 0, mode = 1, color = 0xFFFFFF;
+                uint progress = 0, mode = 1, color = 0xFFFFFF, weight = 1;
                 string content, midHash;
                 while (pos < end) {
                     uint64 innerTag = 0, value = 0;
@@ -2362,6 +2458,7 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
                             if (innerField == 2) progress = uint(value);
                             else if (innerField == 3) mode = uint(value);
                             else if (innerField == 5) color = uint(value) & 0xFFFFFF;
+                            else if (innerField == 9) weight = value < 1 ? 1 : (value > 11 ? 11 : uint(value));
                         }
                     } else if (innerWire == 1 || innerWire == 5) {
                         uint size = innerWire == 1 ? 8 : 4;
@@ -2375,7 +2472,14 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
                 if ((flags & 2) != 0 && mode == 4) continue;
                 if ((flags & 4) != 0 && color != 0xFFFFFF) continue;
 
+                // SDK数组不会自动倍增容量；显式扩容避免逐条复制整个分段。
+                if (partTimes.length() == partCapacity) {
+                    partCapacity = partCapacity == 0 ? 256 : partCapacity * 2;
+                    partTimes.reserve(partCapacity); partModes.reserve(partCapacity); partColors.reserve(partCapacity);
+                    partWeights.reserve(partCapacity); partContents.reserve(partCapacity); partHashes.reserve(partCapacity);
+                }
                 partTimes.insertLast(progress); partModes.insertLast(mode); partColors.insertLast(color);
+                partWeights.insertLast(weight);
                 partContents.insertLast(content); partHashes.insertLast(midHash);
             }
             task.set("ok", true);
@@ -2383,6 +2487,50 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
 
         if (threads[slot] < 0) return "";
     }
+
+    // 完成顺序可以不同；原始索引仍按分段和段内顺序分配。
+    for (uint completed = 1; completed <= totalSegments; completed++) {
+        bool ok = false;
+        array<uint>@ segTimes;
+        array<uint>@ segModes;
+        array<uint>@ segColors;
+        array<uint>@ segWeights;
+        array<string>@ segContents;
+        array<string>@ segHashes;
+        if (!downloaded[completed - 1].get("ok", ok) || !ok ||
+            !downloaded[completed - 1].get("times", @segTimes) || !downloaded[completed - 1].get("modes", @segModes) ||
+            !downloaded[completed - 1].get("colors", @segColors) || !downloaded[completed - 1].get("weights", @segWeights) || !downloaded[completed - 1].get("contents", @segContents) ||
+            !downloaded[completed - 1].get("hashes", @segHashes) || segTimes is null || segModes is null ||
+            segColors is null || segWeights is null || segContents is null || segHashes is null) return "";
+
+        uint firstIndex = contents.length(), partCount = segTimes.length();
+        if (segModes.length() != partCount || segColors.length() != partCount || segWeights.length() != partCount ||
+            segContents.length() != partCount || segHashes.length() != partCount) return "";
+        // 每段一次扩容，避免每条弹幕重复执行追加和容量检查。
+        uint nextSize = firstIndex + partCount;
+        if (nextSize > collectedCapacity) {
+            collectedCapacity = nextSize > collectedCapacity * 2 ? nextSize : collectedCapacity * 2;
+            times.reserve(collectedCapacity); modes.reserve(collectedCapacity); colors.reserve(collectedCapacity);
+            weights.reserve(collectedCapacity); contents.reserve(collectedCapacity); midHashes.reserve(collectedCapacity);
+            order.reserve(collectedCapacity);
+        }
+        times.resize(nextSize); modes.resize(nextSize); colors.resize(nextSize); weights.resize(nextSize);
+        contents.resize(nextSize); midHashes.resize(nextSize); order.resize(nextSize);
+        for (uint j = 0; j < partCount; j++) {
+            uint index = firstIndex + j, progress = segTimes[j];
+            times[index] = progress; modes[index] = segModes[j]; colors[index] = segColors[j];
+            weights[index] = segWeights[j];
+            contents[index] = segContents[j]; midHashes[index] = segHashes[j];
+            order[index] = (uint64(progress) << 32) | uint64(index);
+            if ((j & 1023) == 0) {
+                uint now = HostGetTickCount();
+                if (now != heartbeat) { HostIncTimeOut(int(now - heartbeat)); heartbeat = now; }
+            }
+        }
+        @downloaded[completed - 1] = null;
+    }
+    uint fetchMs = HostGetTickCount() - totalStart;
+    uint cloudStart = HostGetTickCount();
 
     if (cloudThread >= 0) {
         while (!HostWaitThread(cloudThread, 10)) HostIncTimeOut(10);
@@ -2418,16 +2566,20 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
         }
     }
 
+    uint cloudMs = HostGetTickCount() - cloudStart;
+    uint sortStart = HostGetTickCount();
     if (order.length() > 10000) HostIncTimeOut(10000);
     SortDanmakuOrder(order);
 
+    uint sortMs = HostGetTickCount() - sortStart;
+    uint filterStart = HostGetTickCount();
     string regexContext = "aid=" + aid + " cid=" + cid;
     bool processRules = !blockRuleTypes.empty();
     bool processRepeatedUser = ConfigData.danmakuBlockRepeatedUser;
     bool processMerge = ConfigData.danmakuMergeSame;
-    bool processExtra = processRules || processRepeatedUser || processMerge;
-    array<uint> renderIndices, mergeCounts;
-    dictionary seenUser, mergeGroup;
+    array<uint> renderIndices, mergeCounts, mergeWeights, mergeModes;
+    array<string> mergeTexts;
+    dictionary seenUser;
     array<string> plainFilters, regexFilters, hashFilters;
 
     if (processRules) {
@@ -2491,7 +2643,7 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
                     localContents is null || localHashes is null || localPlain is null ||
                     localRegex is null || localHashRules is null || localFlags is null) return;
 
-                dictionary blockedHashes;
+                dictionary blockedHashes, regexResults;
                 for (uint r = 0; r < localHashRules.length(); r++) blockedHashes.set(localHashRules[r], true);
                 uint workerHeartbeat = HostGetTickCount();
                 for (uint item = uint(first); item < uint(last); item++) {
@@ -2505,7 +2657,7 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
                         }
                     }
                     if (!blocked) {
-                        int result = localRegex.Test(content);
+                        int result = localRegex.TestCached(content, regexResults);
                         if (result < 0) {
                             localRegex.ReportMatchError(result, context, localTimes[index], content.length());
                             task.set("regexFailed", true);
@@ -2547,7 +2699,7 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
         if (regexFailed) { regexDll.Close(); return ""; }
         if (!parallelOk) {
             string context = regexContext + " phase=fallback";
-            dictionary blockedHashes;
+            dictionary blockedHashes, regexResults;
             for (uint r = 0; r < hashFilters.length(); r++) blockedHashes.set(hashFilters[r], true);
             uint fallbackHeartbeat = HostGetTickCount();
             for (uint item = 0; item < order.length(); item++) {
@@ -2561,7 +2713,7 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
                     }
                 }
                 if (!blocked) {
-                    int result = regexDll.Test(content);
+                    int result = regexDll.TestCached(content, regexResults);
                     if (result < 0) {
                         regexDll.ReportMatchError(result, context, times[index], content.length());
                         regexDll.Close();
@@ -2579,55 +2731,66 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
     }
 
     regexDll.Close();
-    uint mergeWindowMs = uint(stay * 1000 + 0.5);
+    uint mergeWindowMs = 30000; // pakku默认窗口，按组首条计时，不因后续合并延长。
+    uint mergeStart = HostGetTickCount();
+    // 候选数量不超过输入条数，一次预留，合并仍只增加实际组数。
+    renderIndices.reserve(order.length()); mergeCounts.reserve(order.length());
+    mergeWeights.reserve(order.length()); mergeModes.reserve(order.length());
+    if (!order.empty() && !regexDll.InitializeMerge(mergeWindowMs, font, !boldEffect.empty())) {
+        log("[Danmaku] " + regexContext + " 请同步更新Extension\\Lib\\BilibiliRegex.dll，弹幕优选/相似合并接口不可用。");
+        regexDll.Close();
+        return "";
+    }
     heartbeat = HostGetTickCount();
-    if (processExtra) {
-        for (uint item = 0; item < order.length(); item++) {
-            if ((item & 511) == 0) {
-                uint now = HostGetTickCount();
-                if (now != heartbeat) { HostIncTimeOut(int(now - heartbeat)); heartbeat = now; }
-            }
-            if (blockedFlags[item] != 0) continue;
-            uint index = uint(order[item] & 0xFFFFFFFF);
-            uint progress = times[index];
-            uint mode = modes[index];
-            string content = contents[index];
-            string midHash = midHashes[index];
-            string key;
-            if (processRepeatedUser || processMerge) key = formatUInt(mode) + "|" + content;
-            if (processRepeatedUser && !midHash.empty()) {
-                string userKey = midHash + "|" + key;
-                if (seenUser.exists(userKey)) continue;
-                seenUser.set(userKey, true);
-            }
-            if (processMerge) {
-                int64 groupIndex = -1;
-                if (mergeGroup.get(key, groupIndex)) {
-                    uint firstProgress = times[renderIndices[uint(groupIndex)]];
-                    if (progress >= firstProgress && progress - firstProgress <= mergeWindowMs) {
-                        mergeCounts[uint(groupIndex)]++;
-                        continue;
-                    }
-                }
-                uint newIndex = renderIndices.length();
-                renderIndices.insertLast(index);
-                mergeCounts.insertLast(1);
-                mergeGroup.set(key, int64(newIndex));
-            } else {
-                renderIndices.insertLast(index);
-                mergeCounts.insertLast(1);
+    for (uint item = 0; item < order.length(); item++) {
+        if ((item & 511) == 0) {
+            uint now = HostGetTickCount();
+            if (now != heartbeat) { HostIncTimeOut(int(now - heartbeat)); heartbeat = now; }
+        }
+        if (blockedFlags[item] != 0) continue;
+        uint index = uint(order[item] & 0xFFFFFFFF);
+        uint progress = times[index];
+        uint mode = modes[index];
+        string content = contents[index];
+        string midHash = midHashes[index];
+        string key;
+        if (processRepeatedUser) key = formatUInt(mode) + "|" + content;
+        if (processRepeatedUser && !midHash.empty()) {
+            string userKey = midHash + "|" + key;
+            if (seenUser.exists(userKey)) continue;
+            seenUser.set(userKey, true);
+        }
+        if (processMerge) {
+            int groupIndex = regexDll.Merge(content, progress);
+            if (groupIndex < 0) { regexDll.Close(); return ""; }
+            if (uint(groupIndex) < renderIndices.length()) {
+                uint group = uint(groupIndex);
+                mergeCounts[group]++;
+                if (weights[index] > mergeWeights[group]) mergeWeights[group] = weights[index];
+                if (mode == 4 || (mode == 5 && mergeModes[group] != 4)) mergeModes[group] = mode;
+                continue;
             }
         }
+        renderIndices.insertLast(index);
+        mergeCounts.insertLast(1);
+        mergeWeights.insertLast(weights[index]);
+        mergeModes.insertLast(mode);
+    }
+    mergeTexts.resize(processMerge ? renderIndices.length() : 0);
+    for (uint i = 0; i < renderIndices.length(); i++) {
+        uint weight = mergeWeights[i];
+        if (weight < 1) weight = 1; else if (weight > 11) weight = 11;
+        mergeWeights[i] = weight;
+        if (processMerge && mergeCounts[i] > 1) mergeTexts[i] = regexDll.MergedText(i);
     }
 
-
     uint renderStart = HostGetTickCount();
-    uint renderLength = processExtra ? renderIndices.length() : order.length();
+    uint mergeMs = renderStart - mergeStart;
+    uint renderLength = renderIndices.length();
+    uint renderedCount = 0, selectedOut = 0, fixedOut = 0;
     uint durationCs = uint(stay * 100 + 0.5);
     if (durationCs == 0) durationCs = 1;
-    double stayMs = stay * 1000;
-    string fontTag = "\\fs" + formatInt(fontSize) + "\\fn" + font + boldEffect + "\\q2}";
-    string textEffect, backgroundEffect;
+    string textEffect;
     bool backgroundLayer = ConfigData.danmakuFontEffect >= 3;
     if (ConfigData.danmakuFontEffect == 0 || ConfigData.danmakuFontEffect == 3) {
         textEffect = "\\bord0\\shad0\\blur0";
@@ -2636,41 +2799,52 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
     } else {
         textEffect = "\\bord" + ConfigData.danmakuOutlineWidth + "\\shad0\\3c&H000000&\\blur0";
     }
-    if (backgroundLayer) backgroundEffect = "\\alpha&H" + alphaHex + "&\\1c&H000000&\\bord0\\shad0\\blur" + ConfigData.danmakuBlurRadius + fontTag;
     string foregroundPrefix = "\\alpha&H" + alphaHex + "&\\1c&H";
-    string foregroundSuffix = "&\\fs" + formatInt(fontSize) + "\\fn" + font + boldEffect + textEffect + "\\q2}";
-    string whiteEffect = foregroundPrefix + "FFFFFF" + foregroundSuffix;
+    array<string> sizeForeground(4096), sizeWhite(4096), sizeBackground(4096);
+    // 顶部与滚动弹幕独立占用空间；顶部先排常规居中位置，满后寻找左右空位。
+    uint areaHeight = uint(1080 * area);
+    if (areaHeight < laneHeight) areaHeight = laneHeight;
 
     // 时间、颜色和轨道坐标在整批弹幕间复用，减少逐条格式化和临时字符串。
-    array<string> twoDigits(100), hexPairs(256), laneY(lanes), topPosition(lanes), bottomPosition(lanes);
+    array<string> twoDigits(100), hexPairs(256), laneY(lanes), bottomPosition(lanes);
     for (uint i = 0; i < 100; i++) twoDigits[i] = (i < 10 ? "0" : "") + formatUInt(i);
     for (uint i = 0; i < 256; i++) hexPairs[i] = hex.substr(i >> 4, 1) + hex.substr(i & 15, 1);
     for (uint i = 0; i < lanes; i++) {
         uint y = i * laneHeight;
         laneY[i] = formatInt(y);
-        topPosition[i] = "\\an8\\pos(960," + laneY[i] + ")";
         bottomPosition[i] = "\\an2\\pos(960," + formatInt(1080 - y) + ")";
     }
     // 超长文本继续直接计算，缓存大小只与轨道数和固定上限有关。
-    const uint cachedCharacters = 128;
-    array<string> scrollPosition((cachedCharacters + 1) * lanes), reversePosition((cachedCharacters + 1) * lanes);
+    const uint cachedWidths = 1024;
+    array<dictionary> scrollPosition(cachedWidths + 1), reversePosition(cachedWidths + 1);
     bool hasPreviousTime = false;
     uint previousTime = 0;
     string timePrefix;
 
-    string chunk;
+    array<uint> preparedSizes(renderLength, 0), preparedWidths(renderLength, 0), preparedSidePadding(renderLength, 0);
+    array<string> preparedTexts(renderLength);
+    array<uint64> priority(renderLength), placements(renderLength, 0);
     heartbeat = HostGetTickCount();
     for (uint item = 0; item < renderLength; item++) {
         if ((item & 511) == 0) {
             uint now = HostGetTickCount();
             if (now != heartbeat) { HostIncTimeOut(int(now - heartbeat)); heartbeat = now; }
         }
-        uint index = processExtra ? renderIndices[item] : uint(order[item] & 0xFFFFFFFF);
-        uint progress = times[index], mode = modes[index], color = colors[index];
+        uint index = renderIndices[item];
+        uint progress = times[index], mode = mergeModes[item], color = colors[index];
         string content = contents[index];
+        if (processMerge && !mergeTexts[item].empty()) content = mergeTexts[item];
         if (processMerge && mergeCounts[item] > 1) content += "(" + formatUInt(mergeCounts[item]) + ")";
+        priority[item] = (uint64(0xFFFFFFFF) << 32) | uint64(item);
+        if (content.empty()) continue;
+        uint packed = uint(fontSize) | (mergeWeights[item] << 12) |
+            (ConfigData.danmakuEnlarge ? 65536 : 0) | (ConfigData.danmakuAutoShrink ? 131072 : 0);
+        // 先按时间顺序完成字号处理；密度仅用于自动缩小，不删除弹幕。
+        int selectedSize = regexDll.Prepare(content, progress, packed, mergeCounts[item]);
+        if (selectedSize < 0) { regexDll.Close(); return ""; }
+        uint itemSize = uint(selectedSize);
 
-        // 一次扫描同时计算原文字符数并处理ASS特殊字符，保持原来的宽度计算。
+        // 一次扫描统计字符并转义；宽度由原生字体度量获得，避免按字数高估间距。
         uint characters = 0, begin = 0;
         string safeText;
         for (uint i = 0, n = content.length(); i < n; i++) {
@@ -2688,41 +2862,116 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
         if (begin == 0) safeText = content;
         else if (begin < content.length()) safeText += content.substr(begin);
 
-        uint width = characters * uint(fontSize), lane = lanes;
-        array<uint>@ lastStart = @scrollStart;
-        array<double>@ entryDelay = @scrollEntryDelay;
-        array<bool>@ used = @scrollUsed;
-        if (mode == 6) { @lastStart = @reverseStart; @entryDelay = @reverseEntryDelay; @used = @reverseUsed; }
-
-        double exitDelay = (mode == 1 || mode == 6) ? stayMs * double(width) / (1920 + double(width)) : 0;
-        uint fallbackLane = 0;
-        double shortestWait = 1.0e100;
-        for (uint i = 0; i < lanes; i++) {
-            if (mode == 5 || mode == 4) {
-                uint ready = mode == 5 ? topReady[i] : bottomReady[i];
-                if (ready <= progress) { lane = i; break; }
-                double wait = double(ready - progress);
+        int measuredWidth = regexDll.Measure(safeText, itemSize);
+        if (measuredWidth < 0) { regexDll.Close(); return ""; }
+        uint width = uint(measuredWidth);
+        uint padding = 1;
+        if (mode == 5) {
+            if (width < characters * itemSize) width = characters * itemSize;
+            if (ConfigData.danmakuFontEffect == 2 || ConfigData.danmakuFontEffect == 4) padding += uint(ConfigData.danmakuOutlineWidth + 0.99);
+        }
+        preparedSizes[item] = itemSize; preparedWidths[item] = width; preparedSidePadding[item] = padding;
+        preparedTexts[item] = safeText;
+        if (ConfigData.danmakuAutoShrink && regexDll.CommitSize() < 0) { regexDll.Close(); return ""; }
+        // 合并数量优先，数量相同按权重和原始时间顺序决定，不改变发送时间。
+        uint count = mergeCounts[item] > 0x0FFFFFFF ? 0x0FFFFFFF : mergeCounts[item];
+        uint rank = (count << 4) | mergeWeights[item];
+        priority[item] = (uint64(0xFFFFFFFF - rank) << 32) | uint64(item);
+    }
+    uint prepareMs = HostGetTickCount() - renderStart;
+    uint layoutStart = HostGetTickCount();
+    bool autoSelect = ConfigData.danmakuAutoSelect;
+    if (autoSelect) SortDanmakuOrder(priority);
+    if (autoSelect && renderLength > 0 && !regexDll.InitLayout(areaHeight, laneHeight, durationCs * 10)) { regexDll.Close(); return ""; }
+    // 关闭优选时按时间顺序沿用普通轨道排布；轨道满后复用最早可用轨道，保留全部候选。
+    uint regularPitch = uint(fontSize) + 4;
+    uint regularLanes = autoSelect ? 0 : areaHeight / regularPitch;
+    if (!autoSelect && regularLanes == 0) regularLanes = 1;
+    array<uint64> regularTopReady(regularLanes, 0), regularBottomReady(regularLanes, 0);
+    array<uint> regularScrollStart(regularLanes, 0), regularReverseStart(regularLanes, 0);
+    array<double> regularScrollDelay(regularLanes, 0), regularReverseDelay(regularLanes, 0);
+    array<bool> regularScrollUsed(regularLanes, false), regularReverseUsed(regularLanes, false);
+    // 字号及布局尺寸确定后，再按实际空间优选；先排合并弹幕，再填普通弹幕。
+    // 原生时间索引检查前后重叠区间，允许优先安排稍晚发送的合并弹幕。
+    for (uint pos = 0; pos < priority.length(); pos++) {
+        if ((pos & 511) == 0) {
+            uint now = HostGetTickCount();
+            if (now != heartbeat) { HostIncTimeOut(int(now - heartbeat)); heartbeat = now; }
+        }
+        uint item = uint(priority[pos] & 0xFFFFFFFF);
+        if (preparedSizes[item] == 0) continue;
+        uint index = renderIndices[item], mode = mergeModes[item];
+        uint progress = ((times[index] + 5) / 10) * 10;
+        // 保留原行距规则，所有模式均按最终字号 + 4 像素占用高度。
+        uint width = preparedWidths[item], height = preparedSizes[item] + 4;
+        if (mode == 5) width += preparedSidePadding[item] * 2;
+        if (autoSelect) {
+            placements[item] = regexDll.Place(progress, mode, width, height);
+            if (placements[item] == uint64(-1)) { regexDll.Close(); return ""; }
+        } else {
+            uint lane = regularLanes, fallbackLane = 0;
+            double shortestWait = 1.0e100;
+            array<uint>@ lastStart = mode == 6 ? @regularReverseStart : @regularScrollStart;
+            array<double>@ entryDelay = mode == 6 ? @regularReverseDelay : @regularScrollDelay;
+            array<bool>@ used = mode == 6 ? @regularReverseUsed : @regularScrollUsed;
+            double exitDelay = double(durationCs * 10) * double(width) / (1920 + double(width));
+            for (uint i = 0; i < regularLanes; i++) {
+                double wait;
+                if (mode == 5 || mode == 4) {
+                    uint64 ready = mode == 5 ? regularTopReady[i] : regularBottomReady[i];
+                    if (ready <= progress) { lane = i; break; }
+                    wait = double(ready - progress);
+                } else {
+                    uint elapsed = progress >= lastStart[i] ? progress - lastStart[i] : 0;
+                    double required = entryDelay[i] > exitDelay ? entryDelay[i] : exitDelay;
+                    if (!used[i] || double(elapsed) >= required) { lane = i; break; }
+                    wait = required - double(elapsed);
+                }
                 if (wait < shortestWait) { shortestWait = wait; fallbackLane = i; }
-                continue;
             }
-            uint elapsed = progress >= lastStart[i] ? progress - lastStart[i] : 0;
-            double required = entryDelay[i] > exitDelay ? entryDelay[i] : exitDelay;
-            if (!used[i] || double(elapsed) >= required) { lane = i; break; }
-            double wait = required - double(elapsed);
-            if (wait < shortestWait) { shortestWait = wait; fallbackLane = i; }
+            if (lane == regularLanes) lane = fallbackLane;
+            if (mode == 5) regularTopReady[lane] = uint64(progress) + durationCs * 10;
+            else if (mode == 4) regularBottomReady[lane] = uint64(progress) + durationCs * 10;
+            else { used[lane] = true; lastStart[lane] = progress; entryDelay[lane] = exitDelay; }
+            placements[item] = (uint64(960) << 32) | uint64(lane * regularPitch);
+            placements[item]++;
         }
-        if (lane == lanes) {
-
-            lane = fallbackLane;
+    }
+    uint layoutMs = HostGetTickCount() - layoutStart;
+    uint refineStart = HostGetTickCount();
+    // 全部容量优选完成后再调整顶部补位坐标，避免遗漏后排入的滚动弹幕。
+    // 保留居中区域；补位先用所有弹幕之外的空白，无空白时保留允许的滚动重叠。
+    for (uint pos = 0; autoSelect && pos < priority.length(); pos++) {
+        if ((pos & 511) == 0) {
+            uint now = HostGetTickCount();
+            if (now != heartbeat) { HostIncTimeOut(int(now - heartbeat)); heartbeat = now; }
         }
-
-        if (mode == 5) topReady[lane] = progress + durationCs * 10;
-        else if (mode == 4) bottomReady[lane] = progress + durationCs * 10;
-        else {
-            used[lane] = true;
-            lastStart[lane] = progress;
-            entryDelay[lane] = exitDelay;
+        uint item = uint(priority[pos] & 0xFFFFFFFF);
+        if (mergeModes[item] != 5 || placements[item] == 0) continue;
+        uint progress = ((times[renderIndices[item]] + 5) / 10) * 10;
+        placements[item] = regexDll.RefineTop(progress, placements[item]);
+        if (placements[item] == uint64(-1)) { regexDll.Close(); return ""; }
+    }
+    uint refineMs = HostGetTickCount() - refineStart;
+    uint assStart = HostGetTickCount();
+    string chunk;
+    for (uint item = 0; item < renderLength; item++) {
+        if ((item & 511) == 0) {
+            uint now = HostGetTickCount();
+            if (now != heartbeat) { HostIncTimeOut(int(now - heartbeat)); heartbeat = now; }
         }
+        if (preparedSizes[item] == 0) continue;
+        uint index = renderIndices[item];
+        uint mode = mergeModes[item];
+        uint color = colors[index];
+        if (placements[item] == 0) { selectedOut++; if (mode == 5) fixedOut++; continue; }
+        uint itemSize = preparedSizes[item], width = preparedWidths[item];
+        uint progress = ((times[index] + 5) / 10) * 10;
+        uint64 positionCode = placements[item] - 1;
+        uint y = uint(positionCode & 0xFFFFFFFF);
+        uint lane = y / laneHeight;
+        uint fixedX = uint(positionCode >> 32), fixedY = y;
+        string safeText = preparedTexts[item];
 
         uint start = (progress + 5) / 10;
         if (!hasPreviousTime || start != previousTime) {
@@ -2736,44 +2985,58 @@ string BuildDanmakuAss(const string &in aid, const string &in cid, uint duration
         }
 
         string position;
-        if (mode == 5) position = topPosition[lane];
+        if (mode == 5) position = "\\an8\\pos(" + formatUInt(fixedX) + "," + formatUInt(fixedY) + ")";
         else if (mode == 4) position = bottomPosition[lane];
         else {
-            uint cacheIndex = characters <= cachedCharacters ? characters * lanes + lane : 0;
-            if (characters <= cachedCharacters) position = mode == 6 ? reversePosition[cacheIndex] : scrollPosition[cacheIndex];
+            bool cacheable = width <= cachedWidths;
+            array<dictionary>@ positions = mode == 6 ? @reversePosition : @scrollPosition;
+            if (cacheable) {
+                positions[width].get(laneY[lane], position);
+            }
             if (position.empty()) {
                 uint right = 1920 + width / 2;
                 int left = -int(width / 2);
                 string leftX = formatInt(left), rightX = formatInt(right), y = laneY[lane];
                 if (mode == 6) position = "\\move(" + leftX + "," + y + "," + rightX + "," + y + ")";
                 else position = "\\move(" + rightX + "," + y + "," + leftX + "," + y + ")";
-                if (characters <= cachedCharacters) {
-                    if (mode == 6) reversePosition[cacheIndex] = position;
-                    else scrollPosition[cacheIndex] = position;
+                if (cacheable) {
+                    positions[width].set(laneY[lane], position);
                 }
             }
         }
 
+        if (sizeForeground[itemSize].empty()) {
+            string sizeTag = "\\fs" + formatUInt(itemSize) + "\\fn" + font + boldEffect;
+            sizeForeground[itemSize] = "&" + sizeTag + textEffect + "\\q2}";
+            sizeWhite[itemSize] = foregroundPrefix + "FFFFFF" + sizeForeground[itemSize];
+            if (backgroundLayer) sizeBackground[itemSize] = "\\alpha&H" + alphaHex + "&\\1c&H000000&\\bord0\\shad0\\blur" + ConfigData.danmakuBlurRadius + sizeTag + "\\q2}";
+        }
         if (backgroundLayer) {
             chunk += "Dialogue: 0,"; chunk += timePrefix; chunk += position;
-            chunk += backgroundEffect; chunk += safeText; chunk += "\r\n";
+            chunk += sizeBackground[itemSize]; chunk += safeText; chunk += "\r\n";
         }
         chunk += "Dialogue: 1,"; chunk += timePrefix; chunk += position;
-        if (color == 0xFFFFFF) chunk += whiteEffect;
+        if (color == 0xFFFFFF) chunk += sizeWhite[itemSize];
         else {
             chunk += foregroundPrefix;
             chunk += hexPairs[color & 255]; chunk += hexPairs[(color >> 8) & 255]; chunk += hexPairs[(color >> 16) & 255];
-            chunk += foregroundSuffix;
+            chunk += sizeForeground[itemSize];
         }
         chunk += safeText; chunk += "\r\n";
+        renderedCount++;
         if (chunk.length() >= 65536) { ass += chunk; chunk = ""; }
     }
     ass += chunk;
+    regexDll.Close();
 
     uint finished = HostGetTickCount();
     log("[Danmaku] aid=" + aid + " cid=" + cid + " comments=" + formatUInt(order.length()) +
-        " rendered=" + formatUInt(renderLength) + " total_ms=" + formatUInt(finished - totalStart) +
-        " render_ms=" + formatUInt(finished - renderStart));
+        " rendered=" + formatUInt(renderedCount) + " selected_out=" + formatUInt(selectedOut) + " top_full=" + formatUInt(fixedOut) + " total_ms=" + formatUInt(finished - totalStart) +
+        " render_ms=" + formatUInt(finished - renderStart) +
+        " fetch_ms=" + formatUInt(fetchMs) + " cloud_wait_ms=" + formatUInt(cloudMs) +
+        " sort_ms=" + formatUInt(sortMs) + " filter_ms=" + formatUInt(mergeStart - filterStart) +
+        " merge_ms=" + formatUInt(mergeMs) + " prepare_ms=" + formatUInt(prepareMs) +
+        " layout_ms=" + formatUInt(layoutMs) + " refine_ms=" + formatUInt(refineMs) + " ass_ms=" + formatUInt(finished - assStart));
     return ass;
 }
 
@@ -3913,7 +4176,7 @@ string Bangumi(const string&in path, dictionary& MetaData, array<dictionary>& Qu
 				if (!chatUrl.isEmpty()) MetaData["chatUrl"] = chatUrl;
 				if (!chatUrl.isEmpty() &&!chatScript.isEmpty()) MetaData["chatScript"] = chatScript;
 
-				array<dictionary> chapter = generateChapter(episode["skip"], bvid, float(duration));
+				array<dictionary> chapter = generateChapter(episode["skip"], bvid, float(duration), true);
 				if (!chapter.empty()) MetaData["chapter"] = chapter;
 
 				array<dictionary> subtitle = generateSubtitle(aid, cid, duration, true);
@@ -4042,6 +4305,12 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 	bool is_upower_preview = view["is_upower_preview"].asBool();
 	if (is_upower_exclusive) title = "【充电专属】\n" + title;
 
+	JsonValue playerInfo, viewPoints;
+	string playerResponse = post(Host + "/x/player/wbi/v2?" + encWbi("aid=" + aid + "&cid=" + cid), "", "", false);
+	if (reader.parse(playerResponse, playerInfo) && playerInfo.isObject() && playerInfo["code"].isNumeric() && playerInfo["code"].asInt() == 0 && playerInfo["data"].isObject()) {
+		viewPoints = playerInfo["data"]["view_points"];
+	}
+
 	if (@MetaData !is null) {
 		MetaData["vid"] = "bilibili.com|" + cid;
 		MetaData["title"] = title;
@@ -4060,7 +4329,7 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 		if (!chatUrl.isEmpty()) MetaData["chatUrl"] = chatUrl;
 		if (!chatUrl.isEmpty() && !chatScript.isEmpty()) MetaData["chatScript"] = chatScript;
 
-		array<dictionary> chapter = generateChapter(JsonValue(), bvid, float(duration));
+		array<dictionary> chapter = generateChapter(viewPoints, bvid, float(duration), false);
 		if (!chapter.empty()) MetaData["chapter"] = chapter;
 
 		array<dictionary> subtitle = generateSubtitle(aid, cid, duration, false);

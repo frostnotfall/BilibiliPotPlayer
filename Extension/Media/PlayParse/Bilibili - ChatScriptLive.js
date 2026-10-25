@@ -1,4 +1,4 @@
-// 版本：1.1.29
+// 版本：1.1.30
 
 (() => {
   'use strict';
@@ -592,6 +592,7 @@
 
   // 原生 PK 贡献榜直接挂在播放器下，不在业务注入层中。
   const pkRankFrame = '#live-player > iframe[src*="app_name=ranks_pro"]';
+  const toolbarPopups = '.common-popup-wrap:is(.danmakuPreference,.effectBlock,.blockSetting)';
   // 页面升级时，只需在这里补充新的弹出层根选择器。
   const popups = [
     pkRankFrame,
@@ -757,7 +758,11 @@
         margin: 0 !important; overflow: visible !important; z-index: auto !important;
       }
       /* 释放特效的父层限制；其他聊天模块仍在播放器业务层（20）下方。 */
-      & #aside-area-vm > :not(#gift-screen-animation-vm) { z-index: 10 !important; }
+      & #aside-area-vm > :not(#gift-screen-animation-vm) {
+        z-index: 10 !important;
+        /* 用户菜单沿用原生定位与显示逻辑，打开时仅释放聊天区的层叠限制。 */
+        &.chat-history-panel:has(> .danmaku-menu) { z-index: auto !important; }
+      }
       & #aside-area-vm > .chat-history-panel { z-index: 9 !important; }
       & #aside-area-vm > #chat-control-panel-vm { z-index: 11 !important; }
       & #aside-area-vm > #rank-list-vm { z-index: 12 !important; }
@@ -776,6 +781,8 @@
         flex: 1 1 0 !important; min-height: 0 !important;
         overflow: visible !important;
       }
+      /* 菜单延伸到礼物栏（60）时也可点击；不改原生位置、尺寸和交互。 */
+      & .chat-history-panel > .danmaku-menu { z-index: 61 !important; }
       & #chat-history-list { overflow: auto !important; overscroll-behavior: contain; }
       & #chat-items { overflow-wrap: anywhere; }
       & #gift-screen-animation-vm {
@@ -786,6 +793,11 @@
         position: fixed !important; margin: 0 !important;
         inset: var(--blc-popup-top) auto auto var(--blc-popup-left) !important;
         width: var(--blc-popup-width) !important; color: inherit;
+      }
+      /* 左侧菜单以工具栏上边缘为底边；内容加载后高度变化仍沿用原生向上展开。 */
+      & #chat-control-panel-vm ${toolbarPopups}[data-blc-top-popup] {
+        top: auto !important; bottom: calc(100dvh - var(--blc-popup-bottom-edge)) !important;
+        height: auto;
       }
       & #chat-control-panel-vm .like-btn[data-blc-top-popup] { border: 0; padding: 0; background-color: transparent; }
       & [data-blc-top-popup]::backdrop { background: transparent; pointer-events: none; }
@@ -1118,7 +1130,8 @@
   // 只修正越界距离，保留原生 transform（定位、过渡、动画）。
   const shifted = new Map();
   const raised = new Map();
-  const topPopups = `${pkRankFrame},#chat-control-panel-vm :is(.common-popup-wrap.emoticons,.common-popup-wrap.superChat,.like-btn .common-popup-wrap,.like-btn.not-clicked:hover)`;
+  // 左右两侧操作菜单共用顶层处理；保持原生 transform、transform-origin 与动画类。
+  const topPopups = `${pkRankFrame},#chat-control-panel-vm :is(${toolbarPopups},.common-popup-wrap.emoticons,.common-popup-wrap.superChat,.like-btn .common-popup-wrap,.like-btn.not-clicked:hover)`;
   function lowerPopup(el, saved) {
     try { el.hidePopover(); } catch {}
     el.removeAttribute('popover'); el.removeAttribute('data-blc-top-popup');
@@ -1154,7 +1167,9 @@
           width: css.width,
           left: Number.isFinite(left) ? left : rect.left - pixels(translate[0], rect.width),
           top: Number.isFinite(top) ? top : rect.top - pixels(translate[1], rect.height),
-          styles: ['--blc-popup-left', '--blc-popup-top', '--blc-popup-width'].map(name =>
+          bottomEdge: el.matches(toolbarPopups) && origin
+            ? origin.top + parent.clientTop + parent.clientHeight - parent.scrollTop - parseFloat(css.bottom) - parseFloat(css.marginBottom) : NaN,
+          styles: ['--blc-popup-left', '--blc-popup-top', '--blc-popup-width', '--blc-popup-bottom-edge'].map(name =>
             [name, el.style.getPropertyValue(name), el.style.getPropertyPriority(name)]),
         };
         el.style.setProperty('--blc-popup-width', css.width);
@@ -1164,12 +1179,17 @@
       }
       const anchor = saved.anchorEl.getBoundingClientRect();
       saved.left += anchor.left - saved.anchor.left; saved.top += anchor.bottom - saved.anchor.bottom;
+      saved.bottomEdge += anchor.bottom - saved.anchor.bottom;
       saved.anchor = anchor;
       const width = el.matches('.bottom-left') ? `${saved.anchorEl.clientWidth}px` : saved.width;
       if (el.style.getPropertyValue('--blc-popup-width') !== width) el.style.setProperty('--blc-popup-width', width);
       const left = `${saved.left}px`, top = `${saved.top}px`;
       if (el.style.getPropertyValue('--blc-popup-left') !== left) el.style.setProperty('--blc-popup-left', left);
       if (el.style.getPropertyValue('--blc-popup-top') !== top) el.style.setProperty('--blc-popup-top', top);
+      if (Number.isFinite(saved.bottomEdge)) {
+        const bottomEdge = `${saved.bottomEdge}px`;
+        if (el.style.getPropertyValue('--blc-popup-bottom-edge') !== bottomEdge) el.style.setProperty('--blc-popup-bottom-edge', bottomEdge);
+      }
       if (!el.matches(':popover-open')) {
         try { el.showPopover(); } catch { lowerPopup(el, saved); }
       }

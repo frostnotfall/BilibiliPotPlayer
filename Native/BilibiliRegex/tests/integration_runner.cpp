@@ -19,7 +19,7 @@
 static std::string workspace;
 static std::vector<std::string> logs;
 static int fault, live_libraries, live_handles, compile_count, free_count, test_call_count;
-static uintptr_t free_set_address;
+static uintptr_t free_set_address, commit_address;
 
 static const std::string &str(asIScriptGeneric *g, unsigned index) {
     return *static_cast<std::string *>(g->GetArgAddress(index));
@@ -76,6 +76,7 @@ static void get_proc(asIScriptGeneric *g) {
     FARPROC proc = GetProcAddress(reinterpret_cast<HMODULE>(g->GetArgQWord(0)), str(g, 1).c_str());
     if (fault == 2 && str(g, 1) == "BiliRegexTestSet") proc = nullptr;
     if (str(g, 1) == "BiliRegexFreeSet") free_set_address = reinterpret_cast<uintptr_t>(proc);
+    if (str(g, 1) == "BiliDanmakuCommit") commit_address = reinterpret_cast<uintptr_t>(proc);
     g->SetReturnQWord(reinterpret_cast<uintptr_t>(proc));
 }
 static void string_pointer(asIScriptGeneric *g) {
@@ -91,6 +92,13 @@ static void read_test_file(asIScriptGeneric *g) {
     std::stringstream buffer; buffer << file.rdbuf();
     return_string(g, buffer.str());
 }
+static void write_ass(asIScriptGeneric *g) {
+    if (str(g, 0).find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789-.") != std::string::npos) {
+        asGetActiveContext()->SetException("Invalid fixture name"); return;
+    }
+    std::ofstream file(workspace + "/Native/BilibiliRegex/build/integration/" + str(g, 0), std::ios::binary);
+    file << str(g, 1);
+}
 static void call_pointer(asIScriptGeneric *g) {
     auto address = static_cast<uintptr_t>(g->GetArgQWord(0));
     uintptr_t result = 0;
@@ -103,6 +111,17 @@ static void call_pointer(asIScriptGeneric *g) {
     } else if (str(g, 1) == "I") {
         if (fault != 6) result = reinterpret_cast<uintptr_t (*)(uint32_t)>(address)(static_cast<uint32_t>(g->GetArgQWord(2)));
         if (result) ++live_handles;
+    } else if (str(g, 1) == "PIII") {
+        result = reinterpret_cast<uintptr_t (*)(uintptr_t,uint32_t,uint32_t,uint32_t)>(address)(
+            static_cast<uintptr_t>(g->GetArgQWord(2)),static_cast<uint32_t>(g->GetArgQWord(3)),
+            static_cast<uint32_t>(g->GetArgQWord(4)),static_cast<uint32_t>(g->GetArgQWord(5)));
+    } else if (str(g, 1) == "PIIII") {
+        result = reinterpret_cast<uintptr_t (*)(uintptr_t,uint32_t,uint32_t,uint32_t,uint32_t)>(address)(
+            static_cast<uintptr_t>(g->GetArgQWord(2)),static_cast<uint32_t>(g->GetArgQWord(3)),
+            static_cast<uint32_t>(g->GetArgQWord(4)),static_cast<uint32_t>(g->GetArgQWord(5)),static_cast<uint32_t>(g->GetArgQWord(6)));
+    } else if (str(g, 1) == "PI") {
+        result = reinterpret_cast<uintptr_t (*)(uintptr_t, uint32_t)>(address)(
+            static_cast<uintptr_t>(g->GetArgQWord(2)), static_cast<uint32_t>(g->GetArgQWord(3)));
     } else if (str(g, 1).empty()) {
         result = reinterpret_cast<uintptr_t (*)()>(address)();
     } else {
@@ -128,7 +147,19 @@ static void call_int(asIScriptGeneric *g) {
     } else if (str(g, 1) == "P") {
         auto handle = static_cast<uintptr_t>(g->GetArgQWord(2));
         result = reinterpret_cast<int (*)(uintptr_t)>(address)(handle);
-        if (handle) { --live_handles; if (address != free_set_address) ++free_count; }
+        if (handle && address != commit_address) { --live_handles; if (address != free_set_address) ++free_count; }
+    } else if (str(g, 1) == "PIII") {
+        result = reinterpret_cast<int (*)(uintptr_t,uint32_t,uint32_t,uint32_t)>(address)(
+            static_cast<uintptr_t>(g->GetArgQWord(2)),static_cast<uint32_t>(g->GetArgQWord(3)),
+            static_cast<uint32_t>(g->GetArgQWord(4)),static_cast<uint32_t>(g->GetArgQWord(5)));
+    } else if (str(g, 1) == "PII") {
+        result = reinterpret_cast<int (*)(uintptr_t, uint32_t, uint32_t)>(address)(
+            static_cast<uintptr_t>(g->GetArgQWord(2)), static_cast<uint32_t>(g->GetArgQWord(3)), static_cast<uint32_t>(g->GetArgQWord(4)));
+    } else if (str(g, 1) == "PPIIII") {
+        result = reinterpret_cast<int (*)(uintptr_t, const char*, uint32_t, uint32_t, uint32_t, uint32_t)>(address)(
+            static_cast<uintptr_t>(g->GetArgQWord(2)), reinterpret_cast<const char*>(g->GetArgQWord(3)),
+            static_cast<uint32_t>(g->GetArgQWord(4)), static_cast<uint32_t>(g->GetArgQWord(5)),
+            static_cast<uint32_t>(g->GetArgQWord(6)), static_cast<uint32_t>(g->GetArgQWord(7)));
     } else if (str(g, 1) == "PIP") {
         result = fault == 7 ? -4 : reinterpret_cast<int (*)(uintptr_t, uint32_t, uintptr_t)>(address)(
             static_cast<uintptr_t>(g->GetArgQWord(2)), static_cast<uint32_t>(g->GetArgQWord(3)),
@@ -202,6 +233,7 @@ int main(int argc, char **argv) {
     BIND("uintptr HostString2UIntPtr(const string &in)", string_pointer);
     BIND("string HostUIntPtr2String(uintptr)", pointer_string);
     BIND("string ReadTestFile(const string &in)", read_test_file);
+    BIND("void WriteTestAss(const string &in, const string &in)", write_ass);
     BIND("uint HostGetTickCount()", tick);
     BIND("void HostIncTimeOut(int)", inc_timeout);
     BIND("string HostRegExpParse(const string &in, const string &in)", regexp_parse);

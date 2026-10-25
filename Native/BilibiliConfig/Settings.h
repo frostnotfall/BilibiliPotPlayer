@@ -18,7 +18,7 @@ struct Setting {
     std::vector<Choice> choices;
 };
 const std::vector<Setting>& settings();
-constexpr int PageCount = 6;
+enum Page { SubtitlesPage, VodPage, LivePage, PlaylistPage, AdvancedPage, PageCount };
 extern const wchar_t* const PageNames[PageCount];
 int sectionFor(const Setting& field);
 Document defaultConfiguration();

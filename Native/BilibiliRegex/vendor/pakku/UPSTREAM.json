@@ -1,0 +1,19 @@
+{
+    "repository": "https://github.com/xmcp/pakku.js",
+    "commit": "2cb6f52aba70d6b685aaff9a1c03aabec7f299b2",
+    "license": "GPL-3.0-only",
+    "copied": [
+        "pakkujs/similarity/repo-cpp/src/pinyin_dict.txt",
+        "pakkujs/similarity/repo-cpp/src/main.cpp (test oracle only, saved as similarity.cpp)"
+    ],
+    "adapted": [
+        "pakkujs/similarity/repo-cpp/src/main.cpp",
+        "pakkujs/core/combine_worker.ts",
+        "pakkujs/core/post_combine.ts"
+    ],
+    "sha256": {
+        "pinyin_dict.txt": "c46bf1f5d83626e4c9d7ce48668a6a16744b83a0c61334059bc3263557ceb7d6",
+        "similarity.cpp": "ef8162e770a486caf43134fb7c21a6657425bc09e3e78bcd1db2370746b229e8",
+        "LICENSE": "589ed823e9a84c56feb95ac58e7cf384626b9cbf4fda2a907bc36e103de1bad2"
+    }
+}

@@ -52,8 +52,14 @@
         // 是否屏蔽彩色弹幕。默认：false。
         "blockColor": false,
 
-        // 合并 stayTime 时间内内容完全相同的弹幕。默认：false。重复弹幕会以 “弹幕内容(n)” 显示。
+        // 参考 pakku 合并30秒内相似、同音及刷屏弹幕。默认：false。以“弹幕内容(n)”显示。
         "mergeSameDanmaku": false,
+        // 弹幕合并超过5条后按对数比例增大字号。默认：false，需开启mergeSameDanmaku。
+        "enlargeMergedDanmaku": false,
+        // 参考pakku，瞬时密度超过75时自动缩小字号，最小16号。默认：false。
+        "autoShrinkDanmaku": false,
+        // 自动弹幕优选：按实际空间排布，空间不足才舍弃，优先保留合并弹幕。默认：true。关闭后保留全部候选，允许重叠。
+        "autoSelectDanmaku": true,
         // 屏蔽同一用户重复发送的相同内容。默认：false。
         "blockRepeatedUserDanmaku": false,
         // 启用云端弹幕屏蔽列表。默认：false。正则屏蔽需要Extension\Lib目录下的BilibiliRegex.dll。
@@ -114,8 +120,8 @@
         },
         // 直播聊天窗口配置，观看直播时 potplayer 播放列表侧会出现聊天窗口。
         "liveChatUrl": {
-            // 使用网页版聊天窗口。默认：false。
-            "useWebPage": false,
+            // 使用网页版聊天窗口。默认：true。
+            "useWebPage": true,
             // 使用 Bilibili_Danmuji 服务，默认：false。需自己部署 Bilibili_Danmuji 服务。useBilibiliDanmuji 优先级高于 useWebPage。
             "useBilibiliDanmuji": false,
             // Bilibili_Danmuji 地址。

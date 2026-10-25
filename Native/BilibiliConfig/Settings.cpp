@@ -5,68 +5,69 @@
 #include <set>
 
 namespace bili {
-const wchar_t* const PageNames[PageCount] = { L"常用设置", L"字幕与弹幕", L"画质与点播", L"直播", L"播放列表", L"高级" };
+const wchar_t* const PageNames[PageCount] = { L"字幕与弹幕", L"点播", L"直播", L"播放列表", L"高级" };
 const std::vector<Setting>& settings() {
     // Fallbacks match the playback script, not possibly stale template comments.
     static const std::vector<Setting> fields = {
-        {"heartBeat",0,L"观看记录",L"同步观看记录到 B 站",L"需要登录 B 站；同时用于点播与直播历史记录。",Widget::Check,"false"},
-        {"vod.queryPlayPosition",0,L"观看记录",L"从 B 站记录的播放进度继续",L"精准空降时不读取云端进度；开启会增加一次请求。",Widget::Check,"false"},
-        {"vod.enableVodChatUrl",0,L"侧边栏",L"显示点播网页评论区",L"观看视频时，在 PotPlayer 播放列表侧显示评论。",Widget::Check,"false"},
-        {"enableSponsorBlock",0,L"空降助手",L"启用空降助手",L"依赖外部服务；连接不稳定可能影响打开视频。",Widget::Check,"false"},
-        {"sponsorBlockMirror",0,L"空降助手",L"镜像服务地址",L"留空使用默认服务；填写 http:// 或 https:// 地址。",Widget::Text,"\"\""},
+        {"subtitle.enable",SubtitlesPage,L"视频字幕",L"启用视频字幕",L"优先使用视频自带字幕，缺少时尝试 AI 字幕。",Widget::Check,"false"},
+        {"subtitle.server",SubtitlesPage,L"视频字幕",L"字幕服务器地址",L"留空使用内置解析；内置解析可能增加打开耗时。",Widget::Text,"\"\""},
+        {"danmaku.enable",SubtitlesPage,L"视频弹幕",L"启用视频弹幕",L"与视频字幕同时开启时，弹幕作为次字幕显示。",Widget::Check,"false"},
+        {"danmaku.server",SubtitlesPage,L"视频弹幕",L"弹幕服务器地址",L"留空使用内置解析；以下高级样式和过滤只支持内置解析。",Widget::Text,"\"\""},
+        {"danmaku.font",SubtitlesPage,L"视频弹幕",L"弹幕字体",L"从本机已安装字体中选择；未安装的旧字体仅作为当前值保留。",Widget::Font,"\"微软雅黑 Light\""},
+        {"danmaku.fontSize",SubtitlesPage,L"视频弹幕",L"弹幕字号",L"从下拉列表选择字号，单位：像素。",Widget::FontSize,"32",1,200},
+        {"danmaku.opacity",SubtitlesPage,L"视频弹幕",L"不透明度",L"0 为完全透明，1 为完全不透明。",Widget::Slider,"0.85",0,1},
+        {"danmaku.displayArea",SubtitlesPage,L"视频弹幕",L"显示区域",L"从画面顶部开始占用的高度比例。",Widget::Slider,"0.8",0.01,1},
+        {"danmaku.stayTime",SubtitlesPage,L"视频弹幕",L"停留时间（秒）",L"滚动与固定弹幕的显示时长。",Widget::Decimal,"15",0.1,300},
+        {"danmaku.bold",SubtitlesPage,L"字体效果（仅内置解析）",L"使用粗体",L"",Widget::Check,"true"},
+        {"danmaku.fontEffect.type",SubtitlesPage,L"字体效果（仅内置解析）",L"字体效果",L"阴影、描边和重墨对应下方的独立参数。",Widget::Choice,"2",0,4,{{L"无特效","0"},{L"阴影","1"},{L"描边","2"},{L"重墨","3"},{L"描边 + 重墨","4"}}},
+        {"danmaku.fontEffect.shadowDepth",SubtitlesPage,L"字体效果（仅内置解析）",L"阴影深度",L"单位：像素。",Widget::Decimal,"1",0,100},
+        {"danmaku.fontEffect.outlineWidth",SubtitlesPage,L"字体效果（仅内置解析）",L"描边宽度",L"单位：像素。",Widget::Decimal,"1.5",0,100},
+        {"danmaku.fontEffect.blurRadius",SubtitlesPage,L"字体效果（仅内置解析）",L"重墨模糊半径",L"单位：像素。",Widget::Decimal,"5",0,100},
+        {"danmaku.blockTop",SubtitlesPage,L"弹幕过滤（仅内置解析）",L"屏蔽顶部固定弹幕",L"",Widget::Check,"false"},
+        {"danmaku.blockBottom",SubtitlesPage,L"弹幕过滤（仅内置解析）",L"屏蔽底部固定弹幕",L"",Widget::Check,"false"},
+        {"danmaku.blockColor",SubtitlesPage,L"弹幕过滤（仅内置解析）",L"屏蔽彩色弹幕",L"",Widget::Check,"false"},
+        {"danmaku.mergeSameDanmaku",SubtitlesPage,L"弹幕过滤（仅内置解析）",L"合并相似弹幕",L"参考 pakku：合并 30 秒内相似、同音及刷屏内容，以“内容(n)”显示。",Widget::Check,"false"},
+        {"danmaku.enlargeMergedDanmaku",SubtitlesPage,L"弹幕过滤（仅内置解析）",L"弹幕合并后增大字号",L"合并超过 5 条时，按 pakku 的对数比例增大字号；需开启合并相似弹幕。",Widget::Check,"false"},
+        {"danmaku.autoShrinkDanmaku",SubtitlesPage,L"弹幕过滤（仅内置解析）",L"自动减小字号",L"瞬时弹幕密度超过 75 时按比例缩小，最小 16 号。",Widget::Check,"false"},
+        {"danmaku.autoSelectDanmaku",SubtitlesPage,L"弹幕过滤（仅内置解析）",L"自动弹幕优选",L"默认开启；空间不足时优先保留合并弹幕。关闭后保留全部候选，弹幕可能重叠。",Widget::Check,"true"},
+        {"danmaku.blockRepeatedUserDanmaku",SubtitlesPage,L"弹幕过滤（仅内置解析）",L"屏蔽同一用户重复发送的相同内容",L"",Widget::Check,"false"},
+        {"danmaku.enableCloudBlockList",SubtitlesPage,L"弹幕过滤（仅内置解析）",L"使用云端屏蔽列表",L"正则规则需要 Extension\\Lib\\BilibiliRegex.dll。",Widget::Check,"false"},
+        {"danmaku.blockRules",SubtitlesPage,L"本地屏蔽规则（仅内置解析）",L"屏蔽规则",L"每行一条。正则规则需要 BilibiliRegex.dll；用户 UID 只能填写数字。",Widget::Rules,"[]"},
 
-        {"subtitle.enable",1,L"视频字幕",L"启用视频字幕",L"优先使用视频自带字幕，缺少时尝试 AI 字幕。",Widget::Check,"false"},
-        {"subtitle.server",1,L"视频字幕",L"字幕服务器地址",L"留空使用内置解析；内置解析可能增加打开耗时。",Widget::Text,"\"\""},
-        {"danmaku.enable",1,L"视频弹幕",L"启用视频弹幕",L"与视频字幕同时开启时，弹幕作为次字幕显示。",Widget::Check,"false"},
-        {"danmaku.font",1,L"视频弹幕",L"弹幕字体",L"从本机已安装字体中选择；未安装的旧字体仅作为当前值保留。",Widget::Font,"\"微软雅黑 Light\""},
-        {"danmaku.fontSize",1,L"视频弹幕",L"弹幕字号",L"从下拉列表选择字号，单位：像素。",Widget::FontSize,"32",1,200},
-        {"danmaku.opacity",1,L"视频弹幕",L"不透明度",L"0 为完全透明，1 为完全不透明。",Widget::Slider,"0.85",0,1},
-        {"danmaku.displayArea",1,L"视频弹幕",L"显示区域",L"从画面顶部开始占用的高度比例。",Widget::Slider,"0.8",0.01,1},
-        {"danmaku.stayTime",1,L"视频弹幕",L"停留时间（秒）",L"滚动与固定弹幕的显示时长。",Widget::Decimal,"15",0.1,300},
-        {"danmaku.server",1,L"第三方服务",L"弹幕服务器地址",L"留空使用内置解析；以下高级样式和过滤只支持内置解析。",Widget::Text,"\"\""},
+        {"vod.showRecommendedVideos",VodPage,L"点播播放列表",L"打开单个视频时显示推荐视频",L"可从播放列表中继续选择其他推荐内容。",Widget::Check,"false"},
+        {"vod.showUgcSeason",VodPage,L"点播播放列表",L"显示用户合集与全部分 P",L"视频属于合集或分 P 时列出其他内容。",Widget::Check,"true"},
+        {"vod.showTrailer",VodPage,L"点播播放列表",L"显示番剧与电影预告片",L"",Widget::Check,"true"},
+        {"vod.enableVodChatUrl",VodPage,L"侧边栏",L"显示点播网页评论区",L"观看视频时，在 PotPlayer 播放列表侧显示评论。",Widget::Check,"false"},
+        {"vod.queryPlayPosition",VodPage,L"观看记录",L"从 B 站记录的播放进度继续",L"精准空降时不读取云端进度；开启会增加一次请求。",Widget::Check,"false"},
+        {"vod.heartBeatInterval",VodPage,L"观看记录",L"心跳上报间隔（秒）",L"只在启用观看记录同步时生效，最小 15 秒。",Widget::Integer,"15",15,86400},
 
-        {"danmaku.bold",1,L"字体效果（仅内置解析）",L"使用粗体",L"",Widget::Check,"true"},
-        {"danmaku.fontEffect.type",1,L"字体效果（仅内置解析）",L"字体效果",L"阴影、描边和重墨对应下方的独立参数。",Widget::Choice,"2",0,4,{{L"无特效","0"},{L"阴影","1"},{L"描边","2"},{L"重墨","3"},{L"描边 + 重墨","4"}}},
-        {"danmaku.fontEffect.shadowDepth",1,L"字体效果（仅内置解析）",L"阴影深度",L"单位：像素。",Widget::Decimal,"1",0,100},
-        {"danmaku.fontEffect.outlineWidth",1,L"字体效果（仅内置解析）",L"描边宽度",L"单位：像素。",Widget::Decimal,"1.5",0,100},
-        {"danmaku.fontEffect.blurRadius",1,L"字体效果（仅内置解析）",L"重墨模糊半径",L"单位：像素。",Widget::Decimal,"5",0,100},
-        {"danmaku.blockTop",1,L"弹幕过滤（仅内置解析）",L"屏蔽顶部固定弹幕",L"",Widget::Check,"false"},
-        {"danmaku.blockBottom",1,L"弹幕过滤（仅内置解析）",L"屏蔽底部固定弹幕",L"",Widget::Check,"false"},
-        {"danmaku.blockColor",1,L"弹幕过滤（仅内置解析）",L"屏蔽彩色弹幕",L"",Widget::Check,"false"},
-        {"danmaku.mergeSameDanmaku",1,L"弹幕过滤（仅内置解析）",L"合并相同弹幕",L"在停留时间内合并相同内容，以“内容(n)”显示。",Widget::Check,"false"},
-        {"danmaku.blockRepeatedUserDanmaku",1,L"弹幕过滤（仅内置解析）",L"屏蔽同一用户重复发送的相同内容",L"",Widget::Check,"false"},
-        {"danmaku.enableCloudBlockList",1,L"弹幕过滤（仅内置解析）",L"使用云端屏蔽列表",L"正则规则需要 Extension\\Lib\\BilibiliRegex.dll。",Widget::Check,"false"},
-        {"danmaku.blockRules",1,L"本地屏蔽规则（仅内置解析）",L"屏蔽规则",L"每行一条。正则规则需要 BilibiliRegex.dll；用户 UID 只能填写数字。",Widget::Rules,"[]"},
+        {"live.useHttpStream",LivePage,L"播放方式",L"使用 HTTP-FLV 直播流",L"延迟更低，但 PK 时可能断开或被降画质；默认使用 HLS。",Widget::Check,"false"},
+        {"live.parseM3u8RealUrl.enable",LivePage,L"M3U8 地址解析",L"解析真实 M3U8 地址",L"减少播放流名称被覆盖成 HLS 的情况；需要额外请求。",Widget::Check,"true"},
+        {"live.parseM3u8RealUrl.fastMode",LivePage,L"M3U8 地址解析",L"启用快速模式",L"只解析下方列表中的重定向域名。",Widget::Check,"true"},
+        {"live.parseM3u8RealUrl.m3u8RedirectDomains",LivePage,L"M3U8 地址解析",L"快速解析域名",L"每行一个域名，不包含协议或路径。",Widget::Lines,"[]"},
+        {"live.liveChatUrl.useWebPage",LivePage,L"聊天窗口",L"直播聊天方式",L"选择一种聊天方式；自建弹幕姬需要先部署服务，并填写下方地址。",Widget::ChatMode,"true"},
+        {"live.liveChatUrl.useBilibiliDanmuji",LivePage,L"聊天窗口",L"使用自建 Bilibili_Danmuji 服务",L"",Widget::ChatModePeer,"false"},
+        {"live.liveChatUrl.bilibiliDanmujiServer",LivePage,L"聊天窗口",L"弹幕姬服务地址",L"使用自建服务时必须填写 http:// 或 https:// 地址。",Widget::Text,"\"\""},
+        {"live.useKeyframe",LivePage,L"直播播放列表",L"使用直播关键帧缩略图",L"不存在关键帧时使用普通封面。",Widget::Check,"false"},
+        {"live.showRecommendedLiveRooms",LivePage,L"直播播放列表",L"打开单个直播时显示推荐直播间",L"",Widget::Check,"false"},
 
-        {"preferHDR",2,L"画质与编码",L"优先 HDR / 杜比视界",L"开启后，HDR / 杜比视界的优先级高于 8K 超高清。",Widget::Check,"false"},
-        {"disableAVC",2,L"画质与编码",L"存在其他编码时禁用 AVC",L"仅影响点播；没有其他编码时仍保留 AVC。",Widget::Check,"false"},
-        {"defaultCodec",2,L"画质与编码",L"编码优先顺序",L"从左到右依次尝试；不确定时保持原设置。",Widget::Choice,"[\"hevc\",\"avc\",\"av1\"]",0,0,{{L"HEVC → AVC → AV1","[\"hevc\",\"avc\",\"av1\"]"},{L"HEVC → AV1 → AVC","[\"hevc\",\"av1\",\"avc\"]"},{L"AV1 → HEVC → AVC","[\"av1\",\"hevc\",\"avc\"]"},{L"AV1 → AVC → HEVC","[\"av1\",\"avc\",\"hevc\"]"},{L"AVC → HEVC → AV1","[\"avc\",\"hevc\",\"av1\"]"},{L"AVC → AV1 → HEVC","[\"avc\",\"av1\",\"hevc\"]"}}},
-        {"vod.showRecommendedVideos",2,L"点播播放列表",L"打开单个视频时显示推荐视频",L"可从播放列表中继续选择其他推荐内容。",Widget::Check,"false"},
-        {"vod.showUgcSeason",2,L"点播播放列表",L"显示用户合集与全部分 P",L"视频属于合集或分 P 时列出其他内容。",Widget::Check,"true"},
-        {"vod.showTrailer",2,L"点播播放列表",L"显示番剧与电影预告片",L"",Widget::Check,"true"},
+        {"videoNums.webDynamicVideoNums",PlaylistPage,L"播放列表生成数量",L"我的动态",L"按视频数量统计；需要过滤非视频动态。",Widget::Integer,"50",1,10000},
+        {"videoNums.recommendVideoNums",PlaylistPage,L"播放列表生成数量",L"首页推荐",L"最终数量可能略多；点击播放列表名称即可刷新。",Widget::Integer,"30",1,10000},
+        {"videoNums.liveRecommendPage",PlaylistPage,L"播放列表生成数量",L"直播首页推荐页数",L"每页约 15 个直播间。",Widget::Integer,"1",1,500},
+        {"videoNums.historyVideoNums",PlaylistPage,L"播放列表生成数量",L"历史记录",L"最终数量可能略多。",Widget::Integer,"30",1,10000},
+        {"videoNums.popularAllPages",PlaylistPage,L"播放列表生成数量",L"综合热门页数",L"每页约 50 个视频。",Widget::Integer,"1",1,500},
+        {"videoNums.spaceDynamicVideoNums",PlaylistPage,L"播放列表生成数量",L"个人空间动态",L"最终数量可能略多。",Widget::Integer,"30",1,10000},
+        {"videoNums.maxliveroom",PlaylistPage,L"播放列表生成数量",L"直播分区最大房间数",L"接口每页返回约 20 个直播间。",Widget::Integer,"40",1,10000},
 
-        {"live.useHttpStream",3,L"播放方式",L"使用 HTTP-FLV 直播流",L"延迟更低，但 PK 时可能断开或被降画质；默认使用 HLS。",Widget::Check,"false"},
-        {"live.parseM3u8RealUrl.enable",3,L"M3U8 地址解析",L"解析真实 M3U8 地址",L"减少播放流名称被覆盖成 HLS 的情况；需要额外请求。",Widget::Check,"true"},
-        {"live.parseM3u8RealUrl.fastMode",3,L"M3U8 地址解析",L"启用快速模式",L"只解析下方列表中的重定向域名。",Widget::Check,"true"},
-        {"live.parseM3u8RealUrl.m3u8RedirectDomains",3,L"M3U8 地址解析",L"快速解析域名",L"每行一个域名，不包含协议或路径。",Widget::Lines,"[]"},
-        {"live.liveChatUrl.useWebPage",3,L"聊天窗口",L"直播聊天方式",L"选择一种聊天方式；自建弹幕姬需要先部署服务，并填写下方地址。",Widget::ChatMode,"false"},
-        {"live.liveChatUrl.useBilibiliDanmuji",3,L"聊天窗口",L"使用自建 Bilibili_Danmuji 服务",L"",Widget::ChatModePeer,"false"},
-        {"live.liveChatUrl.bilibiliDanmujiServer",3,L"聊天窗口",L"弹幕姬服务地址",L"使用自建服务时必须填写 http:// 或 https:// 地址。",Widget::Text,"\"\""},
-        {"live.useKeyframe",3,L"播放列表",L"使用直播关键帧缩略图",L"不存在关键帧时使用普通封面。",Widget::Check,"false"},
-        {"live.showRecommendedLiveRooms",3,L"播放列表",L"打开单个直播时显示推荐直播间",L"",Widget::Check,"false"},
-
-        {"videoNums.webDynamicVideoNums",4,L"视频数量",L"我的动态",L"按视频数量统计；需要过滤非视频动态。",Widget::Integer,"50",1,10000},
-        {"videoNums.recommendVideoNums",4,L"视频数量",L"首页推荐",L"最终数量可能略多；点击播放列表名称即可刷新。",Widget::Integer,"30",1,10000},
-        {"videoNums.historyVideoNums",4,L"视频数量",L"历史记录",L"最终数量可能略多。",Widget::Integer,"30",1,10000},
-        {"videoNums.spaceDynamicVideoNums",4,L"视频数量",L"个人空间动态",L"最终数量可能略多。",Widget::Integer,"30",1,10000},
-        {"videoNums.maxliveroom",4,L"视频数量",L"直播分区最大房间数",L"接口每页返回约 20 个直播间。",Widget::Integer,"40",1,10000},
-        {"videoNums.liveRecommendPage",4,L"页数",L"直播首页推荐页数",L"每页约 15 个直播间。",Widget::Integer,"1",1,500},
-        {"videoNums.popularAllPages",4,L"页数",L"综合热门页数",L"每页约 50 个视频。",Widget::Integer,"1",1,500},
-
-        {"blockP2PCDN",5,L"网络与缓存",L"屏蔽 P2P CDN",L"默认启用。",Widget::Check,"true"},
-        {"cacheValidTime",5,L"网络与缓存",L"请求缓存时间（秒）",L"默认 300 秒；0 表示不保留缓存。",Widget::Integer,"300",0,86400},
-        {"vod.heartBeatInterval",5,L"观看记录",L"心跳上报间隔（秒）",L"只在启用观看记录同步时生效，最小 15 秒。",Widget::Integer,"15",15,86400},
-        {"debug",5,L"调试",L"启用调试日志",L"用于排查问题，通常关闭。",Widget::Check,"false"}
+        {"blockP2PCDN",AdvancedPage,L"网络与缓存",L"屏蔽 P2P CDN",L"默认启用。",Widget::Check,"true"},
+        {"cacheValidTime",AdvancedPage,L"网络与缓存",L"请求缓存时间（秒）",L"默认 300 秒；0 表示不保留缓存。",Widget::Integer,"300",0,86400},
+        {"enableSponsorBlock",AdvancedPage,L"空降助手",L"启用空降助手",L"依赖外部服务；连接不稳定可能影响打开视频。",Widget::Check,"false"},
+        {"sponsorBlockMirror",AdvancedPage,L"空降助手",L"镜像服务地址",L"留空使用默认服务；填写 http:// 或 https:// 地址。",Widget::Text,"\"\""},
+        {"heartBeat",AdvancedPage,L"观看记录",L"同步观看记录到 B 站",L"需要登录 B 站；同时用于点播与直播历史记录。",Widget::Check,"false"},
+        {"disableAVC",AdvancedPage,L"画质与编码",L"存在其他编码时禁用 AVC",L"仅影响点播；没有其他编码时仍保留 AVC。",Widget::Check,"false"},
+        {"defaultCodec",AdvancedPage,L"画质与编码",L"编码优先顺序",L"从左到右依次尝试；不确定时保持原设置。",Widget::Choice,"[\"hevc\",\"avc\",\"av1\"]",0,0,{{L"HEVC → AVC → AV1","[\"hevc\",\"avc\",\"av1\"]"},{L"HEVC → AV1 → AVC","[\"hevc\",\"av1\",\"avc\"]"},{L"AV1 → HEVC → AVC","[\"av1\",\"hevc\",\"avc\"]"},{L"AV1 → AVC → HEVC","[\"av1\",\"avc\",\"hevc\"]"},{L"AVC → HEVC → AV1","[\"avc\",\"hevc\",\"av1\"]"},{L"AVC → AV1 → HEVC","[\"avc\",\"av1\",\"hevc\"]"}}},
+        {"preferHDR",AdvancedPage,L"画质与编码",L"优先 HDR / 杜比视界",L"开启后，HDR / 杜比视界的优先级高于 8K 超高清。",Widget::Check,"false"},
+        {"debug",AdvancedPage,L"调试",L"启用调试日志",L"用于排查问题，通常关闭。",Widget::Check,"false"}
     };
     return fields;
 }
@@ -83,10 +84,10 @@ std::string compact(const Node& node) {
     return result + (node.kind == Kind::Object ? '}' : ']');
 }
 int sectionFor(const Setting& field) {
-    if (field.page != 1) return 0;
+    if (field.page != SubtitlesPage) return 0;
     std::string path = field.path;
     if (path == "danmaku.bold" || path.find("danmaku.fontEffect.") == 0) return 1;
-    if (path.find("danmaku.block") == 0 || path == "danmaku.mergeSameDanmaku" || path == "danmaku.enableCloudBlockList") return 2;
+    if (path.find("danmaku.block") == 0 || path == "danmaku.mergeSameDanmaku" || path == "danmaku.enlargeMergedDanmaku" || path == "danmaku.autoShrinkDanmaku" || path == "danmaku.autoSelectDanmaku" || path == "danmaku.enableCloudBlockList") return 2;
     return 0;
 }
 namespace {

@@ -120,9 +120,16 @@ void paintPreview(HDC target,RECT r,HFONT uiFont,int dpi,const PreviewSettings& 
     auto sample=[&](const std::wstring& text,const char* uid,int x,int y,COLORREF color=RGB(255,255,255)){if(!blocked(text,uid))effectText(overlay,text,x,y,style.effect,style,dpi,color);};
     int line=std::max(px(17),static_cast<int>(std::clamp(style.size*.65,8.0,65.0))*dpi/96+px(5));
     if(!style.blockTop)sample(L"顶部固定弹幕","10001",w/4,px(4));
-    sample(L"这一段拍得真好","10086",w/16,line+px(4));
+    if(style.shrink){
+        HFONT small=CreateFontW(-px(static_cast<int>(std::clamp(std::max(16.0,style.size/1.3)*.65,8.0,65.0))),0,0,0,style.bold?FW_BOLD:FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,ANTIALIASED_QUALITY,DEFAULT_PITCH,face.c_str());
+        HGDIOBJ previous=SelectObject(overlay,small);sample(L"这一段拍得真好","10086",w/16,line+px(4));SelectObject(overlay,previous);DeleteObject(small);
+    }else sample(L"这一段拍得真好","10086",w/16,line+px(4));
     if(!style.blockColor)sample(L"彩色弹幕示例","10002",w/3,line*2+px(4),RGB(255,219,88));
-    if(style.merge)sample(style.repeated?L"重复内容(2)":L"重复内容(3)","10003",w/6,line*3+px(4));
+    if(style.merge){
+        double size=style.size;if(style.enlarge)size=std::ceil(size*std::log(8.0)/std::log(5.0));if(style.shrink)size=std::max(16.0,size/1.3);
+        HFONT merged=CreateFontW(-px(static_cast<int>(std::clamp(size*.65,8.0,100.0))),0,0,0,style.bold?FW_BOLD:FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,ANTIALIASED_QUALITY,DEFAULT_PITCH,face.c_str());
+        HGDIOBJ previous=SelectObject(overlay,merged);sample(L"相似内容(8)","10003",w/6,line*3+px(4));SelectObject(overlay,previous);DeleteObject(merged);
+    }
     else{sample(L"重复内容","10003",w/6,line*3+px(4));if(!style.repeated)sample(L"重复内容","10003",w/4,line*4+px(4));}
     if(!style.blockBottom)sample(L"底部固定弹幕","10004",w/4,std::max(0,area-line));
     BLENDFUNCTION blend{AC_SRC_OVER,0,static_cast<BYTE>(255*std::clamp(style.opacity,.0,1.0)),0};AlphaBlend(dc,0,top,w,h,overlay,0,0,w,h,blend);
