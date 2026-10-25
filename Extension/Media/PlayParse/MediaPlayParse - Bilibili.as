@@ -4306,7 +4306,7 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 	if (is_upower_exclusive) title = "【充电专属】\n" + title;
 
 	JsonValue playerInfo, viewPoints;
-	string playerResponse = post(Host + "/x/player/wbi/v2?" + encWbi("aid=" + aid + "&cid=" + cid), "", "", false);
+	string playerResponse = apiPost("/x/player/wbi/v2?" + encWbi("aid=" + aid + "&cid=" + cid));
 	if (reader.parse(playerResponse, playerInfo) && playerInfo.isObject() && playerInfo["code"].isNumeric() && playerInfo["code"].asInt() == 0 && playerInfo["data"].isObject()) {
 		viewPoints = playerInfo["data"]["view_points"];
 	}
