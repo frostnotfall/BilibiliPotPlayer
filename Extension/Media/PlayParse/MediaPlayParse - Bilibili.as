@@ -95,7 +95,7 @@ string GetTitle() {
 }
 
 string GetVersion() {
-	return "3.7.43";
+	return "3.7.44";
 }
 
 string GetDesc() {
@@ -1075,14 +1075,14 @@ int parseTime(string s) {
 	return t;
 }
 
-int GetStartSeconds(const string &in path, const string &in aid, const string &in cid, const string &in epid = "") {
+int GetStartSeconds(const string &in path, const string &in aid, const string &in cid, int64 durationMs, const string &in epid = "") {
 	string source = path.split("#")[0];
 	double seconds = 0;
 	if (!HostRegExpParse(source, "([?&]t=)").empty()) {
 		string t = HostUrlDecode(parse(source, "t"));
 		seconds = parseFloat(HostRegExpParse(t, "^([0-9]+(?:\\.[0-9]+)?)$"));
 	} else {
-		if (!ConfigData.queryPlayPosition || aid.empty() || cid.empty()) return 0;
+		if (!ConfigData.queryPlayPosition || aid.empty() || cid.empty() || durationMs <= 30000) return 0;
 		string params = "aid=" + aid + "&cid=" + cid;
 		if (!epid.empty()) params += "&ep_id=" + epid;
 		string res = post(Host + "/x/player/wbi/v2?" + encWbi(params), "", "", false);
@@ -1091,6 +1091,7 @@ int GetStartSeconds(const string &in path, const string &in aid, const string &i
 		if (!reader.parse(res, root) || !root.isObject() || root["code"].asInt() != 0 || !root["data"].isObject()) return 0;
 		if (root["data"]["last_play_cid"].asString() != cid) return 0;
 		seconds = root["data"]["last_play_time"].asDouble() / 1000;
+		if (!(seconds >= 5 && seconds < durationMs / 1000.0 - 5)) return 0;
 	}
 	return seconds > 0 && seconds <= 2147483647.0 ? int(seconds) : 0;
 }
@@ -4155,7 +4156,7 @@ string Bangumi(const string&in path, dictionary& MetaData, array<dictionary>& Qu
 
 			int64 duration = episode["duration"].asInt64();
 			string webUrl = "https://www.bilibili.com/bangumi/play/ep" + epid;
-			int seek = GetStartSeconds(path, aid, cid, epid);
+			int seek = GetStartSeconds(path, aid, cid, duration, epid);
 
 			string chatUrl;
 			string chatScript;
@@ -4289,7 +4290,7 @@ string Video(string id, const string&in path, dictionary& MetaData, array<dictio
 	string chatUrl;
 	string chatScript;
 	string webUrl = "https://www.bilibili.com/video/" + bvid + (p > 1 ? "?p=" + formatInt(p) : "");
-	int seek = GetStartSeconds(path, aid, cid);
+	int seek = GetStartSeconds(path, aid, cid, duration);
 	if (ConfigData.enableVodChatUrl && HostFileExist(ConfigData.ChatScriptVod)) {
 		chatUrl = webUrl;
 		chatScript = ReadWebScript(ConfigData.ChatScriptVod);
@@ -5630,39 +5631,85 @@ array<dictionary> medialist(const string&in path) {
 	return videos;
 }
 
-array<dictionary> watchlater() {
+array<dictionary> watchlater(const string&in path) {
 	array<dictionary> videos;
-	string res = apiPost("/x/v2/history/toview/web", false);
 	JsonReader Reader;
 	JsonValue Root;
-	if (Reader.parse(res, Root) && Root.isObject()) {
-		if (Root["code"].asInt() == 0) {
-			JsonValue data = Root["data"]["list"];
-			if (data.isArray()) {
-				for (int i = 0; i < data.size(); i++) {
-					JsonValue item = data[i];
-					if (item.isObject()) {
-						dictionary video;
+	dictionary seen;
+	string currentBvid = parseBVId(path);
+	string currentOid = parse(path, "oid");
+	int currentPage = parseInt(parse(path, "p", "0"));
+	int received = 0;
+	bool loaded = false;
 
-						int p = item["page"]["page"].asInt();
-						if (p == 1) {
-							video["title"] = item["title"].asString();
-						} else {
-							video["title"] = item["title"].asString() + " | " + item["page"]["part"].asString();
-						}
-						video["duration"] = item["duration"].asInt() * 1000;
-						video["url"] = makeWebUrl("https://www.bilibili.com/video/" + item["bvid"].asString() + "?p=" + p);
-						video["thumbnail"] = item["pic"].asString();
-						video["author"] = "@" + item["owner"]["name"].asString();
-						video["date"] = UnixTimeToDateTime(item["pubdate"].asInt64());
-
-						videos.insertLast(video);
-					}
-				}
-			}
+	for (int pn = 1; ; pn++) {
+		string res = apiPost("/x/v2/medialist/toview/web?mobi_app=web&ps=20&desc=false&use_pn=true&pn=" + pn, false);
+		if (!Reader.parse(res, Root) || !Root.isObject() || Root["code"].asInt() != 0) {
+			if (!loaded) HostMessageBox("[稍后再看] 获取列表失败，请确认登录状态后重试。", "BilibiliPotPlayer", 2,0);
+			break;
 		}
+		loaded = true;
+		JsonValue data = Root["data"];
+		JsonValue list = data["list"];
+		if (!list.isArray() || list.size() == 0) break;
+		received += list.size();
+		int added = 0;
+
+		for (int i = 0; i < list.size(); i++) {
+			JsonValue item = list[i];
+			JsonValue arc = item["arc_info"];
+			if (!arc.isObject()) continue;
+			string bvid = item["bvid"].asString();
+			string aid = arc["aid"].asString();
+			string key = !bvid.empty() ? bvid : aid;
+			if (key.empty() || seen.exists(key)) continue;
+			seen[key] = true;
+			added++;
+			bool isCurrent = (!currentBvid.empty() && bvid == currentBvid) || (!currentOid.empty() && aid == currentOid);
+
+			int p = 1;
+			int duration = arc["duration"].asInt();
+			string part;
+			string cid = item["cid"].asString();
+			JsonValue pages = arc["pages"];
+			for (int j = 0; j < pages.size(); j++) {
+				JsonValue page = pages[j];
+				bool selected = isCurrent && currentPage > 0 ? page["page"].asInt() == currentPage : page["cid"].asString() == cid;
+				if (!selected) continue;
+				p = page["page"].asInt();
+				if (p < 1) p = 1;
+				part = page["part"].asString();
+				if (page["duration"].asInt() > 0) duration = page["duration"].asInt();
+				break;
+			}
+
+			string videoUrl;
+			JsonValue bangumi = item["bangumi_info"];
+			string ep = bangumi["ep_id"].asString();
+			if (item["is_pgc"].asBool() && !ep.empty() && ep != "0") {
+				videoUrl = "https://www.bilibili.com/bangumi/play/ep" + ep;
+			} else {
+				if (bvid.empty()) continue;
+				videoUrl = "https://www.bilibili.com/video/" + bvid + "?p=" + p;
+			}
+
+			dictionary video;
+			string title = arc["title"].asString();
+			if (p > 1 && !part.empty()) title += " | " + part;
+			video["title"] = title;
+			video["duration"] = duration * 1000;
+			video["url"] = makeWebUrl(videoUrl);
+			video["thumbnail"] = arc["pic"].asString();
+			video["author"] = "@" + arc["owner"]["name"].asString();
+			video["date"] = UnixTimeToDateTime(arc["pubdate"].asInt64());
+			if (isCurrent) video["current"] = "1";
+			videos.insertLast(video);
+		}
+
+		if (added == 0 || !data["has_more"].asBool()) break;
+		if (data["count"].asInt() > 0 && received >= data["count"].asInt()) break;
 	}
-	if (videos.size() == 0) {
+	if (loaded && videos.size() == 0) {
 		HostMessageBox("[稍后再看] 列表是空的，刷点别的视频吧。", "BilibiliPotPlayer", 2,0);
 	}
 	return videos;
@@ -5974,20 +6021,20 @@ bool PlaylistCheck(const string&in path) {
 	}
 
 	// path
-	if (path.find("www.bilibili.com/v/popular/all") >= 0) {
+	if (path.find("/v/popular/all") >= 0) {
 		return true;
 	}
-	if (path.find("www.bilibili.com/v/popular/weekly") >= 0) {
+	if (path.find("/v/popular/weekly") >= 0) {
 		return true;
 	}
-	if (path.find("www.bilibili.com/v/popular/history") >= 0) {
+	if (path.find("/v/popular/history") >= 0) {
 		return true;
 	}
-	if (path.find("www.bilibili.com/v/popular/rank") >= 0) {
+	if (path.find("/v/popular/rank") >= 0) {
 		return true;
 	}
-	if (path.find("www.bilibili.com/list/") >= 0) {
-		return !HostRegExpParse(path, "/list/([0-9]+)").empty();
+	if (!HostRegExpParse(path, "/list/([0-9]+)(?:[/?#]|$)").empty()) {
+		return true;
 	}
 	if (path.find("/watchlater") >= 0) {
 		return true;
@@ -6095,11 +6142,11 @@ array<dictionary> PlaylistParse(const string&in url) {
 	if (path.find("www.bilibili.com/v/popular/rank") >= 0) {
 		return Ranking(path);
 	}
-	if (path.find("www.bilibili.com/list/") >= 0) {
+	if (!HostRegExpParse(path, "/list/([0-9]+)(?:[/?#]|$)").empty()) {
 		return medialist(path);
 	}
 	if (path.find("/watchlater") >= 0) {
-		return watchlater();
+		return watchlater(path);
 	}
 	if (path.find("/history") >= 0) {
 		return History();
