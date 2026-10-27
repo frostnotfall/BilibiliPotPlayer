@@ -54,7 +54,8 @@ def metadata_script(repo):
     pieces.append(function(stats, 'string GetCookieValue('))
     pieces.extend(function(stats, signature) for signature in (
         'void liveHeartBeatThread(', 'void liveHeartBeat()', 'void PlaybackStart(',
-        'void PlaybackTime(', 'void PlaybackPause(', 'void PlaybackResume('))
+        'void PlaybackTime(', 'void PlaybackPause(', 'void PlaybackResume(',
+        'void PlaybackComplete(', 'void PlaybackClose('))
     # Run the production heartbeat with a controllable clock; no real waiting or
     # HTTP requests are needed to check interval and playback state transitions.
     pieces.append(stats[stats.index('class VodHeartbeat {'):stats.index('\nvoid liveHeartBeatThread(')]
@@ -71,6 +72,11 @@ string episodeId = "0", seasonId = "0";
 uint HeartbeatTickCount() { return heartbeatTick; }
 string GetUnixTime() { return "1792512000"; }
 string GetIds() { vodStarts++; return idsFixture; }
+string GetDanmujiServer() { return "fixture"; }
+class DanmujiManager {
+    DanmujiManager(const string &in server) {}
+    void Stop() {}
+}
 int fallbackReads = 0;
 bool requestDebug = true;
 const string Host = "https://api.bilibili.com";
@@ -180,24 +186,28 @@ void CheckVodProgress() {
     Assert(requests == 5, "minimum interval sends at 15 seconds");
     heartbeatEnabled = false; heartbeatTick += 15000; PlaybackTime("fixture", 180000, 300000);
     Assert(requests == 5, "heartBeat switch disables periodic uploads");
-    heartbeatEnabled = true; heartbeat.Complete();
-    Assert(requests == 6 && requestBody.find("played_time=-1") >= 0, "completion reports finished state");
+    heartbeatEnabled = true;
+    string previousBody = requestBody;
+    PlaybackComplete("/upgcxcode/fixture");
+    PlaybackComplete("/upgcxcode/fixture");
+    Assert(requests == 5 && requestBody == previousBody && requestBody.find("played_time=-1") < 0,
+        "issue 34: completion callback preserves last reported progress without marking finished");
+    PlaybackClose("/upgcxcode/fixture");
     heartbeatTick += 60000; PlaybackResume("fixture"); PlaybackTime("fixture", 300000, 300000);
-    heartbeat.Complete();
-    Assert(requests == 6, "completion clears state and is idempotent");
+    Assert(requests == 5, "close clears state and resume cannot upload stale progress");
     episodeId = "1234"; seasonId = "5678";
     PlaybackStart("/upgcxcode/fixture", 300000);
     Assert(requestBody.find("epid=1234") >= 0 && requestBody.find("sid=5678") >= 0 &&
         requestHeaders.find("/bangumi/play/ep1234") >= 0, "PGC episode and season identifiers");
     heartbeat.Stop(); heartbeatTick += 60000; PlaybackTime("fixture", 200000, 300000);
-    Assert(requests == 7, "stop suppresses stale uploads");
+    Assert(requests == 6, "stop suppresses stale uploads");
     episodeId = "0"; seasonId = "0"; idsFixture = "";
     PlaybackStart("/upgcxcode/fixture", 300000);
-    Assert(requests == 7, "missing identifiers cannot start heartbeat");
+    Assert(requests == 6, "missing identifiers cannot start heartbeat");
     idsFixture = "ids"; heartbeatInterval = "15";
     heartbeatTick = 0xFFFFFF00; PlaybackStart("/upgcxcode/fixture", 300000);
     heartbeatTick += 15000; PlaybackTime("fixture", 15000, 300000);
-    Assert(requests == 9 && requestBody.find("played_time=15") >= 0, "tick count wraparound");
+    Assert(requests == 8 && requestBody.find("played_time=15") >= 0, "tick count wraparound");
     heartbeat.Stop();
     HostPrintUTF8("[heartbeat] PASS: switch, interval, progress, pause/resume, completion, stop, PGC and tick wraparound");
 }

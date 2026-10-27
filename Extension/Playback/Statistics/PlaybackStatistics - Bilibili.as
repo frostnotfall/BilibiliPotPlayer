@@ -251,12 +251,6 @@ class VodHeartbeat {
 		Send(positionMs > 0 ? positionMs / 1000 : 0);
 	}
 
-	void Complete() {
-		if (startTs.empty()) return;
-		Send(-1);
-		Stop();
-	}
-
 	void Stop() {
 		playing = false;
 		lastTick = 0;
@@ -375,7 +369,7 @@ void PlaybackResume(const string &in path) {
 
 void PlaybackComplete(const string &in path) {
 	// log("PlaybackComplete()", path);
-	heartbeat.Complete();
+	// Preserve periodic VOD progress instead of reporting a finished-state sentinel.
 
 	int id = parseInt(HostRegExpParse(path, "live.bilibili.com/([0-9]+)"));
 	if (id <= 0) return;
