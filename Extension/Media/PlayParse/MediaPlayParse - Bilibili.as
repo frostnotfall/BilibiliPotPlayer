@@ -95,7 +95,7 @@ string GetTitle() {
 }
 
 string GetVersion() {
-	return "3.7.44";
+	return "3.7.45";
 }
 
 string GetDesc() {
@@ -350,6 +350,7 @@ class Config {
 
 	dictionary codecNameToCodeId = { {"avc",  7}, {"hevc", 12}, {"av1",  13} };
 	array<int> videoIdOrder = { 6, 16, 32, 64, 74, 80, 100, 112, 116, 120, 125, 126, 127, 129 };
+	array<int> audioIdOrder = { 30255, 30251, 30250, 30280, 30232, 30216 };
 
 	string ChatScriptVod = HostGetScriptFolder() + "Bilibili - ChatScriptVod.js";
 	string ChatScriptLive = HostGetScriptFolder() + "Bilibili - ChatScriptLive.js";
@@ -1154,9 +1155,9 @@ int getVideoItag(int id, int codecid) {
 }
 
 int getAudioItag(int id) {
-	array<int> ids = { 30251, 30250, 30280, 30232, 30216 };
-	array<int> itags = { 380, 328, 327, 256, 139 };
-	int idx = ids.find(id);
+	// PotPlayer uses the same Dolby itag for 30255 and 30250.
+	array<int> itags = { 328, 380, 328, 327, 256, 139 };
+	int idx = ConfigData.audioIdOrder.find(id);
 	if (idx >= 0) {
 		return itags[idx];
 	}
@@ -3369,6 +3370,7 @@ string AppendBangumiQualityList(const string epid, const string path, dictionary
 		if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
 	}
 
+	SelectDefaultAudioQuality(QualityList);
 	if (QualityList.size() > 1) {
 		string bestUrl = getBestUrl(QualityList);
 		if (!bestUrl.isEmpty()) url = bestUrl;
@@ -3507,6 +3509,7 @@ string AppendVideoQualityList(string bvid, string aid, string cid, array<diction
 		}
 	}
 
+	SelectDefaultAudioQuality(QualityList);
 	if (QualityList.size() > 1) {
 		string bestUrl = getBestUrl(QualityList);
 		if (!bestUrl.isEmpty()) url = bestUrl;
@@ -3515,19 +3518,39 @@ string AppendVideoQualityList(string bvid, string aid, string cid, array<diction
 	return url;
 }
 
+void SelectDefaultAudioQuality(array<dictionary>& QualityList) {
+	int bestIndex = -1;
+	int bestPriority = int(ConfigData.audioIdOrder.length());
+	for (uint i = 0; i < QualityList.length(); i++) {
+		string va;
+		QualityList[i].get("va", va);
+		if (va != "a") continue;
+		QualityList[i]["audioIsDefault"] = false;
+		int audioid = 0;
+		QualityList[i].get("audioId", audioid);
+		int priority = ConfigData.audioIdOrder.find(audioid);
+		if (priority < 0) priority = int(ConfigData.audioIdOrder.length());
+		if (bestIndex < 0 || priority < bestPriority) {
+			bestIndex = int(i);
+			bestPriority = priority;
+		}
+	}
+	if (bestIndex >= 0) QualityList[bestIndex]["audioIsDefault"] = true;
+}
+
 void AppendAudioQualityList(JsonValue audio, string referer, array<dictionary>& QualityList) {
 	int itag = 0;
 	string quality; 
-	bool audioIsDefault = false;
 	int audioid = audio["id"].asInt();
 
 	string url = getFixedURL(audio);
 
-	if (audioid == 30250) {
-		quality = "杜比全景声";
+	if (audioid == 30255) {
+		quality = "杜比音效";
 	} else if (audioid == 30251) {
 		quality = "Hi-Res无损";
-		audioIsDefault = true;
+	} else if (audioid == 30250) {
+		quality = "杜比全景声";
 	} else if (audio["codecs"].asString().MakeLower().find("mp4a") >= 0) {
 		quality = "AAC";
 	}
@@ -3557,11 +3580,15 @@ void AppendAudioQualityList(JsonValue audio, string referer, array<dictionary>& 
 	item.quality = quality;
 	item.qualityDetail = item.quality;
 	item.itag = itag;
-	item.audioIsDefault = audioIsDefault;
+	item.audioIsDefault = false;
 	item.va = "a";
 	item.referer = referer;
 
-	if (@QualityList !is null) QualityList.insertLast(item.toDictionary());
+	if (@QualityList !is null) {
+		dictionary audioItem = item.toDictionary();
+		audioItem["audioId"] = audioid;
+		QualityList.insertLast(audioItem);
+	}
 }
 
 JsonValue SortVideos(JsonValue& videos) {

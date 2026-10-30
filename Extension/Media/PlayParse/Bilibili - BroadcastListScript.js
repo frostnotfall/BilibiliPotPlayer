@@ -1,4 +1,4 @@
-// bilibili-broadcast-list-script version: 10
+// bilibili-broadcast-list-script version: 11
 // 本文件可单独从 https://github.com/frostnotfall/BilibiliBroadcastListScript/releases 手动替换更新。
 // MIT License
 // 
@@ -634,7 +634,7 @@
   }
 
   // src/common/version.js
-  var version = "10";
+  var version = "11";
 
   // src/common/resolver-cache.js
   function createResolverCache(start, { concurrency = 4, maxQueued = 128, capacity = 256, ttl = 3e5, retryDelay = 3e4 } = {}) {
@@ -882,6 +882,8 @@
   function createPageOpening({ beforeMedia = () => {
   }, ignoreClick = () => false, resolveLink = () => null, timeout = 8e3 } = {}) {
     const originalOpen = window.open;
+    const nativePip = typeof window.chrome?.webview?.postMessage === "function" ? Object.getOwnPropertyDescriptor(window, "documentPictureInPicture") : null;
+    if (nativePip?.configurable) delete window.documentPictureInPicture;
     const events2 = new AbortController();
     const ignored = /* @__PURE__ */ new Set(), observers = /* @__PURE__ */ new Map();
     const shortLinks = createResolverCache(startShortLink);
@@ -1070,7 +1072,7 @@
     function onClick(event) {
       if (stopped || !event.isTrusted || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.defaultPrevented) return;
       clearClick();
-      if (ignoreClick(event)) return;
+      if (ignoreClick(event) || event.composedPath().some((node) => node.matches?.(".bili-watch-later,.watch-later-trigger"))) return;
       const state = { sent: /* @__PURE__ */ new Set(), pending: /* @__PURE__ */ new Set() };
       click = state;
       timer2 = setTimeout(clearClick, 0);
@@ -1206,6 +1208,9 @@
         watchedTags.clear();
         shortLinks.destroy();
         if (window.open === open) window.open = originalOpen;
+        if (nativePip?.configurable && !("documentPictureInPicture" in window)) {
+          Object.defineProperty(window, "documentPictureInPicture", nativePip);
+        }
         if (window.__potPlayerBilibiliClick === controller) delete window.__potPlayerBilibiliClick;
         syncPageState();
       }
