@@ -596,11 +596,16 @@
     }
 
     function mediaLink(path) {
-      const single = path.find(node => node.matches?.('.video-pod .pod-item[data-key] .single-p'));
-      if (single && !path.some(node => node.matches?.('button, input, [role="button"]'))) {
-        const item = single.closest('.pod-item[data-key]'), bvid = item.getAttribute('data-key');
-        // 合集条目没有 href；data-key 是官方用于定位当前视频的 BV 号。
-        if (/^BV[a-z\d]+$/i.test(bvid)) return {anchor:item, url:`https://www.bilibili.com/video/${bvid}/`};
+      const entry = path.find(node => node.matches?.('.video-pod .pod-item[data-key] .single-p, .video-pod .pod-item[data-key] .multi-p .page-list > .page-item'));
+      if (entry && !path.some(node => node.matches?.('button, input, [role="button"]'))) {
+        const item = entry.closest('.pod-item[data-key]'), bvid = item.getAttribute('data-key');
+        if (/^BV[a-z\d]+$/i.test(bvid)) {
+          const url = `https://www.bilibili.com/video/${bvid}/`;
+          if (!entry.matches('.page-item')) return {anchor:item, url};
+          // 分 P 子行没有 href 或分 P 属性，按同一列表里的分 P 行顺序取序号。
+          const parts = Array.from(entry.parentElement.children).filter(child => child.matches('.page-item'));
+          return {anchor:entry, url:`${url}?p=${parts.indexOf(entry) + 1}`};
+        }
       }
       // 封面时长/预览遮罩不在 a 内；只从封面取链接，避免接管稍后再看等按钮。
       const anchor = path.find(node => node.matches?.('a[href]'))
