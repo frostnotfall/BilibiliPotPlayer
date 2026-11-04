@@ -545,6 +545,9 @@
     if (typeof webview?.postMessage !== 'function') return { prepare() {}, close() {}, destroy() {} };
     const originalOpen = window.open;
     const clickScope = '.video-tag-container, #bgm-entry #musicApp .videoList :is(.coverWrap, .videoTitle)';
+    const collectionEntrySelector = '.video-pod .pod-item[data-key] .single-p, '
+      + '.video-pod .pod-item[data-key] .multi-p > .head > .title, '
+      + '.video-pod .pod-item[data-key] .multi-p .page-list > .page-item';
     let click = null;
     let timer = 0;
     const shortLinks = new Map();
@@ -596,12 +599,12 @@
     }
 
     function mediaLink(path) {
-      const entry = path.find(node => node.matches?.('.video-pod .pod-item[data-key] .single-p, .video-pod .pod-item[data-key] .multi-p .page-list > .page-item'));
+      const entry = path.find(node => node.matches?.(collectionEntrySelector));
       if (entry && !path.some(node => node.matches?.('button, input, [role="button"]'))) {
         const item = entry.closest('.pod-item[data-key]'), bvid = item.getAttribute('data-key');
         if (/^BV[a-z\d]+$/i.test(bvid)) {
           const url = `https://www.bilibili.com/video/${bvid}/`;
-          if (!entry.matches('.page-item')) return {anchor:item, url};
+          if (!entry.matches('.page-item')) return {anchor:entry.matches('.single-p') ? item : entry, url};
           // 分 P 子行没有 href 或分 P 属性，按同一列表里的分 P 行顺序取序号。
           const parts = Array.from(entry.parentElement.children).filter(child => child.matches('.page-item'));
           return {anchor:entry, url:`${url}?p=${parts.indexOf(entry) + 1}`};
