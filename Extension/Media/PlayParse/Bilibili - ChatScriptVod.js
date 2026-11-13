@@ -548,6 +548,7 @@
     const collectionEntrySelector = '.video-pod .pod-item[data-key] .single-p, '
       + '.video-pod .pod-item[data-key] .multi-p > .head > .title, '
       + '.video-pod .pod-item[data-key] .multi-p .page-list > .page-item';
+    const standalonePartSelector = '.video-pod .video-pod__list.multip > .video-pod__item[data-key]';
     let click = null;
     let timer = 0;
     const shortLinks = new Map();
@@ -599,8 +600,17 @@
     }
 
     function mediaLink(path) {
-      const entry = path.find(node => node.matches?.(collectionEntrySelector));
+      const entry = path.find(node => node.matches?.(collectionEntrySelector)
+        || (node.matches?.(standalonePartSelector) && pageType() === 'ugc'));
       if (entry && !path.some(node => node.matches?.('button, input, [role="button"]'))) {
+        if (entry.matches(standalonePartSelector)) {
+          // 纯分 P 选集的 data-key 是 CID，播放地址使用当前稿件和选集顺序。
+          const parts = Array.from(entry.parentElement.children).filter(child => child.matches(standalonePartSelector));
+          const url = new URL(location.href);
+          url.search = `?p=${parts.indexOf(entry) + 1}`;
+          url.hash = '';
+          return {anchor:entry, url:url.href};
+        }
         const item = entry.closest('.pod-item[data-key]'), bvid = item.getAttribute('data-key');
         if (/^BV[a-z\d]+$/i.test(bvid)) {
           const url = `https://www.bilibili.com/video/${bvid}/`;
