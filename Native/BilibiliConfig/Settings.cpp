@@ -1,5 +1,6 @@
 #include "Settings.h"
 #include <algorithm>
+#include <climits>
 #include <cmath>
 #include <cstdlib>
 #include <set>
@@ -56,6 +57,7 @@ const std::vector<Setting>& settings() {
         {"videoNums.liveRecommendPage",PlaylistPage,L"播放列表生成数量",L"直播首页推荐页数",L"每页约 15 个直播间。",Widget::Integer,"1",1,500},
         {"videoNums.historyVideoNums",PlaylistPage,L"播放列表生成数量",L"历史记录",L"最终数量可能略多。",Widget::Integer,"30",1,10000},
         {"videoNums.popularAllPages",PlaylistPage,L"播放列表生成数量",L"综合热门页数",L"每页约 50 个视频。",Widget::Integer,"1",1,500},
+        {"videoNums.searchPages",PlaylistPage,L"播放列表生成数量",L"搜索结果页数",L"从第 1 页开始获取视频，实际数量取决于搜索结果。",Widget::Integer,"1",1,INT_MAX},
         {"videoNums.spaceDynamicVideoNums",PlaylistPage,L"播放列表生成数量",L"个人空间动态",L"最终数量可能略多。",Widget::Integer,"30",1,10000},
         {"videoNums.maxliveroom",PlaylistPage,L"播放列表生成数量",L"直播分区最大房间数",L"接口每页返回约 20 个直播间。",Widget::Integer,"40",1,10000},
 

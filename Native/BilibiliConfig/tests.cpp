@@ -29,7 +29,7 @@ int wmain(int argc,wchar_t** argv){
         require(added.find(f.path)!=nullptr,"insert nested setting");
     }
     leafCoverage(shipped.root(),"",paths);
-    require(settings().size()==55,"all 55 active settings covered");
+    require(settings().size()==56,"all 56 active settings covered");
     require(paths.count("bili_jct")==0,"legacy CSRF setting removed");
     require(field("danmaku.font").widget==Widget::Font&&field("danmaku.fontSize").widget==Widget::FontSize,"font and size selection widgets");
     require(field("danmaku.blockRules").page==field("subtitle.enable").page,"subtitle and filters share page");

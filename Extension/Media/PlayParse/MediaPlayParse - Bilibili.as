@@ -95,7 +95,7 @@ string GetTitle() {
 }
 
 string GetVersion() {
-	return "3.7.47";
+	return "3.7.48";
 }
 
 string GetDesc() {
@@ -319,6 +319,7 @@ class Config {
 	int liveRecommendPage = 1;
 	int historyVideoNums = 30;
 	int popularAllPages = 1;
+	int searchPages = 1;
 	int spaceDynamicVideoNums = 30;
 	int maxliveroom = 40;
 
@@ -501,6 +502,9 @@ Config ReadConfigFile(string file) {
 		}
 		if (videoNums["popularAllPages"].isNumeric()) {
 			config.popularAllPages = videoNums["popularAllPages"].asInt();
+		}
+		if (videoNums["searchPages"].isInt() && videoNums["searchPages"].asInt() > 0) {
+			config.searchPages = videoNums["searchPages"].asInt();
 		}
 		if (videoNums["spaceDynamicVideoNums"].isNumeric()) {
 			config.spaceDynamicVideoNums = videoNums["spaceDynamicVideoNums"].asInt();
@@ -4894,8 +4898,6 @@ array<dictionary> webDynamic(string path) {
 array<dictionary> Search(string path) {
 	log("================================Search===========================");
 	array<dictionary> videos;
-	JsonReader Reader;
-	JsonValue Root;
 	string kw;
 
 	path = HostUrlDecode(path);
@@ -4912,33 +4914,39 @@ array<dictionary> Search(string path) {
 	kw = HostUrlEncode(kw);
 
 	string type = HostRegExpParse(path, "search.bilibili.com/([a-zA-Z0-9]+)");
-	string url;
+	string baseurl;
+	string params = "keyword=" + kw;
 	if (type == "all") {
-		string params = "keyword=" + kw;
-		url = "/x/web-interface/wbi/search/all/v2?" + encWbi(params);
+		baseurl = "/x/web-interface/wbi/search/all/v2?";
 	} else if (type == "video") {
-		string params = "search_type=video&keyword=" + kw;
-		url = "/x/web-interface/wbi/search/type?" + encWbi(params);
+		baseurl = "/x/web-interface/wbi/search/type?";
+		params += "&search_type=video";
 	} else {
 		return videos;
 	}
-	string res = apiPost(url);
-	if (Reader.parse(res, Root) && Root.isObject()) {
-		if (Root["code"].asInt() != 0) {
-			return videos;
+	for (int pageIndex = 0; pageIndex < ConfigData.searchPages; pageIndex++) {
+		int page = pageIndex + 1;
+		string res = apiPost(baseurl + encWbi(params + "&page=" + page));
+		JsonReader Reader;
+		JsonValue Root;
+		if (!Reader.parse(res, Root) || !Root.isObject() || Root["code"].asInt() != 0) {
+			break;
 		}
+		JsonValue data = Root["data"];
+		JsonValue result = data["result"];
 		JsonValue list;
 		if (type == "all") {
-			for (int i = 0; i < Root["data"]["result"].size(); i++) {
-				if (Root["data"]["result"][i]["result_type"].asString() == "video") {
-					list = Root["data"]["result"][i]["data"];
+			for (int i = 0; i < result.size(); i++) {
+				if (result[i]["result_type"].asString() == "video") {
+					list = result[i]["data"];
 					break;
 				}
 			}
-		} else if (type == "video") {
-			list = Root["data"]["result"];
 		} else {
-			return videos;
+			list = result;
+		}
+		if (!list.isArray() || list.size() == 0) {
+			break;
 		}
 		for (int i = 0; i < list.size(); i++) {
 			JsonValue item = list[i];
@@ -4956,6 +4964,9 @@ array<dictionary> Search(string path) {
 			video["date"] = UnixTimeToDateTime(item["pubdate"].asInt64());
 
 			videos.insertLast(video);
+		}
+		if (data["numPages"].isInt() && page >= data["numPages"].asInt()) {
+			break;
 		}
 	}
 	return videos;
