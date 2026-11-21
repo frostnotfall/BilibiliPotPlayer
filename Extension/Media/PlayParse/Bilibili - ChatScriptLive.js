@@ -1,4 +1,4 @@
-// 版本：1.1.30
+// 版本：1.1.31
 
 (() => {
   'use strict';
@@ -794,10 +794,11 @@
         inset: var(--blc-popup-top) auto auto var(--blc-popup-left) !important;
         width: var(--blc-popup-width) !important; color: inherit;
       }
-      /* 左侧菜单以工具栏上边缘为底边；内容加载后高度变化仍沿用原生向上展开。 */
+      /* 左侧菜单向上展开；同次打开只增高，避免切换短内容后标签栏下移、触发鼠标移出。 */
       & #chat-control-panel-vm ${toolbarPopups}[data-blc-top-popup] {
         top: auto !important; bottom: calc(100dvh - var(--blc-popup-bottom-edge)) !important;
         height: auto;
+        min-height: min(var(--blc-popup-min-height, 0px), calc(100dvh - 16px)) !important;
       }
       & #chat-control-panel-vm .like-btn[data-blc-top-popup] { border: 0; padding: 0; background-color: transparent; }
       & [data-blc-top-popup]::backdrop { background: transparent; pointer-events: none; }
@@ -1130,9 +1131,18 @@
   // 只修正越界距离，保留原生 transform（定位、过渡、动画）。
   const shifted = new Map();
   const raised = new Map();
+  const popupSizes = new ResizeObserver(() => schedule(POPUPS));
   // 左右两侧操作菜单共用顶层处理；保持原生 transform、transform-origin 与动画类。
   const topPopups = `${pkRankFrame},#chat-control-panel-vm :is(${toolbarPopups},.common-popup-wrap.emoticons,.common-popup-wrap.superChat,.like-btn .common-popup-wrap,.like-btn.not-clicked:hover)`;
+  function retainPopupHeight(el, saved) {
+    if (!saved.toolbar) return;
+    // 使用未受缩放动画影响的布局高度；CSS 同时限制最小高度不超出视口。
+    saved.minHeight = Math.max(saved.minHeight, parseFloat(getComputedStyle(el).height) || 0);
+    const height = `${saved.minHeight}px`;
+    if (el.style.getPropertyValue('--blc-popup-min-height') !== height) el.style.setProperty('--blc-popup-min-height', height);
+  }
   function lowerPopup(el, saved) {
+    popupSizes.unobserve(el);
     try { el.hidePopover(); } catch {}
     el.removeAttribute('popover'); el.removeAttribute('data-blc-top-popup');
     saved.styles.forEach(([name, value, priority]) => {
@@ -1164,19 +1174,23 @@
         }
         saved = {
           anchorEl: placeholder || el.parentElement, placeholder,
+          toolbar: el.matches(toolbarPopups),
+          minHeight: parseFloat(css.height) || 0,
           width: css.width,
           left: Number.isFinite(left) ? left : rect.left - pixels(translate[0], rect.width),
           top: Number.isFinite(top) ? top : rect.top - pixels(translate[1], rect.height),
           bottomEdge: el.matches(toolbarPopups) && origin
             ? origin.top + parent.clientTop + parent.clientHeight - parent.scrollTop - parseFloat(css.bottom) - parseFloat(css.marginBottom) : NaN,
-          styles: ['--blc-popup-left', '--blc-popup-top', '--blc-popup-width', '--blc-popup-bottom-edge'].map(name =>
+          styles: ['--blc-popup-left', '--blc-popup-top', '--blc-popup-width', '--blc-popup-bottom-edge', '--blc-popup-min-height'].map(name =>
             [name, el.style.getPropertyValue(name), el.style.getPropertyPriority(name)]),
         };
         el.style.setProperty('--blc-popup-width', css.width);
         raised.set(el, saved);
         el.setAttribute('data-blc-top-popup', ''); el.setAttribute('popover', 'manual');
+        if (saved.toolbar) popupSizes.observe(el, {box: 'border-box'});
         saved.anchor = saved.anchorEl.getBoundingClientRect();
       }
+      retainPopupHeight(el, saved);
       const anchor = saved.anchorEl.getBoundingClientRect();
       saved.left += anchor.left - saved.anchor.left; saved.top += anchor.bottom - saved.anchor.bottom;
       saved.bottomEdge += anchor.bottom - saved.anchor.bottom;
